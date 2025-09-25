@@ -28,13 +28,13 @@ TEXT_NAME="app.text"
 # Adjust for server modes
 case "$TYPE" in
   server)
-    FEATURES="$FEATURES,proof_running_system/wrap-in-batch"
+    FEATURES="$FEATURES"
     BIN_NAME="server_app.bin"
     ELF_NAME="server_app.elf"
     TEXT_NAME="server_app.text"
     ;;
   server-logging-enabled)
-    FEATURES="$FEATURES,proof_running_system/wrap-in-batch,print_debug_info"
+    FEATURES="$FEATURES,print_debug_info"
     BIN_NAME="server_app_logging_enabled.bin"
     ELF_NAME="server_app_logging_enabled.elf"
     TEXT_NAME="server_app_logging_enabled.text"
