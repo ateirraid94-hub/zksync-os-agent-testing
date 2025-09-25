@@ -1,29 +1,27 @@
 #!/bin/sh
 set -e
 
-# Default mode
-TYPE="default"
+USAGE="Usage: $0 --type {server|server-logging-enabled|debug-in-simulator|evm-replay|evm-replay-benchmarking|pectra|multiblock-batch|multiblock-batch-logging-enabled|evm-tester|for-tests}"
+TYPE=""
 
 # Parse --type argument
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --type)
+      [ "$#" -ge 2 ] || { echo "Missing value for --type"; echo "$USAGE"; exit 2; }
       TYPE="$2"
       shift 2
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--type default|for-tests|server|server-logging-enabled|evm-replay|evm-replay-benchmarking|debug-in-simulator|pectra|multiblock-batch|multiblock-batch-logging-enabled|evm-tester]"
-      exit 1
+      echo "$USAGE"
+      exit 2
       ;;
   esac
 done
 
 # Base features and output names
 FEATURES="proving"
-BIN_NAME="app.bin"
-ELF_NAME="app.elf"
-TEXT_NAME="app.text"
 
 # Adjust for server modes
 case "$TYPE" in
@@ -58,7 +56,7 @@ case "$TYPE" in
     TEXT_NAME="evm_replay.text"
     ;;
   pectra)
-    FEATURES="$FEATURES,proof_running_system/pectra,proof_running_system/state-diffs-pi"
+    FEATURES="$FEATURES,pectra,state-diffs-pi"
     BIN_NAME="pectra.bin"
     ELF_NAME="pectra.elf"
     TEXT_NAME="pectra.text"
@@ -87,12 +85,9 @@ case "$TYPE" in
     ELF_NAME="for_tests.elf"
     TEXT_NAME="for_tests.text"
     ;;
-  default)
-    # leave defaults
-    ;;
   *)
     echo "Invalid --type: $TYPE"
-    echo "Valid types are: default, server, server-logging-enabled, evm-replay, for-tests, evm-replay-benchmarking, debug-in-simulator, multiblock-batch"
+    echo "$USAGE"
     exit 1
     ;;
 esac
