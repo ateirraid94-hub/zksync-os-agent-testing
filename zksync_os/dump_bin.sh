@@ -37,53 +37,53 @@ case "$TYPE" in
     ELF_NAME="server_app_logging_enabled.elf"
     TEXT_NAME="server_app_logging_enabled.text"
     ;;
+  for-tests)
+    FEATURES="$FEATURES,for_tests"
+    BIN_NAME="for_tests.bin"
+    ELF_NAME="for_tests.elf"
+    TEXT_NAME="for_tests.text"
+    ;;
   debug-in-simulator)
-    FEATURES="$FEATURES,print_debug_info,proof_running_system/cycle_marker,proof_running_system/p256_precompile,proof_running_system/state-diffs-pi"
+    FEATURES="$FEATURES,print_debug_info,for_tests"
     BIN_NAME="app_debug.bin"
     ELF_NAME="app_debug.elf"
     TEXT_NAME="app_debug.text"
     ;;
   evm-replay)
-    FEATURES="$FEATURES,proof_running_system/disable_system_contracts,proof_running_system/prevrandao,proof_running_system/evm_refunds,proof_running_system/state-diffs-pi"
+    FEATURES="$FEATURES,eth_runner"
     BIN_NAME="evm_replay.bin"
     ELF_NAME="evm_replay.elf"
     TEXT_NAME="evm_replay.text"
     ;;
   evm-replay-benchmarking)
-    FEATURES="$FEATURES,proof_running_system/unlimited_native,proof_running_system/disable_system_contracts,proof_running_system/cycle_marker,proof_running_system/prevrandao,proof_running_system/evm_refunds,proof_running_system/state-diffs-pi"
+    FEATURES="$FEATURES,eth_runner,benchmarking"
     BIN_NAME="evm_replay.bin"
     ELF_NAME="evm_replay.elf"
     TEXT_NAME="evm_replay.text"
     ;;
   pectra)
-    FEATURES="$FEATURES,pectra,state-diffs-pi"
+    FEATURES="$FEATURES,pectra"
     BIN_NAME="pectra.bin"
     ELF_NAME="pectra.elf"
     TEXT_NAME="pectra.text"
     ;;
   multiblock-batch)
-    FEATURES="$FEATURES,proof_running_system/multiblock-batch"
+    FEATURES="$FEATURES,multiblock-batch"
     BIN_NAME="multiblock_batch.bin"
     ELF_NAME="multiblock_batch.elf"
     TEXT_NAME="multiblock_batch.text"
     ;;
   multiblock-batch-logging-enabled)
-    FEATURES="$FEATURES,proof_running_system/multiblock-batch,print_debug_info"
+    FEATURES="$FEATURES,multiblock-batch,print_debug_info"
     BIN_NAME="multiblock_batch_logging_enabled.bin"
     ELF_NAME="multiblock_batch_logging_enabled.elf"
     TEXT_NAME="multiblock_batch_logging_enabled.text"
     ;;
   evm-tester)
-    FEATURES="$FEATURES,proof_running_system/state-diffs-pi,proof_running_system/resources_for_tester,proof_running_system/prevrandao,proof_running_system/pectra,proof_running_system/p256_precompile",
+    FEATURES="$FEATURES,evm_tester"
     BIN_NAME="evm_tester.bin"
     ELF_NAME="evm_tester.elf"
     TEXT_NAME="evm_tester.text"
-    ;;
-  for-tests)
-    FEATURES="$FEATURES,proof_running_system/state-diffs-pi,proof_running_system/p256_precompile,proof_running_system/cycle_marker",proof_running_system/point_eval_precompile,
-    BIN_NAME="for_tests.bin"
-    ELF_NAME="for_tests.elf"
-    TEXT_NAME="for_tests.text"
     ;;
   *)
     echo "Invalid --type: $TYPE"
