@@ -43,6 +43,7 @@ use zk_ee::{
     types_config::{EthereumIOTypesConfig, SystemIOTypesConfig},
     utils::Bytes32,
 };
+use zk_ee::utils::write_bytes::WriteBytes;
 
 pub fn address_into_special_storage_key(address: &B160) -> Bytes32 {
     let mut key = Bytes32::zero();
@@ -123,7 +124,7 @@ impl<
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut impl WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError> {
@@ -131,7 +132,7 @@ impl<
         let _ = self.finish_internal(
             oracle,
             state_commitment,
-            pubdata_hasher,
+            pubdata_dst,
             result_keeper,
             logger,
         )?;
@@ -147,7 +148,7 @@ impl<
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut impl WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<Bytes32, InternalError> {
@@ -155,7 +156,7 @@ impl<
         let storage_cache = self.finish_internal(
             oracle,
             state_commitment,
-            pubdata_hasher,
+            pubdata_dst,
             result_keeper,
             logger,
         )?;
@@ -531,7 +532,7 @@ impl<
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut <Self as StorageModel>::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut impl WriteBytes,
         result_keeper: &mut impl IOResultKeeper<<Self as StorageModel>::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>, InternalError> {
@@ -562,7 +563,7 @@ impl<
         // 2. Commit to/return compressed pubdata
         let encdoded_state_diffs_count =
             (storage_cache.net_diffs_iter().count() as u32).to_be_bytes();
-        pubdata_hasher.update(&encdoded_state_diffs_count);
+        pubdata_dst.write(&encdoded_state_diffs_count);
         result_keeper.pubdata(&encdoded_state_diffs_count);
 
         let mut hasher = crypto::blake2s::Blake2s256::new();
@@ -577,7 +578,7 @@ impl<
                 // TODO(EVM-1074): use tree index instead of key for repeated writes
                 let derived_key =
                     derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
-                pubdata_hasher.update(derived_key.as_u8_ref());
+                pubdata_dst.write(derived_key.as_u8_ref());
                 result_keeper.pubdata(derived_key.as_u8_ref());
 
                 // we publish preimages for account details
@@ -591,7 +592,7 @@ impl<
                         l.value(),
                         r.value(),
                         r.metadata().not_publish_bytecode,
-                        pubdata_hasher,
+                        pubdata_dst,
                         result_keeper,
                         &mut preimages_cache,
                         oracle,
@@ -601,7 +602,7 @@ impl<
                     ValueDiffCompressionStrategy::optimal_compression(
                         l.value(),
                         r.value(),
-                        pubdata_hasher,
+                        pubdata_dst,
                         result_keeper,
                     );
                 }

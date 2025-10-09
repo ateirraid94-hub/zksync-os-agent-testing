@@ -12,6 +12,7 @@ use zk_ee::{
     },
     types_config::SystemIOTypesConfig,
 };
+use zk_ee::utils::write_bytes::WriteBytes;
 
 ///
 /// Storage model trait needed to allow using different storage models in the system.
@@ -230,7 +231,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
     ///
     /// Finish work, there are 3 outputs:
     /// - state changes: uncompressed state diffs(including new preimages), writes to `results_keeper`
-    /// - pubdata - compressed state diffs(including preimages) that should be posted on the DA layer, writes to `results_keeper` and `pubdata_hasher`.
+    /// - pubdata - compressed state diffs(including preimages) that should be posted on the DA layer, writes to `results_keeper` and `pubdata_dst`.
     /// - new state commitment: if `state_commitment` is `Some` - verifies all the reads, applies writes and updates state commitment
     ///
     // Currently, result_keeper accepts storage diffs and preimages.
@@ -239,7 +240,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
         self,
         oracle: &mut impl IOOracle, // oracle is needed here to prove tree
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_hasher: &mut impl crypto::MiniDigest,
+        pubdata_dst: &mut impl WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError>;
