@@ -1,3 +1,5 @@
+use crate::common_structs::skip_list_quasi_vec::ListVec;
+use crate::memory::stack_trait::StackFactory;
 use crate::utils::Bytes32;
 use crate::{internal_error, system::errors::internal::InternalError};
 use alloc::alloc::Global;
@@ -40,10 +42,20 @@ impl PreimagesPublicationStorageValue {
     }
 }
 
+pub struct LVStackFactory {}
+
+impl StackFactory<32> for LVStackFactory {
+    type Stack<T: Sized, const N: usize, A: Allocator + Clone> = ListVec<T, N, A>;
+
+    fn new_in<T, A: Allocator + Clone>(alloc: A) -> Self::Stack<T, 32, A> {
+        Self::Stack::<T, 32, A>::new_in(alloc)
+    }
+}
+
 // we want to store new preimages for DA
 
 pub struct NewPreimagesPublicationStorage<A: Allocator + Clone = Global> {
-    cache: HistoryMap<Bytes32, CacheRecord<Elem, ()>, VecStackFactory, 32, A>,
+    cache: HistoryMap<Bytes32, CacheRecord<Elem, ()>, LVStackFactory, 32, A>,
 }
 
 impl<A: Allocator + Clone> NewPreimagesPublicationStorage<A> {
