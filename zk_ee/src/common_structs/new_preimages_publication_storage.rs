@@ -7,6 +7,7 @@ use super::{
     cache_record::{Appearance, CacheRecord},
     history_map::{CacheSnapshotId, HistoryMap, HistoryMapItemRef},
 };
+use crate::memory::stack_implementations::vec_stack::VecStackFactory;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -42,7 +43,7 @@ impl PreimagesPublicationStorageValue {
 // we want to store new preimages for DA
 
 pub struct NewPreimagesPublicationStorage<A: Allocator + Clone = Global> {
-    cache: HistoryMap<Bytes32, CacheRecord<Elem, ()>, A>,
+    cache: HistoryMap<Bytes32, CacheRecord<Elem, ()>, VecStackFactory, 0, A>,
 }
 
 impl<A: Allocator + Clone> NewPreimagesPublicationStorage<A> {
