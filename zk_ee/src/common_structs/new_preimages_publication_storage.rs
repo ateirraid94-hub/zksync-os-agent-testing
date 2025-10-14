@@ -43,7 +43,7 @@ impl PreimagesPublicationStorageValue {
 // we want to store new preimages for DA
 
 pub struct NewPreimagesPublicationStorage<A: Allocator + Clone = Global> {
-    cache: HistoryMap<Bytes32, CacheRecord<Elem, ()>, VecStackFactory, 0, A>,
+    cache: HistoryMap<Bytes32, CacheRecord<Elem, ()>, VecStackFactory, 32, A>,
 }
 
 impl<A: Allocator + Clone> NewPreimagesPublicationStorage<A> {
