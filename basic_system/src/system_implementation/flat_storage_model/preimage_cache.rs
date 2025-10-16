@@ -68,6 +68,19 @@ impl<R: Resources, A: Allocator + Clone> BytecodeAndAccountDataPreimagesStorage<
         Ok(())
     }
 
+    /// Check if the preimage for the given hash is already cached.
+    /// Note that we check that the hash is preset in both the storage
+    /// and the publication storage, to avoid returning preimages
+    /// that were evicted from the publication storage in a rollback.
+    /// This ensures we always charge for hashing even after a rollback
+    /// of an invalid transaction.
+    fn check_caches_for_hash(&mut self, hash: &Bytes32) -> Option<&UsizeAlignedByteBox<A>> {
+        if !self.publication_storage.contains(hash) {
+            return None;
+        }
+        self.storage.get(hash)
+    }
+
     #[must_use]
     fn expose_preimage<const PROOF_ENV: bool>(
         &mut self,
@@ -88,7 +101,7 @@ impl<R: Resources, A: Allocator + Clone> BytecodeAndAccountDataPreimagesStorage<
         resources.charge(&R::from_native(R::Native::from_computational(
             PREIMAGE_CACHE_GET_NATIVE_COST,
         )))?;
-        if let Some(cached) = self.storage.get(hash) {
+        if let Some(cached) = self.check_caches_for_hash(hash) {
             unsafe {
                 let cached: &'static [u8] = core::mem::transmute(cached.as_slice());
 

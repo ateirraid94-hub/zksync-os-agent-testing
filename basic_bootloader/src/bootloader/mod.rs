@@ -207,8 +207,8 @@ where
                             let _ = system.get_logger().write_fmt(format_args!(
                                 "Tx execution result: Validation error = {err:?}\n",
                             ));
-                            // Finish the frame opened before processing the tx
-                            system.finish_global_frame(None)?;
+                            // Revert to state before transaction
+                            system.finish_global_frame(Some(&pre_tx_rollback_handle))?;
                             result_keeper.tx_processed(Err(err));
                         }
                         Ok(tx_processing_result) => {
@@ -286,39 +286,39 @@ where
                                 if tx_processing_result.is_upgrade_tx {
                                     upgrade_tx_hash = tx_processing_result.tx_hash;
                                 }
+
+                                // The fee is transferred to the coinbase address before
+                                // finishing the transaction.
+                                let coinbase = system.get_coinbase();
+                                let mut inf_resources = S::Resources::FORMAL_INFINITE;
+                                let bootloader_balance = system
+                                    .io
+                                    .read_account_properties(
+                                        ExecutionEnvironmentType::NoEE,
+                                        &mut inf_resources,
+                                        &BOOTLOADER_FORMAL_ADDRESS,
+                                        AccountDataRequest::empty().with_nominal_token_balance(),
+                                    )
+                                    .expect("must read bootloader balance")
+                                    .nominal_token_balance
+                                    .0;
+                                if !bootloader_balance.is_zero() {
+                                    system
+                                        .io
+                                        .transfer_nominal_token_value(
+                                            ExecutionEnvironmentType::NoEE,
+                                            &mut inf_resources,
+                                            &BOOTLOADER_FORMAL_ADDRESS,
+                                            &coinbase,
+                                            &bootloader_balance,
+                                        )
+                                        .expect("must be able to move funds to coinbase");
+                                }
+
+                                system.flush_tx()?;
                             }
                         }
                     }
-
-                    // The fee is transferred to the coinbase address before
-                    // finishing the transaction.
-                    let coinbase = system.get_coinbase();
-                    let mut inf_resources = S::Resources::FORMAL_INFINITE;
-                    let bootloader_balance = system
-                        .io
-                        .read_account_properties(
-                            ExecutionEnvironmentType::NoEE,
-                            &mut inf_resources,
-                            &BOOTLOADER_FORMAL_ADDRESS,
-                            AccountDataRequest::empty().with_nominal_token_balance(),
-                        )
-                        .expect("must read bootloader balance")
-                        .nominal_token_balance
-                        .0;
-                    if !bootloader_balance.is_zero() {
-                        system
-                            .io
-                            .transfer_nominal_token_value(
-                                ExecutionEnvironmentType::NoEE,
-                                &mut inf_resources,
-                                &BOOTLOADER_FORMAL_ADDRESS,
-                                &coinbase,
-                                &bootloader_balance,
-                            )
-                            .expect("must be able to move funds to coinbase");
-                    }
-
-                    system.flush_tx()?;
 
                     let mut logger = system.get_logger();
                     let _ = logger.write_fmt(format_args!("TX execution ends\n"));

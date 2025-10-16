@@ -147,12 +147,15 @@ where
                         break;
                     }
 
-                    let item = self
-                        .btree
-                        .get_mut(&key)
-                        .expect("We've updated this, so it must be present.");
-
-                    item.rollback(&mut self.records_memory_pool, snapshot_id);
+                    // This can be none if the item was uninitialized in a previous iteration of this loop
+                    if let Some(item) = self.btree.get_mut(&key) {
+                        let uninitialized =
+                            item.rollback(&mut self.records_memory_pool, snapshot_id);
+                        if uninitialized {
+                            // The item was created after the snapshot we're rolling back to, so we should remove it
+                            self.btree.remove(&key);
+                        }
+                    }
 
                     node = self.state.pending_updated_elements.pop();
                 }

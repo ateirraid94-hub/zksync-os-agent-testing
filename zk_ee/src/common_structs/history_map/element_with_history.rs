@@ -57,15 +57,16 @@ impl<V, A: Allocator + Clone> ElementWithHistory<V, A> {
 
     /// Rollback element's state to snapshot_id
     /// Removed history records stored in records_memory_pool to reuse later
+    /// Returns if the element is uninitialized (head is initial element)
     pub fn rollback(
         &mut self,
         records_memory_pool: &mut ElementPool<V, A>,
         snapshot_id: CacheSnapshotId,
-    ) {
+    ) -> bool {
         // Caller should guarantee that snapshot_id is correct
 
         if unsafe { self.head.as_ref() }.touch_ss_id <= snapshot_id {
-            return;
+            return false;
         }
 
         let mut first_removed_record = self.head;
@@ -102,8 +103,11 @@ impl<V, A: Allocator + Clone> ElementWithHistory<V, A> {
 
         self.head = new_head;
 
+        let uninitialized = unsafe { self.head.as_ref().previous.is_none() };
+
         // Return subchain to the pool to be reused later
         records_memory_pool.reuse_memory(last_removed_record, first_removed_record);
+        uninitialized
     }
 
     /// Returns (initial_value, current_value) if any
