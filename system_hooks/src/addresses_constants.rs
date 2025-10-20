@@ -11,7 +11,10 @@ pub const ECMUL_HOOK_ADDRESS_LOW: u16 = 0x0007;
 pub const ECPAIRING_HOOK_ADDRESS_LOW: u16 = 0x0008;
 #[cfg(feature = "mock-unsupported-precompiles")]
 pub const BLAKE2F_HOOK_ADDRESS_LOW: u16 = 0x0009;
-#[cfg(feature = "point_eval_precompile")]
+#[cfg(any(
+    feature = "point_eval_precompile",
+    feature = "mock-unsupported-precompiles"
+))]
 pub const POINT_EVAL_HOOK_ADDRESS_LOW: u16 = 0x000a;
 #[cfg(feature = "p256_precompile")]
 pub const P256_VERIFY_PREHASH_HOOK_ADDRESS_LOW: u16 = 0x0100;

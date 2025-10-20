@@ -28,9 +28,9 @@ pub(crate) mod mock_precompiles {
     }
 
     #[cfg(not(feature = "point_eval_precompile"))]
-    pub struct PointEval;
+    pub struct PointEvaluation;
     #[cfg(not(feature = "point_eval_precompile"))]
-    impl<R: Resources> SystemFunction<R, MissingSystemFunctionErrors> for PointEval {
+    impl<R: Resources> SystemFunction<R, MissingSystemFunctionErrors> for PointEvaluation {
         fn execute<D: TryExtend<u8> + ?Sized, A: core::alloc::Allocator + Clone>(
             input: &[u8],
             _output: &mut D,
