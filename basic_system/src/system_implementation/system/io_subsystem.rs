@@ -613,11 +613,11 @@ impl<
         #[cfg(all(feature = "wrap-in-batch", feature = "state-diffs-pi"))]
         panic!("Invalid features combination"); // Can't have both features enabled at the same time
 
-        let (mut state_commitment, last_block_timestamp) = {
+        let (mut state_commitment, last_block_timestamp, da_commitment) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
                 ZKProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
-            (proof_data.state_root_view, proof_data.last_block_timestamp)
+            (proof_data.state_root_view, proof_data.last_block_timestamp, proof_data.da_commitment_scheme)
         };
 
         let mut blocks_hasher = Blake2s256::new();
@@ -639,7 +639,14 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut da_commitment_generator = Keccak256CommitmentGenerator::new();
+        let mut da_commitment_generator: alloc::boxed::Box<dyn DACommitmentGenerator, A> = match da_commitment {
+            DACommitmentScheme::Keccak256 => {
+                alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), A::default())
+            }
+            DACommitmentScheme::Blobs => {
+                alloc::boxed::Box::new_in(BlobCommitmentGenerator::new(), A::default())
+            }
+        };
         da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
@@ -647,7 +654,7 @@ impl<
                 .finish_and_calculate_state_diffs_hash(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut da_commitment_generator,
+                    da_commitment_generator.as_mut(),
                     result_keeper,
                     &mut logger,
                 )
@@ -657,7 +664,7 @@ impl<
                 .finish(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut da_commitment_generator,
+                    da_commitment_generator.as_mut(),
                     result_keeper,
                     &mut logger,
                 )
@@ -666,7 +673,7 @@ impl<
         };
 
         self.logs_storage
-            .apply_pubdata(&mut da_commitment_generator, result_keeper);
+            .apply_pubdata(da_commitment_generator.as_mut(), result_keeper);
         result_keeper.logs(self.logs_storage.messages_ref_iter());
         result_keeper.events(self.events_storage.events_ref_iter());
         let mut full_root_hasher = crypto::sha3::Keccak256::new();
