@@ -39,7 +39,6 @@ default = ["testing"]
 error_origins = ["zk_ee/error_origins"]
 no_print = []
 unlimited_native = ["basic_bootloader/unlimited_native"]
-evm_refunds = ["zk_ee/evm_refunds", "basic_system/evm_refunds", "basic_bootloader/evm_refunds", "evm_interpreter/evm_refunds"]
 
 # A feature for every specific use case
 
@@ -47,10 +46,10 @@ evm_refunds = ["zk_ee/evm_refunds", "basic_system/evm_refunds", "basic_bootloade
 for_tests = ["system_hooks/p256_precompile", "system_hooks/point_eval_precompile"]
 
 # Features used for eth_runner
-eth_runner = ["basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "evm_refunds"]
+eth_runner = ["basic_bootloader/disable_system_contracts", "zk_ee/prevrandao"]
 
 # Features used for evm_tester
-evm_tester = ["basic_bootloader/evm-compatibility", "basic_system/evm-compatibility", "basic_bootloader/resources_for_tester", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "evm_refunds","basic_bootloader/pectra", "system_hooks/p256_precompile"]
+evm_tester = ["basic_bootloader/evm-compatibility", "basic_system/evm-compatibility", "basic_bootloader/resources_for_tester", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao","basic_bootloader/pectra", "system_hooks/p256_precompile"]
 
 # Features used for pectra tests
 pectra = ["basic_bootloader/pectra"]
