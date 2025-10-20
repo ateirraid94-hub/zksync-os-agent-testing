@@ -21,6 +21,6 @@ paste = "1.0.15"
 
 [features]
 point_eval_precompile = []
-mock_blake2f_precompile = []
+mock-unsupported-precompiles = []
 p256_precompile = []
 cycle_marker = ["cycle_marker/log_to_file"]
