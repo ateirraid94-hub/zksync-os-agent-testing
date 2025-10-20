@@ -17,7 +17,7 @@ use evm_interpreter::gas_constants::TSTORE;
 use storage_models::common_structs::generic_transient_storage::GenericTransientStorage;
 use storage_models::common_structs::snapshottable_io::SnapshottableIo;
 use storage_models::common_structs::StorageModel;
-use zk_ee::common_structs::ProofData;
+use zk_ee::common_structs::{DACommitmentScheme, ProofData};
 use zk_ee::common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE;
 use zk_ee::interface_error;
 use zk_ee::oracle::basic_queries::ZKProofDataQuery;
@@ -34,6 +34,10 @@ use zk_ee::{
     types_config::{EthereumIOTypesConfig, SystemIOTypesConfig},
     utils::UsizeAlignedByteBox,
 };
+use zk_ee::utils::write_bytes::WriteBytes;
+use crate::system_implementation::system::pubdata_destination::{Blake2sCommitmentGenerator, DACommitmentGenerator, NopCommitmentGenerator};
+use crate::system_implementation::system::pubdata_destination::blob_commitment_generator::BlobCommitmentGenerator;
+use crate::system_implementation::system::pubdata_destination::keccak256_commitment_generator::Keccak256CommitmentGenerator;
 
 pub struct FullIO<
     A: Allocator + Clone + Default,
@@ -209,7 +213,7 @@ impl<
 
         // TODO(EVM-1078): for Era backward compatibility we may need to add events for l2 to l1 log and l1 message
 
-        let mut data_hash = ArrayBuilder::default();
+        let mut data_hash = ArrayBuilder::<32>::default();
         Keccak256Impl::execute(&data, &mut data_hash, resources, self.allocator.clone())
             .map_err(SystemError::from)?;
         let data_hash = Bytes32::from_array(data_hash.build());
@@ -461,7 +465,7 @@ impl<
                 // no storage commitment
                 None,
                 // we don't need to append pubdata to the hash
-                &mut NopHasher,
+                &mut NopCommitmentGenerator,
                 result_keeper,
                 &mut logger,
             )
@@ -523,15 +527,15 @@ impl<
         };
 
         // finishing IO, applying changes
-        let mut pubdata_hasher = Blake2s256::new();
-        pubdata_hasher.update(current_block_hash.as_u8_ref());
+        let mut da_commitment_generator = Blake2sCommitmentGenerator::new();
+        da_commitment_generator.write(current_block_hash.as_u8_ref());
         let mut l2_to_l1_logs_hasher = Blake2s256::new();
 
         self.storage
             .finish(
                 &mut self.oracle,
                 Some(&mut state_commitment),
-                &mut pubdata_hasher,
+                &mut da_commitment_generator,
                 result_keeper,
                 &mut logger,
             )
@@ -539,10 +543,9 @@ impl<
         self.logs_storage
             .apply_l2_to_l1_logs_hashes_to_hasher(&mut l2_to_l1_logs_hasher);
         self.logs_storage
-            .apply_pubdata(&mut pubdata_hasher, result_keeper);
+            .apply_pubdata(&mut da_commitment_generator, result_keeper);
         result_keeper.logs(self.logs_storage.messages_ref_iter());
         result_keeper.events(self.events_storage.events_ref_iter());
-        let pubdata_hash = pubdata_hasher.finalize();
         let l2_to_l1_logs_hashes_hash = l2_to_l1_logs_hasher.finalize();
 
         blocks_hasher = Blake2s256::new();
@@ -568,7 +571,7 @@ impl<
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
-            pubdata_hash: pubdata_hash.into(),
+            pubdata_hash: da_commitment_generator.da_commitment(),
             priority_ops_hashes_hash: l1_to_l2_txs_hash,
             l2_to_l1_logs_hashes_hash: l2_to_l1_logs_hashes_hash.into(),
             upgrade_tx_hash,
@@ -636,15 +639,15 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut pubdata_hasher = crypto::sha3::Keccak256::new();
-        pubdata_hasher.update(current_block_hash.as_u8_ref());
+        let mut da_commitment_generator = Keccak256CommitmentGenerator::new();
+        da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
             self.storage
                 .finish_and_calculate_state_diffs_hash(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut pubdata_hasher,
+                    &mut da_commitment_generator,
                     result_keeper,
                     &mut logger,
                 )
@@ -654,7 +657,7 @@ impl<
                 .finish(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut pubdata_hasher,
+                    &mut da_commitment_generator,
                     result_keeper,
                     &mut logger,
                 )
@@ -663,7 +666,7 @@ impl<
         };
 
         self.logs_storage
-            .apply_pubdata(&mut pubdata_hasher, result_keeper);
+            .apply_pubdata(&mut da_commitment_generator, result_keeper);
         result_keeper.logs(self.logs_storage.messages_ref_iter());
         result_keeper.events(self.events_storage.events_ref_iter());
         let mut full_root_hasher = crypto::sha3::Keccak256::new();
@@ -671,7 +674,6 @@ impl<
         full_root_hasher.update([0u8; 32]); // aggregated root 0 for now
         let full_l2_to_l1_logs_root = full_root_hasher.finalize();
         let l1_txs_commitment = self.logs_storage.l1_txs_commitment();
-        let pubdata_hash = pubdata_hasher.finalize();
 
         blocks_hasher = Blake2s256::new();
         for block_hash in block_metadata.block_hashes.0.iter().skip(1) {
@@ -694,18 +696,12 @@ impl<
             "PI calculation: state commitment after {:?}\n",
             chain_state_commitment_after
         ));
-        let mut da_commitment_hasher = crypto::sha3::Keccak256::new();
-        da_commitment_hasher.update([0u8; 32]); // we don't have to validate state diffs hash
-        da_commitment_hasher.update(pubdata_hash); // full pubdata keccak
-        da_commitment_hasher.update([1u8]); // with calldata we should provide 1 blob
-        da_commitment_hasher.update([0u8; 32]); // its hash will be ignored on the settlement layer
-        let da_commitment = da_commitment_hasher.finalize();
         let batch_output = public_input::BatchOutput {
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
             used_l2_da_validator_address: ruint::aliases::B160::ZERO,
-            pubdata_commitment: da_commitment.into(),
+            pubdata_commitment: da_commitment_generator.da_commitment().into(),
             number_of_layer_1_txs: U256::try_from(l1_txs_commitment.0).unwrap(),
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
@@ -787,13 +783,13 @@ where
         block_metadata: BlockMetadataFromOracle,
         current_block_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
-        builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder,
+        builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder<A>,
     ) -> O {
-        let (mut state_commitment, last_block_timestamp) = {
+        let (mut state_commitment, last_block_timestamp, da_commitment) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
                 ZKProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
-            (proof_data.state_root_view, proof_data.last_block_timestamp)
+            (proof_data.state_root_view, proof_data.last_block_timestamp, proof_data.da_commitment_scheme)
         };
 
         let mut blocks_hasher = Blake2s256::new();
@@ -810,22 +806,34 @@ where
             last_block_timestamp,
         };
 
+        if builder.da_commitment_generator.is_none() {
+            let da_commitment_generator: alloc::boxed::Box<dyn DACommitmentGenerator, A> = match da_commitment {
+                DACommitmentScheme::Keccak256 => {
+                    alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), A::default())
+                }
+                DACommitmentScheme::Blobs => {
+                    alloc::boxed::Box::new_in(BlobCommitmentGenerator::new(), A::default())
+                }
+            };
+            builder.da_commitment_generator = Some(da_commitment_generator);
+        }
         builder
-            .pubdata_hasher
-            .update(current_block_hash.as_u8_ref());
+            .da_commitment_generator
+            .as_mut()
+            .unwrap().write(current_block_hash.as_u8_ref());
 
         self.storage
             .finish(
                 &mut self.oracle,
                 Some(&mut state_commitment),
-                &mut builder.pubdata_hasher,
+                builder.da_commitment_generator.as_mut().unwrap().as_mut(),
                 &mut NopResultKeeper,
                 &mut NullLogger,
             )
             .expect("Failed to finish storage");
 
         self.logs_storage
-            .apply_pubdata(&mut builder.pubdata_hasher, &mut NopResultKeeper);
+            .apply_pubdata(builder.da_commitment_generator.as_mut().unwrap().as_mut(), &mut NopResultKeeper);
         self.logs_storage
             .apply_to_array_vec(&mut builder.logs_storage);
         (builder.number_of_layer_1_txs, builder.l1_txs_rolling_hash) = self

@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use zk_ee::common_structs::{derive_flat_storage_key, ProofData};
+use zk_ee::common_structs::{DACommitmentScheme, derive_flat_storage_key, ProofData};
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::utils::Bytes32;
@@ -423,6 +423,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         let proof_data = ProofData {
             state_root_view: state_commitment,
             last_block_timestamp: self.block_timestamp,
+            da_commitment_scheme: DACommitmentScheme::Blobs
         };
         let tx_source = TxListSource {
             transactions: transactions.into(),

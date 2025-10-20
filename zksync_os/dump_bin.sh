@@ -64,7 +64,7 @@ case "$TYPE" in
     TEXT_NAME="pectra.text"
     ;;
   multiblock-batch)
-    FEATURES="$FEATURES,proof_running_system/multiblock-batch"
+    FEATURES="$FEATURES,print_debug_info,proof_running_system/multiblock-batch"
     BIN_NAME="multiblock_batch.bin"
     ELF_NAME="multiblock_batch.elf"
     TEXT_NAME="multiblock_batch.text"

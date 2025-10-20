@@ -124,7 +124,7 @@ impl<
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut impl WriteBytes,
+        pubdata_dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError> {
@@ -175,6 +175,11 @@ impl<
                 }
                 let derived_key =
                     derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
+<<<<<<< HEAD
+=======
+                pubdata_dst.write(derived_key.as_u8_ref());
+                result_keeper.pubdata(derived_key.as_u8_ref());
+>>>>>>> 6c0f77cc (Wip, compiles)
 
                 logger
                     .write_fmt(format_args!(
