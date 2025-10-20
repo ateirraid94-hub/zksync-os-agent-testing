@@ -17,6 +17,7 @@
 #![feature(const_trait_impl)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(likely_unlikely)]
+#![feature(split_array)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::needless_lifetimes)]
 #![allow(clippy::needless_borrow)]

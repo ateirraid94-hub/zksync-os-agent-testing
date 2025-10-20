@@ -763,6 +763,7 @@ pub(crate) struct OracleAdvisor<'a, O: IOOracle> {
     pub(crate) inner: &'a mut O,
 }
 
+// TODO: assumes that usize is u32?
 fn write_bigint(
     it: &mut impl ExactSizeIterator<Item = usize>,
     mut to_consume: usize,

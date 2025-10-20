@@ -55,3 +55,6 @@ alloy-primitives = { version = "1", features = ["arbitrary"] }
 reqwest = { version = "*", features = ["blocking", "json"] }
 reth-trie-common = { git = "https://github.com/paradigmxyz/reth.git" }
 reth-trie-sparse = { git = "https://github.com/paradigmxyz/reth.git" }
+
+[target.'cfg(target_arch = "riscv32")'.dependencies]
+riscv_common = {git = "https://github.com/matter-labs/zksync-airbender.git", tag = "v0.4.3", features = ["custom_panic", "custom_allocator"] }

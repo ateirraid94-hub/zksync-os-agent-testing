@@ -229,7 +229,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
         self,
         oracle: &mut impl IOOracle, // oracle is needed here to prove tree
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut impl WriteBytes,
+        pubdata_dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError>;

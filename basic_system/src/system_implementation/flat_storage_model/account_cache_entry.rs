@@ -327,7 +327,7 @@ impl AccountProperties {
         initial: &Self,
         r#final: &Self,
         not_publish_bytecode: bool,
-        pubdata_dst: &mut impl WriteBytes
+        pubdata_dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         preimages_cache: &mut BytecodeAndAccountDataPreimagesStorage<R, A>,
         oracle: &mut impl IOOracle,
@@ -348,9 +348,9 @@ impl AccountProperties {
                 0b00000100
             };
 
-            pubdata_dst.write([metadata_byte]);
+            pubdata_dst.write(&[metadata_byte]);
             result_keeper.pubdata(&[metadata_byte]);
-            pubdata_dst.write(r#final.versioning_data.into_u64().to_be_bytes());
+            pubdata_dst.write(&r#final.versioning_data.into_u64().to_be_bytes());
             result_keeper.pubdata(&r#final.versioning_data.into_u64().to_be_bytes());
             ValueDiffCompressionStrategy::optimal_compression_u256(
                 initial
@@ -375,9 +375,9 @@ impl AccountProperties {
                 pubdata_dst.write(r#final.bytecode_hash.as_u8_ref());
                 result_keeper.pubdata(r#final.bytecode_hash.as_u8_ref());
             } else {
-                pubdata_dst.write(r#final.unpadded_code_len.to_be_bytes());
+                pubdata_dst.write(&r#final.unpadded_code_len.to_be_bytes());
                 result_keeper.pubdata(&r#final.unpadded_code_len.to_be_bytes());
-                pubdata_dst.write(r#final.artifacts_len.to_be_bytes());
+                pubdata_dst.write(&r#final.artifacts_len.to_be_bytes());
                 result_keeper.pubdata(&r#final.artifacts_len.to_be_bytes());
                 let preimage_type = PreimageRequest {
                     hash: r#final.bytecode_hash,
@@ -404,7 +404,7 @@ impl AccountProperties {
                 pubdata_dst.write(bytecode);
                 result_keeper.pubdata(bytecode);
             }
-            pubdata_dst.write(r#final.observable_bytecode_len.to_be_bytes());
+            pubdata_dst.write(&r#final.observable_bytecode_len.to_be_bytes());
             result_keeper.pubdata(&r#final.observable_bytecode_len.to_be_bytes());
             Ok(())
         } else {
@@ -420,7 +420,7 @@ impl AccountProperties {
             if initial.balance != r#final.balance {
                 metadata_byte |= 2 << 3;
             }
-            pubdata_dst.write([metadata_byte]);
+            pubdata_dst.write(&[metadata_byte]);
             result_keeper.pubdata(&[metadata_byte]);
             if initial.nonce != r#final.nonce {
                 ValueDiffCompressionStrategy::optimal_compression_u256(

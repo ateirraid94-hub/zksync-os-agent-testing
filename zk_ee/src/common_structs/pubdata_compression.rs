@@ -4,7 +4,6 @@
 use crate::system::IOResultKeeper;
 use crate::types_config::SystemIOTypesConfig;
 use crate::utils::*;
-use crypto::MiniDigest;
 use ruint::aliases::U256;
 use crate::utils::write_bytes::WriteBytes;
 
@@ -63,14 +62,14 @@ impl ValueDiffCompressionStrategy {
         &self,
         initial_value: U256,
         final_value: U256,
-        dst: &mut impl WriteBytes,
+        dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) -> Result<(), ()> {
         match self {
             Self::Nothing => {
                 let metadata_byte = 0u8;
-                dst.write([metadata_byte]);
-                dst.write(final_value.to_be_bytes::<32>());
+                dst.write(&[metadata_byte]);
+                dst.write(&final_value.to_be_bytes::<32>());
                 result_keeper.pubdata(&[metadata_byte]);
                 result_keeper.pubdata(&final_value.to_be_bytes::<32>());
 
@@ -84,8 +83,8 @@ impl ValueDiffCompressionStrategy {
                     Err(())
                 } else {
                     let metadata_byte = (length << 3) | 1;
-                    dst.extend([metadata_byte]);
-                    dst.extend(&result.to_be_bytes::<32>()[32usize - length as usize..]);
+                    dst.write(&[metadata_byte]);
+                    dst.write(&result.to_be_bytes::<32>()[32usize - length as usize..]);
                     result_keeper.pubdata(&[metadata_byte]);
                     result_keeper.pubdata(&result.to_be_bytes::<32>()[32usize - length as usize..]);
 
@@ -100,7 +99,7 @@ impl ValueDiffCompressionStrategy {
                     Err(())
                 } else {
                     let metadata_byte = (length << 3) | 2;
-                    dst.write([metadata_byte]);
+                    dst.write(&[metadata_byte]);
                     dst.write(&result.to_be_bytes::<32>()[32usize - length as usize..]);
                     result_keeper.pubdata(&[metadata_byte]);
                     result_keeper.pubdata(&result.to_be_bytes::<32>()[32usize - length as usize..]);
@@ -114,7 +113,7 @@ impl ValueDiffCompressionStrategy {
                     Err(())
                 } else {
                     let metadata_byte = (length << 3) | 3;
-                    dst.write([metadata_byte]);
+                    dst.write(&[metadata_byte]);
                     dst.write(&final_value.to_be_bytes::<32>()[32usize - length as usize..]);
                     result_keeper.pubdata(&[metadata_byte]);
                     result_keeper
@@ -151,7 +150,7 @@ impl ValueDiffCompressionStrategy {
     pub fn optimal_compression_u256<IOTypes: SystemIOTypesConfig>(
         initial_value: U256,
         final_value: U256,
-        dst: &mut impl WriteBytes,
+        dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) {
         let mut optimal_strategy = Self::Nothing;
@@ -178,7 +177,7 @@ impl ValueDiffCompressionStrategy {
     pub fn optimal_compression<IOTypes: SystemIOTypesConfig>(
         initial_value: &Bytes32,
         final_value: &Bytes32,
-        dst: &mut impl WriteBytes,
+        dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) {
         let initial_value = initial_value.into_u256_be();

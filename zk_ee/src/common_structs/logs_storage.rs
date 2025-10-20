@@ -296,11 +296,11 @@ where
 
     pub fn apply_pubdata(
         &self,
-        pubdata_dst: &mut impl WriteBytes,
+        pubdata_dst: &mut dyn WriteBytes,
         results_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
     ) {
         let logs_count = (self.list.len() as u32).to_be_bytes();
-        pubdata_dst.extend(logs_count);
+        pubdata_dst.write(&logs_count);
         results_keeper.pubdata(&logs_count);
         let mut messages_count: u32 = 0;
         // First we encode all the L2L1 log information.
@@ -314,12 +314,12 @@ where
         });
         // Then, we do a second pass to publish messages
         let messages_count = messages_count.to_be_bytes();
-        pubdata_dst.write(messages_count);
+        pubdata_dst.write(&messages_count);
         results_keeper.pubdata(&messages_count);
         self.list.iter().for_each(|el| {
             if let GenericLogContentData::UserMsg(UserMsgData { data, .. }) = &el.data {
                 let len = (data.as_slice().len() as u32).to_be_bytes();
-                pubdata_dst.write(len);
+                pubdata_dst.write(&len);
                 results_keeper.pubdata(&len);
                 pubdata_dst.write(data.as_slice());
                 results_keeper.pubdata(data.as_slice());
@@ -531,11 +531,11 @@ impl L2ToL1Log {
     ///
     /// Adds the packed abi encoding of the log to the hasher.
     ///
-    fn write_encoding(&self, dst: &mut impl WriteBytes) {
-        dst.write([self.l2_shard_id]);
-        dst.write([if self.is_service { 1 } else { 0 }]);
-        dst.upwritedate(self.tx_number_in_block.to_be_bytes());
-        dst.write(self.sender.to_be_bytes::<20>());
+    fn write_encoding(&self, dst: &mut dyn WriteBytes) {
+        dst.write(&[self.l2_shard_id]);
+        dst.write(&[if self.is_service { 1 } else { 0 }]);
+        dst.write(&self.tx_number_in_block.to_be_bytes());
+        dst.write(&self.sender.to_be_bytes::<20>());
         dst.write(self.key.as_u8_ref());
         dst.write(self.value.as_u8_ref());
     }

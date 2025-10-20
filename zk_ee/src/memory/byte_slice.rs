@@ -22,15 +22,23 @@ impl MinimalByteAddressableSlice for [u8] {
     }
 }
 
-#[derive(Default)]
-pub struct ArrayBuilder {
-    bytes: [u8; 32],
+pub struct ArrayBuilder<const N: usize> {
+    bytes: [u8; N],
     offset: usize,
 }
 
-impl ArrayBuilder {
-    pub fn build(self) -> [u8; 32] {
-        assert!(self.offset == 32);
+impl<const N: usize> Default for ArrayBuilder<N> {
+    fn default() -> Self {
+        Self {
+            bytes: [0u8; N],
+            offset: Default::default()
+        }
+    }
+}
+
+impl<const N: usize> ArrayBuilder<N> {
+    pub fn build(self) -> [u8; N] {
+        assert!(self.offset == N);
         self.bytes
     }
 
@@ -39,7 +47,7 @@ impl ArrayBuilder {
     }
 }
 
-impl TryExtend<u8> for ArrayBuilder {
+impl<const N: usize> TryExtend<u8> for ArrayBuilder<N> {
     type Error = ();
 
     fn try_extend<I>(&mut self, iter: I) -> Result<(), Self::Error>

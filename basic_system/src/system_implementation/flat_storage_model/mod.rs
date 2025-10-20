@@ -128,7 +128,7 @@ where
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut impl WriteBytes,
+        pubdata_dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError> {
@@ -159,7 +159,7 @@ where
         // 2. Commit to/return compressed pubdata
         let encdoded_state_diffs_count =
             (storage_cache.net_diffs_iter().count() as u32).to_be_bytes();
-        pubdata_dst.extend(&encdoded_state_diffs_count);
+        pubdata_dst.write(&encdoded_state_diffs_count);
         result_keeper.pubdata(&encdoded_state_diffs_count);
 
         let mut hasher = crypto::blake2s::Blake2s256::new();
@@ -174,7 +174,7 @@ where
                 // TODO(EVM-1074): use tree index instead of key for repeated writes
                 let derived_key =
                     derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
-                pubdata_dst.extend(derived_key.as_u8_ref());
+                pubdata_dst.write(derived_key.as_u8_ref());
                 result_keeper.pubdata(derived_key.as_u8_ref());
 
                 // we publish preimages for account details

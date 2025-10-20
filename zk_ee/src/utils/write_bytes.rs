@@ -7,11 +7,11 @@ use crypto::MiniDigest;
 /// For example `pubdata` needs to be written to hasher or another accumulator depending on the commitment.
 ///
 pub trait WriteBytes {
-    fn write(&mut self, buf: impl AsRef<[u8]>);
+    fn write(&mut self, buf: &[u8]);
 }
 
 impl<T: MiniDigest> WriteBytes for T {
-    fn write(&mut self, buf: impl AsRef<[u8]>) {
+    fn write(&mut self, buf: &[u8]) {
         self.update(buf);
     }
 }

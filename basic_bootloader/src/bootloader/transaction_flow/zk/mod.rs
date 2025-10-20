@@ -116,7 +116,7 @@ where
             ecrecover_input[64..96].copy_from_slice(r);
             ecrecover_input[96..128].copy_from_slice(s);
 
-            let mut ecrecover_output = ArrayBuilder::default();
+            let mut ecrecover_output = ArrayBuilder::<32>::default();
             S::SystemFunctions::secp256k1_ec_recover(
                 ecrecover_input.as_slice(),
                 &mut ecrecover_output,

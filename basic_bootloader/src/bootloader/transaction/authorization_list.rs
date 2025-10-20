@@ -259,7 +259,7 @@ impl AuthorizationListItem {
         };
         ecrecover_input[64..96].copy_from_slice(&self.r.to_be_bytes::<32>());
         ecrecover_input[96..128].copy_from_slice(&self.s.to_be_bytes::<32>());
-        let mut ecrecover_output = ArrayBuilder::default();
+        let mut ecrecover_output = ArrayBuilder::<32>::default();
         // Recover is counted in intrinsic gas
         resources
             .with_infinite_ergs(|inf_ergs| {

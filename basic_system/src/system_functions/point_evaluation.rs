@@ -55,7 +55,7 @@ pub const POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE: [u8; 64] = const {
 };
 pub const KZG_VERSIONED_HASH_VERSION_BYTE: u8 = 0x01;
 
-fn point_evaluation_as_system_function_inner<D: ?Sized + TryExtend<u8>, R: Resources>(
+pub fn point_evaluation_as_system_function_inner<D: ?Sized + TryExtend<u8>, R: Resources>(
     input: &[u8],
     dst: &mut D,
     resources: &mut R,
