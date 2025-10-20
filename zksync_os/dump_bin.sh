@@ -28,7 +28,7 @@ TEXT_NAME="app.text"
 # Adjust for server modes
 case "$TYPE" in
   server)
-    FEATURES="$FEATURES,proof_running_system/wrap-in-batch"
+    FEATURES="$FEATURES,proof_running_system/wrap-in-batch,print_debug_info"
     BIN_NAME="server_app.bin"
     ELF_NAME="server_app.elf"
     TEXT_NAME="server_app.text"

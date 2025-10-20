@@ -69,10 +69,10 @@ impl<M: MemorySource> OracleQueryProcessor<M> for VersionedHashAndProofQuery<M> 
 
         let r = result
             .into_iter()
-            .array_chunks::<4>()
-            .map(|x| u32::from_le_bytes(x) as usize)
+            .array_chunks::<8>()
+            .map(|x| u64::from_le_bytes(x) as usize)
             .collect::<Vec<_>>();
-        println!("=========!!!!!!!!! {:?}", r);
+        // println!("=========!!!!!!!!! {:?}", r);
         let r = Vec::into_boxed_slice(r);
 
         let n = UsizeSliceIteratorOwned::new(r);

@@ -124,6 +124,7 @@ fn blob_commitment_and_proof_advice(
             buffer_u32_ptr.add(i).write(it.next().unwrap() as u32)
         }
     }
+    assert!(it.next().is_none());
     buffer
 }
 
