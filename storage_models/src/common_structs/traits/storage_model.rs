@@ -223,7 +223,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut dyn WriteBytes,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<Bytes32, InternalError>;

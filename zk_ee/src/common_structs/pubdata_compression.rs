@@ -62,7 +62,7 @@ impl ValueDiffCompressionStrategy {
         &self,
         initial_value: U256,
         final_value: U256,
-        dst: &mut dyn WriteBytes,
+        dst: &mut (impl WriteBytes + ?Sized),
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) -> Result<(), ()> {
         match self {
