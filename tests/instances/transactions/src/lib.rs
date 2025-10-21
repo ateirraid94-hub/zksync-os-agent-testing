@@ -476,7 +476,7 @@ fn test_tx_with_authorization_list() {
     );
 
     let run_config = rig::chain::RunConfig {
-        app: Some("pectra".to_string()),
+        app: None,
         only_forward: false,
         check_storage_diff_hashes: true,
         ..Default::default()
