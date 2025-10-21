@@ -489,6 +489,124 @@ fn test_tx_with_authorization_list() {
     assert!(result0.is_ok_and(|o| o.is_success()));
 }
 
+#[cfg(feature = "pectra")]
+#[test]
+fn test_tx_with_authorization_list_callback() {
+    use rig::alloy::eips::eip7702::*;
+    use rig::alloy::signers::SignerSync;
+    let mut chain = Chain::empty(None);
+
+    let wallet = PrivateKeySigner::from_str(
+        "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7",
+    )
+    .unwrap();
+    let wallet_ethers = LocalWallet::from_bytes(wallet.to_bytes().as_slice()).unwrap();
+
+    let contract_b = address!("2000000000000000000000000000000000000002"); // Intermediate contract
+    let contract_c = address!("3000000000000000000000000000000000000003"); // Delegation target
+
+    let delegate = PrivateKeySigner::from_str(
+        "a226d3a5c8c408741c3446c762aee8dff742f21e381a0e5ab85a96c5c00100be",
+    )
+    .unwrap();
+
+    let from = wallet_ethers.address();
+
+    // Contract C code: Returns a specific value (0x42) to identify it was called
+    // PUSH1 0x42, PUSH1 0x00, MSTORE, PUSH1 0x20, PUSH1 0x00, RETURN
+    // This stores 0x42 in memory and returns it
+    let contract_c_code = hex::decode("604260005260206000f3").unwrap();
+
+    /*
+    contract A {
+        fallback() external payable { 
+            payable(msg.sender).send(1);
+        }
+    }
+     */
+    let contract_b_code = hex::decode("60806040523373ffffffffffffffffffffffffffffffffffffffff166108fc600190811502906040515f60405180830381858888f100fea2646970667358221220fa72197d03d1420fc501d136589a5e24a52bd92d2add2eecb4202d90cb7210ae64736f6c634300081e0033").unwrap();
+
+    // Set up contract codes
+    chain.set_evm_bytecode(
+        B160::from_be_bytes(contract_b.into_array()),
+        &contract_b_code,
+    );
+    chain.set_evm_bytecode(
+        B160::from_be_bytes(contract_c.into_array()),
+        &contract_c_code,
+    );
+
+
+    let encoded_mint_tx = {
+        let authorization = Authorization {
+            chain_id: U256::from(37u64),
+            address: contract_c,
+            nonce: 0,
+        };
+        let signed_hash = authorization.signature_hash();
+        let sig = delegate.sign_hash_sync(&signed_hash).expect("must sign");
+        let signed = authorization.into_signed(sig);
+        let authorization_list = vec![signed];
+        let mint_tx = TxEip7702 {
+            chain_id: 37u64,
+            nonce: 0,
+            max_fee_per_gas: 1000,
+            max_priority_fee_per_gas: 1000,
+            gas_limit: 100_000,
+            to: delegate.address(),
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+            access_list: Default::default(),
+            authorization_list,
+        };
+        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+    };
+
+    let test_tx = {
+        let test_tx = TxLegacy {
+            chain_id: 37u64.into(),
+            nonce: 1,
+            gas_price: 1000,
+            gas_limit: 21_000 + 9730,
+            to: TxKind::Call(contract_b),
+            value: U256::from(10),
+            input: Default::default(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(test_tx, &delegate)
+    };
+
+    let transactions = vec![encoded_mint_tx];
+
+    chain.set_balance(
+        B160::from_be_bytes(from.0),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+
+    chain.set_balance(
+        B160::from_be_bytes(delegate.address().into_array()),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+
+    let run_config = rig::chain::RunConfig {
+        app: Some("pectra_debugging".to_string()),
+        only_forward: false,
+        check_storage_diff_hashes: true,
+        ..Default::default()
+    };
+    let output = chain.run_block(transactions, None, Some(run_config));
+
+    let transactions = vec![test_tx];
+
+    let run_config_2 = rig::chain::RunConfig {
+        app: Some("pectra_debugging".to_string()),
+        only_forward: false,
+        check_storage_diff_hashes: true,
+        ..Default::default()
+    };
+
+    let output_2 = chain.run_block(transactions, None, Some(run_config_2));
+}
+
 #[test]
 fn test_deployment_tx_with_authorization_list_fails() {
     use rig::alloy::eips::eip7702::*;
