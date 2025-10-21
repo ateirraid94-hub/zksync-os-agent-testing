@@ -8,4 +8,5 @@ pub struct CalleeAccountProperties<'a> {
     pub code_version: u8,
     pub unpadded_code_len: u32,
     pub artifacts_len: u32,
+    pub is_delegated: bool,
 }

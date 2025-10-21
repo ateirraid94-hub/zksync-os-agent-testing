@@ -679,6 +679,44 @@ where
         resources_in_caller_frame.take()
     };
 
+    // Resolve 7702 delegation
+    // Note: we ignore delegation in case if this is a constructor call. EE should revert due to collision.
+    let callee_account_properties = if cfg!(feature = "pectra")
+        && callee_account_properties.is_delegated
+        && call_request.modifier != CallModifier::Constructor
+    {
+        // Resolve delegation following EIP-7702 (only one level
+        // of delegation is allowed).
+        let delegation = &callee_account_properties.bytecode
+            [..callee_account_properties.unpadded_code_len as usize];
+        let address = parse_delegation(delegation)?;
+        let delegate_properties = system.io.read_account_properties(
+            caller_ee_version,
+            &mut resources_in_caller_frame,
+            &address,
+            AccountDataRequest::empty()
+                .with_ee_version()
+                .with_unpadded_code_len()
+                .with_artifacts_len()
+                .with_bytecode()
+                .with_code_version()
+                .with_nonce()
+                .with_nominal_token_balance(),
+        )?;
+        CalleeAccountProperties {
+            ee_type: delegate_properties.ee_version.0,
+            bytecode: delegate_properties.bytecode.0,
+            code_version: delegate_properties.code_version.0,
+            unpadded_code_len: delegate_properties.unpadded_code_len.0,
+            artifacts_len: delegate_properties.unpadded_code_len.0,
+            nonce: callee_account_properties.nonce,
+            nominal_token_balance: callee_account_properties.nominal_token_balance,
+            is_delegated: false,
+        }
+    } else {
+        callee_account_properties
+    };
+
     if DEBUG_OUTPUT {
         let _ = system.get_logger().write_fmt(format_args!(
             "Bytecode len for `callee` = {}\n",
@@ -746,56 +784,24 @@ where
     S::IO: IOSubsystemExt,
 {
     // IO will follow the rules of the CALLER here to charge for execution
-    let (account_properties, delegate_properties) = match system
-        .io
-        .read_account_properties(
-            caller_ee_type,
-            resources,
-            &call_request.callee,
-            AccountDataRequest::empty()
-                .with_ee_version()
-                .with_unpadded_code_len()
-                .with_artifacts_len()
-                // If the account is delegated, the bytecode will
-                // contain the address of the delegate.
-                .with_bytecode()
-                .with_nonce()
-                .with_nominal_token_balance()
-                .with_code_version()
-                .with_is_delegated(),
-        )
-        .and_then(|account_properties| {
-            // Note: we ignore delegation in case if this is a constructor call. EE should revert due to collision.
-            let properties = if cfg!(feature = "pectra")
-                && account_properties.is_delegated.0
-                && call_request.modifier != CallModifier::Constructor
-            {
-                // Resolve delegation following EIP-7702 (only one level
-                // of delegation is allowed).
-                let delegation = &account_properties.bytecode.0
-                    [..account_properties.unpadded_code_len.0 as usize];
-                let address = parse_delegation(delegation)?;
-                let delegate_properties = system.io.read_account_properties(
-                    caller_ee_type,
-                    resources,
-                    &address,
-                    AccountDataRequest::empty()
-                        .with_ee_version()
-                        .with_unpadded_code_len()
-                        .with_artifacts_len()
-                        .with_bytecode()
-                        .with_code_version()
-                        .with_nonce()
-                        .with_nominal_token_balance(),
-                )?;
-                (account_properties, Some(delegate_properties))
-            } else {
-                (account_properties, None)
-            };
-
-            Ok(properties)
-        }) {
-        Ok((account_properties, delegate)) => (account_properties, delegate),
+    let account_properties = match system.io.read_account_properties(
+        caller_ee_type,
+        resources,
+        &call_request.callee,
+        AccountDataRequest::empty()
+            .with_ee_version()
+            .with_unpadded_code_len()
+            .with_artifacts_len()
+            // If the account is delegated, the bytecode will
+            // contain the address of the delegate.
+            // This delegation is resolved by the caller
+            .with_bytecode()
+            .with_nonce()
+            .with_nominal_token_balance()
+            .with_code_version()
+            .with_is_delegated(),
+    ) {
+        Ok(account_properties) => account_properties,
         Err(SystemError::LeafRuntime(RuntimeError::OutOfErgs(_))) => {
             let _ = system.get_logger().write_fmt(format_args!(
                 "Call failed: insufficient resources to read callee account data\n",
@@ -809,35 +815,22 @@ where
     };
 
     // Read required data to perform a call
-    let (next_ee_version, bytecode, code_version, unpadded_code_len, artifacts_len) =
-        if let Some(delegate_properties) = delegate_properties {
-            let ee_version = delegate_properties.ee_version.0;
-            let unpadded_code_len = delegate_properties.unpadded_code_len.0;
-            let artifacts_len = delegate_properties.artifacts_len.0;
-            let bytecode = delegate_properties.bytecode.0;
-            let code_version = delegate_properties.code_version.0;
-
-            (
-                ee_version,
-                bytecode,
-                code_version,
-                unpadded_code_len,
-                artifacts_len,
-            )
-        } else {
-            let ee_version = account_properties.ee_version.0;
-            let unpadded_code_len = account_properties.unpadded_code_len.0;
-            let artifacts_len = account_properties.artifacts_len.0;
-            let bytecode = account_properties.bytecode.0;
-            let code_version = account_properties.code_version.0;
-            (
-                ee_version,
-                bytecode,
-                code_version,
-                unpadded_code_len,
-                artifacts_len,
-            )
-        };
+    let (next_ee_version, bytecode, code_version, unpadded_code_len, artifacts_len, is_delegated) = {
+        let ee_version = account_properties.ee_version.0;
+        let unpadded_code_len = account_properties.unpadded_code_len.0;
+        let artifacts_len = account_properties.artifacts_len.0;
+        let bytecode = account_properties.bytecode.0;
+        let code_version = account_properties.code_version.0;
+        let is_delegated = account_properties.is_delegated.0;
+        (
+            ee_version,
+            bytecode,
+            code_version,
+            unpadded_code_len,
+            artifacts_len,
+            is_delegated,
+        )
+    };
 
     let nonce = account_properties.nonce.0;
     let nominal_token_balance = account_properties.nominal_token_balance.0;
@@ -850,6 +843,7 @@ where
         artifacts_len,
         nonce,
         nominal_token_balance,
+        is_delegated,
     })
 }
 
