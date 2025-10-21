@@ -489,7 +489,7 @@ fn test_tx_with_authorization_list() {
     assert!(result0.is_ok_and(|o| o.is_success()));
 }
 
-#[cfg(feature = "pectra")]
+// #[cfg(feature = "pectra")]
 #[test]
 fn test_tx_with_authorization_list_callback() {
     use rig::alloy::eips::eip7702::*;
@@ -519,7 +519,7 @@ fn test_tx_with_authorization_list_callback() {
 
     /*
     contract A {
-        fallback() external payable { 
+        fallback() external payable {
             payable(msg.sender).send(1);
         }
     }
@@ -535,7 +535,6 @@ fn test_tx_with_authorization_list_callback() {
         B160::from_be_bytes(contract_c.into_array()),
         &contract_c_code,
     );
-
 
     let encoded_mint_tx = {
         let authorization = Authorization {
@@ -587,8 +586,12 @@ fn test_tx_with_authorization_list_callback() {
         U256::from(1_000_000_000_000_000_u64),
     );
 
+    let conctract_c_bytecode_hash = chain
+        .get_account_properties(&B160::from_be_bytes(contract_c.into_array()))
+        .bytecode_hash;
+
     let run_config = rig::chain::RunConfig {
-        app: Some("pectra_debugging".to_string()),
+        app: Some("pectra".to_string()),
         only_forward: false,
         check_storage_diff_hashes: true,
         ..Default::default()
@@ -597,8 +600,13 @@ fn test_tx_with_authorization_list_callback() {
 
     let transactions = vec![test_tx];
 
+    chain
+        .preimage_source
+        .inner
+        .remove(&conctract_c_bytecode_hash);
+
     let run_config_2 = rig::chain::RunConfig {
-        app: Some("pectra_debugging".to_string()),
+        app: Some("pectra".to_string()),
         only_forward: false,
         check_storage_diff_hashes: true,
         ..Default::default()
