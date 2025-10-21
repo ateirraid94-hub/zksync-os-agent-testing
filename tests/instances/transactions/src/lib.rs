@@ -979,3 +979,75 @@ fn test_modexp_intermediate_zero_block() {
         rig::zksync_os_interface::types::ExecutionResult::Revert(_) => unreachable!(),
     }
 }
+
+#[test]
+fn test_point_eval_call() {
+    let mut chain = Chain::empty(None);
+    let wallet = PrivateKeySigner::from_str(
+        "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7",
+    )
+    .unwrap();
+
+    let point_eval_address = address!("000000000000000000000000000000000000000a");
+
+    let input_data = vec![
+        1, 102, 133, 225, 114, 167, 73, 247, 66, 106, 69, 37, 154, 47, 12, 166, 56, 32, 114, 250,
+        248, 157, 192, 88, 251, 163, 154, 210, 121, 34, 66, 235, 85, 219, 9, 223, 116, 132, 184,
+        93, 126, 40, 112, 220, 62, 82, 110, 135, 177, 46, 241, 113, 107, 197, 47, 252, 248, 42,
+        160, 119, 67, 165, 212, 245, 18, 209, 170, 150, 140, 245, 200, 141, 68, 162, 165, 129, 82,
+        66, 8, 42, 39, 249, 157, 47, 168, 22, 131, 131, 56, 185, 83, 43, 243, 206, 226, 45, 145,
+        193, 172, 89, 253, 243, 68, 226, 169, 9, 142, 178, 195, 105, 155, 150, 82, 169, 168, 239,
+        192, 6, 196, 189, 168, 161, 215, 100, 180, 160, 250, 218, 60, 52, 231, 42, 12, 196, 209,
+        81, 166, 221, 19, 125, 222, 83, 74, 242, 149, 23, 202, 113, 140, 69, 14, 237, 147, 86, 3,
+        205, 89, 133, 238, 107, 188, 251, 226, 218, 135, 226, 78, 100, 190, 143, 162, 216, 23, 51,
+        224, 222, 155, 138, 17, 239, 215, 199, 63, 57, 137, 141, 21, 143, 208, 196, 134, 126,
+    ];
+
+    let expected_output = vec![
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        16, 0, 115, 237, 167, 83, 41, 157, 125, 72, 51, 57, 216, 8, 9, 161, 216, 5, 83, 189, 164,
+        2, 255, 254, 91, 254, 255, 255, 255, 255, 0, 0, 0, 1,
+    ];
+
+    let encoded_tx = {
+        let mint_tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 1_000_000,
+            to: TxKind::Call(point_eval_address),
+            value: Default::default(),
+            input: input_data.into(),
+            ..Default::default()
+        };
+        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+    };
+
+    let transactions = vec![encoded_tx];
+
+    chain.set_balance(
+        B160::from_be_bytes(wallet.address().into_array()),
+        U256::from(10u64.pow(18)),
+    );
+
+    let result = chain.run_block(transactions, None, None);
+
+    // The transaction should succeed
+    assert!(result.tx_results[0].is_ok(), "Transaction should succeed");
+
+    // Extract the result and check it
+    let tx_result = result.tx_results[0].as_ref().unwrap();
+    assert!(tx_result.is_success(), "Transaction should be successful");
+
+    match &tx_result.execution_result {
+        rig::zksync_os_interface::types::ExecutionResult::Success(execution_output) => {
+            match execution_output {
+                rig::zksync_os_interface::types::ExecutionOutput::Call(result) => {
+                    assert_eq!(*result, expected_output)
+                }
+                rig::zksync_os_interface::types::ExecutionOutput::Create(_, _) => panic!(),
+            }
+        }
+        rig::zksync_os_interface::types::ExecutionResult::Revert(_) => unreachable!(),
+    }
+}

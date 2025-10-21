@@ -48,6 +48,17 @@ define_subsystem!(ModExp,
                   }
 );
 
+define_subsystem!(PointEvaluation,
+                  interface PointEvaluationInterfaceError
+                  {
+                      InvalidPoint,
+                      InvalidInputSize,
+                      InvalidVersionedHash,
+                      InvalidScalar,
+                      PairingMismatch,
+                  }
+);
+
 define_subsystem!(MissingSystemFunction);
 
 ///
@@ -159,6 +170,7 @@ pub trait SystemFunctions<R: Resources> {
     type Bn254Mul: SystemFunction<R, Bn254MulErrors>;
     type Bn254PairingCheck: SystemFunction<R, Bn254PairingCheckErrors>;
     type RipeMd160: SystemFunction<R, RipeMd160Errors>;
+    type PointEvaluation: SystemFunction<R, PointEvaluationErrors>;
 
     fn keccak256<D: TryExtend<u8> + ?Sized, A: core::alloc::Allocator + Clone>(
         input: &[u8],
@@ -266,6 +278,15 @@ pub trait SystemFunctions<R: Resources> {
         allocator: A,
     ) -> Result<(), SubsystemError<RipeMd160Errors>> {
         Self::RipeMd160::execute(input, output, resources, allocator)
+    }
+
+    fn point_evaluation<D: TryExtend<u8> + ?Sized, A: core::alloc::Allocator + Clone>(
+        input: &[u8],
+        output: &mut D,
+        resources: &mut R,
+        allocator: A,
+    ) -> Result<(), SubsystemError<PointEvaluationErrors>> {
+        Self::PointEvaluation::execute(input, output, resources, allocator)
     }
 }
 

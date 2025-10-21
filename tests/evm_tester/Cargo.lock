@@ -1694,6 +1694,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "cfg-if",
+ "const-hex",
  "const_for",
  "crypto",
  "cycle_marker",

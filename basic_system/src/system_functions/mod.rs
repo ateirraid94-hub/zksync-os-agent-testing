@@ -9,6 +9,7 @@ pub mod ecrecover;
 pub mod keccak256;
 pub mod modexp;
 pub mod p256_verify;
+mod point_evaluation;
 pub mod ripemd160;
 pub mod sha256;
 
@@ -43,6 +44,7 @@ impl<R: Resources> SystemFunctions<R> for NoStdSystemFunctions {
     type Bn254Mul = bn254_ecmul::Bn254MulImpl;
     type Bn254PairingCheck = bn254_pairing_check::Bn254PairingCheckImpl;
     type RipeMd160 = ripemd160::RipeMd160Impl;
+    type PointEvaluation = point_evaluation::PointEvaluationImpl;
 }
 
 impl<R: Resources> SystemFunctionsExt<R> for NoStdSystemFunctions {

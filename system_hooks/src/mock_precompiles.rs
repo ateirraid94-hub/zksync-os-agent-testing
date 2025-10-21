@@ -12,8 +12,8 @@ pub(crate) mod mock_precompiles {
         },
     };
 
-    pub struct Blake;
-    impl<R: Resources> SystemFunction<R, MissingSystemFunctionErrors> for Blake {
+    pub struct Blake2f;
+    impl<R: Resources> SystemFunction<R, MissingSystemFunctionErrors> for Blake2f {
         fn execute<D: TryExtend<u8> + ?Sized, A: core::alloc::Allocator + Clone>(
             input: &[u8],
             _output: &mut D,
@@ -27,8 +27,10 @@ pub(crate) mod mock_precompiles {
         }
     }
 
-    pub struct PointEval;
-    impl<R: Resources> SystemFunction<R, MissingSystemFunctionErrors> for PointEval {
+    #[cfg(not(feature = "point_eval_precompile"))]
+    pub struct PointEvaluation;
+    #[cfg(not(feature = "point_eval_precompile"))]
+    impl<R: Resources> SystemFunction<R, MissingSystemFunctionErrors> for PointEvaluation {
         fn execute<D: TryExtend<u8> + ?Sized, A: core::alloc::Allocator + Clone>(
             input: &[u8],
             _output: &mut D,

@@ -41,6 +41,20 @@ pub mod sha3;
 #[cfg(any(
     all(target_arch = "riscv32", feature = "bigint_ops"),
     feature = "proving",
+    test
+))]
+pub use self::ark_ff_delegation::{BigInt, BigInteger};
+
+#[cfg(not(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    feature = "proving",
+    test
+)))]
+pub use self::ark_ff::{BigInt, BigInteger};
+
+#[cfg(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    feature = "proving",
     feature = "testing",
     test
 ))]

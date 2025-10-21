@@ -161,7 +161,7 @@ unsafe fn load_to_ram(src: *const u8, dst_start: *mut u8, dst_end: *mut u8) {
     #[cfg(debug_assertions)]
     {
         const ROM_BOUND: usize = 1 << 21;
-    
+
         debug_assert!(src.addr() < ROM_BOUND);
         debug_assert!(dst_start.addr() >= ROM_BOUND);
         debug_assert!(dst_end.addr() >= dst_start.addr());
@@ -169,11 +169,7 @@ unsafe fn load_to_ram(src: *const u8, dst_start: *mut u8, dst_end: *mut u8) {
 
     let offset = dst_end.addr() - dst_start.addr();
 
-    core::ptr::copy_nonoverlapping(
-        src,
-        dst_start,
-        offset
-    );
+    core::ptr::copy_nonoverlapping(src, dst_start, offset);
 }
 
 unsafe fn workload() -> ! {
@@ -184,12 +180,20 @@ unsafe fn workload() -> ! {
     let load_address = addr_of_mut!(_sirodata);
     let rodata_start = addr_of_mut!(_srodata);
     let rodata_end = addr_of_mut!(_erodata);
-    load_to_ram(load_address as *const u8, rodata_start as *mut u8, rodata_end as *mut u8);
+    load_to_ram(
+        load_address as *const u8,
+        rodata_start as *mut u8,
+        rodata_end as *mut u8,
+    );
 
     let load_address = addr_of_mut!(_sidata);
     let data_start = addr_of_mut!(_sdata);
     let data_end = addr_of_mut!(_edata);
-    load_to_ram(load_address as *const u8, data_start as *mut u8, data_end as *mut u8);
+    load_to_ram(
+        load_address as *const u8,
+        data_start as *mut u8,
+        data_end as *mut u8,
+    );
 
     use proof_running_system::system::bootloader::init_allocator;
     init_allocator(heap_start, heap_end);

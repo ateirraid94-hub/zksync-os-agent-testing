@@ -82,7 +82,7 @@ case "$TYPE" in
     TEXT_NAME="evm_tester.text"
     ;;
   for-tests)
-    FEATURES="$FEATURES,proof_running_system/state-diffs-pi,proof_running_system/p256_precompile,proof_running_system/cycle_marker",
+    FEATURES="$FEATURES,proof_running_system/state-diffs-pi,proof_running_system/p256_precompile,proof_running_system/cycle_marker",proof_running_system/point_eval_precompile,
     BIN_NAME="for_tests.bin"
     ELF_NAME="for_tests.elf"
     TEXT_NAME="for_tests.text"
