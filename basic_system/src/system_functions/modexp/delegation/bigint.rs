@@ -1,6 +1,7 @@
 // Representation of big integers using primitives that are friendly for our delegations
 extern crate alloc;
 
+#[cfg(any(all(target_arch = "riscv32", feature = "proving"), test))]
 use super::super::{ModExpAdviceParams, MODEXP_ADVICE_QUERY_ID};
 use super::u256::*;
 use alloc::vec::Vec;
@@ -8,6 +9,7 @@ use core::alloc::Allocator;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 use crypto::{bigint_op_delegation_raw, bigint_op_delegation_with_carry_bit_raw, BigIntOps};
+#[cfg(any(all(target_arch = "riscv32", feature = "proving"), test))]
 use zk_ee::oracle::IOOracle;
 
 // There is a small choice to make - either we do exponentiation walking as via LE or BE exponent.
@@ -25,7 +27,7 @@ impl<A: Allocator + Clone> Debug for BigintRepr<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "0x")?;
         for digit in self.u64_digits_ref().iter().rev() {
-            write!(f, "{:016x}", digit)?;
+            write!(f, "{digit:016x}")?;
         }
 
         Ok(())
@@ -220,12 +222,15 @@ impl<A: Allocator + Clone> BigintRepr<A> {
 
         let mut scratch_3 = Self::with_capacity_in(modulus.digits * 2, allocator.clone());
 
+        debug_assert!(base.digits <= modulus.digits);
+
         // we will go BE case to quickly strip leading zeroes
         let mut first_found = false;
         // Exp is BE, so do not need to reverse iterator
         'outer: for &byte in exp.iter() {
             // But here we should go from MSB
             for i in (0..8).rev() {
+                debug_assert!(base.digits <= modulus.digits);
                 let bit = byte & (1 << i) > 0;
                 if first_found {
                     if current.digits == 0 {
@@ -265,13 +270,13 @@ impl<A: Allocator + Clone> BigintRepr<A> {
                             advisor,
                         );
                     }
-                } else {
-                    if bit {
-                        first_found = true;
-                    }
+                } else if bit {
+                    first_found = true;
                 }
             }
         }
+
+        debug_assert!(base.digits <= modulus.digits);
 
         if first_found {
             // at the very end we assert full reduction
@@ -351,8 +356,8 @@ impl<A: Allocator + Clone> BigintRepr<A> {
         advisor: &mut impl ModexpAdvisor,
     ) -> (Self, (Self, Self, Self, Self)) {
         assert!(current.digits > 0); // case if it is 0 is handled by outer loop
-        debug_assert_eq!(other.digits, modulus.digits); // we multiply accumulator by base, and base if fully reduced
-        assert!(scratch_0.capacity() >= modulus.digits + 1);
+        debug_assert!(other.digits <= modulus.digits); // we multiply accumulator by base, and base if fully reduced
+        assert!(scratch_0.capacity() > modulus.digits);
         assert!(scratch_1.capacity() >= modulus.digits);
         assert!(scratch_2.capacity() >= modulus.digits * 2);
         assert!(scratch_3.capacity() >= modulus.digits * 2);
@@ -372,7 +377,15 @@ impl<A: Allocator + Clone> BigintRepr<A> {
             );
             advisor.get_reduction_op_advice(&scratch_2, modulus, &mut scratch_0, &mut scratch_1);
             // now we should enforce everything backwards
-            assert!(scratch_0.digits <= scratch_2.digits + 1 - modulus.digits);
+            let max_q = if scratch_2.digits < modulus.digits {
+                0
+            } else if scratch_2.digits == modulus.digits {
+                1
+            } else {
+                scratch_2.digits + 1 - modulus.digits
+            };
+            assert!(scratch_0.digits <= max_q);
+
             assert!(scratch_1.digits <= modulus.digits);
 
             Self::fma(
@@ -413,7 +426,7 @@ impl<A: Allocator + Clone> BigintRepr<A> {
         advisor: &mut impl ModexpAdvisor,
     ) -> (Self, (Self, Self, Self, Self)) {
         assert!(a.digits > 0); // case if it is 0 is handled by outer loop
-        assert!(scratch_0.capacity() >= modulus.digits + 1);
+        assert!(scratch_0.capacity() > modulus.digits);
         assert!(scratch_1.capacity() >= modulus.digits);
         assert!(scratch_2.capacity() >= modulus.digits * 2);
         assert!(scratch_3.capacity() >= modulus.digits * 2);
@@ -433,7 +446,14 @@ impl<A: Allocator + Clone> BigintRepr<A> {
             );
             advisor.get_reduction_op_advice(&scratch_2, modulus, &mut scratch_0, &mut scratch_1);
             // now we should enforce everything backwards
-            assert!(scratch_0.digits <= scratch_2.digits + 1 - modulus.digits);
+            let max_q = if scratch_2.digits < modulus.digits {
+                0
+            } else if scratch_2.digits == modulus.digits {
+                1
+            } else {
+                scratch_2.digits + 1 - modulus.digits
+            };
+            assert!(scratch_0.digits <= max_q);
             assert!(scratch_1.digits <= modulus.digits);
 
             Self::fma(
@@ -529,6 +549,7 @@ impl<A: Allocator + Clone> BigintRepr<A> {
         let mut next_to_init_digit = 0;
         if let Some(c) = c {
             // first write down c
+            #[allow(clippy::needless_range_loop)]
             for c_digit_idx in 0..c.digits {
                 write_into_ptr_unchecked(
                     dst_scratch_capacity[c_digit_idx].as_mut_ptr(),
@@ -592,9 +613,7 @@ impl<A: Allocator + Clone> BigintRepr<A> {
                     }
 
                     // and renumerate - high is our new carry propagation
-                    let t = carry_scratch;
-                    carry_scratch = scratch_high;
-                    scratch_high = t;
+                    core::mem::swap(&mut carry_scratch, &mut scratch_high);
                 } else {
                     // double-width a * b
 
@@ -640,9 +659,7 @@ impl<A: Allocator + Clone> BigintRepr<A> {
                     }
 
                     // and renumerate
-                    let t = carry_scratch;
-                    carry_scratch = scratch_high;
-                    scratch_high = t;
+                    core::mem::swap(&mut carry_scratch, &mut scratch_high);
                 }
             }
             if a.digits > 0 {
@@ -706,7 +723,7 @@ pub(crate) trait ModexpAdvisor {
     );
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub(crate) mod naive_advisor {
     use std::alloc::Global;
 
@@ -767,10 +784,12 @@ pub(crate) mod naive_advisor {
     }
 }
 
+#[cfg(any(all(target_arch = "riscv32", feature = "proving"), test))]
 pub(crate) struct OracleAdvisor<'a, O: IOOracle> {
     pub(crate) inner: &'a mut O,
 }
 
+#[cfg(any(all(target_arch = "riscv32", feature = "proving"), test))]
 fn write_bigint(
     it: &mut impl ExactSizeIterator<Item = usize>,
     mut to_consume: usize,
@@ -779,6 +798,8 @@ fn write_bigint(
     const {
         assert!(core::mem::size_of::<usize>() == core::mem::size_of::<u32>());
     }
+    // NOTE: even if oracle overstates the number of digits (so - iterator length), it is not important
+    // as long as caller checks that number of digits is within bounds of soundness
     unsafe {
         let num_digits = to_consume.next_multiple_of(8) / 8;
         let dst_capacity = dst.clear_as_capacity_mut();
@@ -799,6 +820,7 @@ fn write_bigint(
     }
 }
 
+#[cfg(any(all(target_arch = "riscv32", feature = "proving"), test))]
 impl<'a, O: IOOracle> ModexpAdvisor for OracleAdvisor<'a, O> {
     fn get_reduction_op_advice<A: Allocator + Clone>(
         &mut self,
@@ -816,7 +838,7 @@ impl<'a, O: IOOracle> ModexpAdvisor for OracleAdvisor<'a, O> {
 
             assert!(modulus_len > 0);
 
-            let arg = ModExpAdviceParams {
+            ModExpAdviceParams {
                 op: 0,
                 a_ptr: a_ptr.addr() as u32,
                 a_len: a_len as u32,
@@ -824,9 +846,7 @@ impl<'a, O: IOOracle> ModexpAdvisor for OracleAdvisor<'a, O> {
                 b_len: 0,
                 modulus_ptr: modulus_ptr.addr() as u32,
                 modulus_len: modulus_len as u32,
-            };
-
-            arg
+            }
         };
 
         // We assume that oracle's response is well-formed lengths-wise, and we will check value-wise separately
