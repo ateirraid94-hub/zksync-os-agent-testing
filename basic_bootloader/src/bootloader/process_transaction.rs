@@ -652,7 +652,7 @@ where
         )?;
 
         // Parse, validate and apply authorization list, following EIP-7702
-        #[cfg(feature = "pectra")]
+        #[cfg(feature = "eip7702")]
         {
             if let Some(authorization_list) = transaction.authorization_list() {
                 crate::bootloader::transaction::authorization_list:: parse_authorization_list_and_apply_delegations(

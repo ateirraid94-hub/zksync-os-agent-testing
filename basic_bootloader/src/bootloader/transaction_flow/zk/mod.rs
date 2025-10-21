@@ -399,7 +399,7 @@ where
             };
         }
 
-        #[cfg(feature = "pectra")]
+        #[cfg(feature = "eip7702")]
         {
             let authorization_list_length = transaction
                 .authorization_list()
