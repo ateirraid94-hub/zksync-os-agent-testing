@@ -10,6 +10,7 @@ use rig::alloy::primitives::address;
 use rig::log::debug;
 use rig::ruint::aliases::{B160, U256};
 use rig::utils::{ERC_20_BYTECODE, ERC_20_MINT_CALLDATA, ERC_20_TRANSFER_CALLDATA};
+use rig::zk_ee::system::tracer::NopTracer;
 use rig::{alloy, zksync_web3_rs, Chain};
 use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
 use std::path::PathBuf;
@@ -59,7 +60,7 @@ fn run_many_blocks_proof_run() {
         ..Default::default()
     };
     let proof_input_1 = chain
-        .run_block_with_extra_stats(vec![encoded_mint_tx], None, Some(run_config))
+        .run_block_with_extra_stats(vec![encoded_mint_tx], None, Some(run_config), &mut NopTracer::default())
         .unwrap()
         .2;
     // let encoded_transfer_tx = {
@@ -78,9 +79,12 @@ fn run_many_blocks_proof_run() {
     // };
     //
     // let proof_input_2 = chain
-    //     .run_block_with_extra_stats(vec![encoded_transfer_tx], None, None)
-    //     .unwrap()
-    //     .2;
+    //     .run_block_with_extra_stats(
+    //         vec![encoded_transfer_tx],
+    //         None,
+    //         None,
+    //         &mut NopTracer::default(),
+    //     );
     //
     // let mut batch_input = Vec::with_capacity(1 + proof_input_1.len() + proof_input_2.len());
     // batch_input.push(2);

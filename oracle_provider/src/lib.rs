@@ -91,7 +91,6 @@ impl<M: MemorySource> ZkEENonDeterminismSource<M> {
 
         let buffer = self.query_buffer.take().expect("must exist");
         let query_id = buffer.query_type;
-        // println!("oracle query {:?}", query_id);
         if query_id == DISCONNECT_ORACLE_QUERY_ID {
             self.is_connected_to_external_oracle = false;
         } else {
