@@ -714,6 +714,7 @@ fn test_invalid_tx_does_not_affect_native() {
     assert!(result1.as_ref().is_ok_and(|o| o.is_success()));
     assert_eq!(result1.unwrap().native_used, native_used_reference);
 }
+
 // TODO: find better place for regression tests
 #[test]
 fn test_regression_returndata_empty_3541() {
