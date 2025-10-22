@@ -46,11 +46,6 @@ impl<'a> RlpListDecode<'a> for EIP4844Tx<'a> {
             .try_into()
             .map_err(|_| InvalidTransaction::InvalidStructure)?;
 
-        if to.iter().all(|&b| b == 0) {
-            // Deployment transactions are not allowed in EIP-4844
-            return Err(InvalidTransaction::InvalidStructure);
-        }
-
         let value = r.u256()?;
         let data = r.bytes()?;
         let access_list = AccessList::decode_list_from(r)?;
