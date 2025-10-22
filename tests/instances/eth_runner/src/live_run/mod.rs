@@ -204,13 +204,7 @@ fn run_block(
 
     db.set_block_resource_infos(block_number, resource_infos)?;
 
-    match post_check(
-        output,
-        receipts,
-        diff_trace,
-        prestate_cache,
-        ruint::aliases::B160::from_be_bytes(miner.into()),
-    ) {
+    match post_check(output, receipts, diff_trace, prestate_cache) {
         core::result::Result::Ok(()) => {
             db.set_block_status(block_number, db::BlockStatus::Success)?;
             if persist_all {

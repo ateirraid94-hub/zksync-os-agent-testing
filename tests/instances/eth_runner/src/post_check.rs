@@ -25,55 +25,53 @@ pub enum TxId {
 }
 
 impl DiffTrace {
-    fn collect_diffs(self, prestate_cache: &Cache, miner: B160) -> HashMap<B160, AccountState> {
+    fn collect_diffs(self, prestate_cache: &Cache) -> HashMap<B160, AccountState> {
         let mut updates: HashMap<B160, AccountState> = HashMap::new();
         self.result.iter().for_each(|item| {
             item.result.post.iter().for_each(|(address, account)| {
-                if address.0 != miner {
-                    let entry = updates.entry(address.0).or_default();
-                    account
-                        .balance
-                        .into_iter()
-                        .for_each(|bal| entry.balance = Some(bal));
-                    account
-                        .nonce
-                        .into_iter()
-                        .for_each(|x| entry.nonce = Some(x));
-                    account
-                        .code
-                        .clone()
-                        .into_iter()
-                        .for_each(|x| entry.code = Some(x));
+                let entry = updates.entry(address.0).or_default();
+                account
+                    .balance
+                    .into_iter()
+                    .for_each(|bal| entry.balance = Some(bal));
+                account
+                    .nonce
+                    .into_iter()
+                    .for_each(|x| entry.nonce = Some(x));
+                account
+                    .code
+                    .clone()
+                    .into_iter()
+                    .for_each(|x| entry.code = Some(x));
 
-                    // Populate storage slot clears (slots present in pre but
-                    // absent in post). Write 0 to them.
-                    if let Some(pre_account) = item.result.pre.get(address) {
-                        if let Some(pre_storage) = pre_account.storage.as_ref() {
-                            let cleared_keys = pre_storage.keys().filter(|k| {
-                                account
-                                    .storage
-                                    .as_ref()
-                                    .is_none_or(|post_storage| !post_storage.contains_key(k))
-                            });
-                            let entry_storage = entry.storage.get_or_insert_default();
-                            cleared_keys.into_iter().for_each(|key| {
-                                entry_storage.insert(*key, B256::ZERO);
-                            })
-                        }
-                    }
-
-                    // Populate storage slot writes
-                    if let Some(storage) = account.storage.as_ref() {
+                // Populate storage slot clears (slots present in pre but
+                // absent in post). Write 0 to them.
+                if let Some(pre_account) = item.result.pre.get(address) {
+                    if let Some(pre_storage) = pre_account.storage.as_ref() {
+                        let cleared_keys = pre_storage.keys().filter(|k| {
+                            account
+                                .storage
+                                .as_ref()
+                                .is_none_or(|post_storage| !post_storage.contains_key(k))
+                        });
                         let entry_storage = entry.storage.get_or_insert_default();
-                        storage.iter().for_each(|(key, value)| {
-                            entry_storage.insert(*key, *value);
+                        cleared_keys.into_iter().for_each(|key| {
+                            entry_storage.insert(*key, B256::ZERO);
                         })
                     }
+                }
+
+                // Populate storage slot writes
+                if let Some(storage) = account.storage.as_ref() {
+                    let entry_storage = entry.storage.get_or_insert_default();
+                    storage.iter().for_each(|(key, value)| {
+                        entry_storage.insert(*key, *value);
+                    })
                 }
             });
             // Add account clears
             item.result.pre.iter().for_each(|(address, _)| {
-                if address.0 != miner && !updates.contains_key(&address.0) {
+                if !updates.contains_key(&address.0) {
                     let acc = AccountState {
                         balance: Some(U256::ZERO),
                         ..Default::default()
@@ -119,9 +117,8 @@ impl DiffTrace {
         self,
         output: BlockOutput,
         prestate_cache: Cache,
-        miner: B160,
     ) -> Result<(), PostCheckError> {
-        let diffs = self.collect_diffs(&prestate_cache, miner);
+        let diffs = self.collect_diffs(&prestate_cache);
         let zksync_os_diffs = zksync_os_output_into_account_state(output, &prestate_cache)?;
 
         // Reference => ZKsync OS check:
@@ -208,7 +205,7 @@ impl DiffTrace {
         for (address, acc) in zksync_os_diffs.iter() {
             // Just check that it's part of the reference diffs,
             // all else should be checked already
-            if address != &miner && !acc.is_empty() {
+            if !acc.is_empty() {
                 match diffs.get(address) {
                     Some(_) => (),
                     None => {
@@ -335,7 +332,6 @@ pub fn post_check(
     receipts: Vec<TransactionReceipt>,
     diff_trace: DiffTrace,
     prestate_cache: Cache,
-    miner: B160,
 ) -> Result<(), PostCheckError> {
     fn u256_to_usize(src: &U256) -> usize {
         zk_ee::utils::u256_to_u64_saturated(src) as usize
@@ -417,7 +413,7 @@ pub fn post_check(
         }
     }
 
-    diff_trace.check_storage_writes(output, prestate_cache, miner)?;
+    diff_trace.check_storage_writes(output, prestate_cache)?;
 
     info!("All good!");
     Ok(())
