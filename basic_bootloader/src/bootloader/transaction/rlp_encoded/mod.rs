@@ -10,6 +10,7 @@ use crate::bootloader::transaction::rlp_encoded::{
     eip_2718_tx_envelope::{EIP2718PayloadParser, EIP2718SignatureData},
     transaction_types::eip_1559_tx::EIP1559Tx,
     transaction_types::eip_2930_tx::EIP2930Tx,
+    transaction_types::eip_4844_tx::EIP4844Tx,
     transaction_types::eip_7702_tx::EIP7702Tx,
 };
 use zk_ee::utils::Bytes32;
@@ -32,6 +33,7 @@ pub(crate) enum RlpEncodedTxInner<'a> {
     LegacyWithEIP155(LegacyTXInner<'a>, LegacySignatureData<'a>),
     EIP2930(EIP2930Tx<'a>, EIP2718SignatureData<'a>),
     EIP1559(EIP1559Tx<'a>, EIP2718SignatureData<'a>),
+    EIP4844(EIP4844Tx<'a>, EIP2718SignatureData<'a>),
     EIP7702(EIP7702Tx<'a>, EIP2718SignatureData<'a>),
 }
 
@@ -66,6 +68,16 @@ impl<'a> RlpEncodedTxInner<'a> {
                         return Err(InvalidTransaction::InvalidChainId.into());
                     }
                     Ok((Self::EIP1559(tx, sig_data), sig_hash))
+                }
+                EIP4844Tx::TX_TYPE => {
+                    let (tx, sig_data, sig_hash) =
+                        EIP2718PayloadParser::<EIP4844Tx<'a>>::try_parse_and_hash_for_signature_verification(
+                            r.remaining()
+                        )?;
+                    if tx.chain_id != expected_chain_id {
+                        return Err(InvalidTransaction::InvalidChainId.into());
+                    }
+                    Ok((Self::EIP4844(tx, sig_data), sig_hash))
                 }
                 EIP7702Tx::TX_TYPE => {
                     let (tx, sig_data, sig_hash) =
