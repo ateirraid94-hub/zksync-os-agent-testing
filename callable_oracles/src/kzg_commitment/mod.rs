@@ -34,38 +34,21 @@ impl<M: MemorySource> OracleQueryProcessor<M> for VersionedHashAndProofQuery<M> 
 
         let mut it = query.into_iter();
 
-        let blob_ptr = it.next().expect("A u32 should've been passed in.");
+        let data_ptr = it.next().unwrap() as u32;
+        let data_len = it.next().unwrap() as u32;
+        // println!("data_ptr {:?}", data_ptr);
+        // println!("data_len {:?}", data_len);
 
         assert!(
             it.next().is_none(),
             "A single RISC-V ptr should've been passed."
         );
 
-        assert!(blob_ptr.is_multiple_of(4));
+        assert!(data_ptr.is_multiple_of(4));
 
-        let data = read_memory_as_u8(memory, blob_ptr as u32, 31*4096/8).unwrap();
-        let sidecar_builder: SidecarBuilder<SimpleCoder> = alloy_consensus::SidecarBuilder::from_slice(&data);
-        let sidecar = sidecar_builder.build().unwrap();
-        assert_eq!(sidecar.blobs.len(), 1);
-
-        let commitment = sidecar.commitments[0];
-
-        let mut hasher = crypto::blake2s::Blake2s256::new();
-        hasher.update(&data);
-        hasher.update(versioned_hash_for_kzg(sidecar.commitments[0].as_slice()));
-        let mut challenge_point = hasher.finalize();
-        for byte in challenge_point[0..16].iter_mut() {
-            *byte = 0;
-        }
-        let blob = unsafe { core::mem::transmute::<&alloy_consensus::Blob, &c_kzg::Blob>(&sidecar.blobs[0]) };
-        let proof = c_kzg::ethereum_kzg_settings(8).compute_kzg_proof(
-            blob,
-            &c_kzg::Bytes32::new(challenge_point)
-        ).unwrap().0;
-
-        let mut result = [0u8; 96];
-        result[..48].copy_from_slice(&commitment.0);
-        result[48..].copy_from_slice(proof.as_slice());
+        let data = read_memory_as_u8(memory, data_ptr, data_len).unwrap();
+        let result = proof_and_commitment_alloy(&data);
+        // let result = proof_and_commitment_polynomial(&data);
 
         let r = result
             .into_iter()
@@ -87,4 +70,63 @@ fn versioned_hash_for_kzg(data: &[u8]) -> [u8; 32] {
     hash[0] = 1; // KZG_VERSIONED_HASH_VERSION_BYTE
 
     hash
+}
+
+fn proof_and_commitment_alloy(data: &[u8]) -> [u8; 96] {
+    let sidecar_builder: SidecarBuilder<SimpleCoder> = alloy_consensus::SidecarBuilder::from_slice(data);
+    let sidecar = sidecar_builder.build().unwrap();
+    assert_eq!(sidecar.blobs.len(), 1);
+
+    let commitment = sidecar.commitments[0];
+
+    let mut hasher = crypto::blake2s::Blake2s256::new();
+    hasher.update(versioned_hash_for_kzg(sidecar.commitments[0].as_slice()));
+    hasher.update(data);
+    let mut challenge_point = hasher.finalize();
+    for byte in challenge_point[0..16].iter_mut() {
+        *byte = 0;
+    }
+    let blob = unsafe { core::mem::transmute::<&alloy_consensus::Blob, &c_kzg::Blob>(&sidecar.blobs[0]) };
+    let p = c_kzg::ethereum_kzg_settings(8).compute_kzg_proof(
+        blob,
+        &c_kzg::Bytes32::new(challenge_point)
+    ).unwrap();
+    let proof = p.0;
+    // println!("commitment: {:?}", sidecar.commitments[0]);
+    // println!("versioned hash: {:?}", versioned_hash_for_kzg(sidecar.commitments[0].as_slice()));
+    // println!("versioned hash: {:?}", sidecar.versioned_hashes().next().unwrap().0);
+    // println!("point: {:?}", challenge_point);
+    // println!("value: {:?}", p.1);
+
+    let mut result = [0u8; 96];
+    result[..48].copy_from_slice(&commitment.0);
+    result[48..].copy_from_slice(proof.as_slice());
+    result
+}
+
+fn proof_and_commitment_polynomial(data: &[u8]) -> [u8; 96] {
+    let kzg_info = zksync_kzg::KzgInfo::new(data);
+
+    let mut hasher = crypto::blake2s::Blake2s256::new();
+    hasher.update(&kzg_info.versioned_hash);
+    hasher.update(data);
+    let mut challenge_point = hasher.finalize();
+    for byte in challenge_point[0..16].iter_mut() {
+        *byte = 0;
+    }
+    let blob = unsafe { core::mem::transmute::<&[u8; 131072], &c_kzg::Blob>(&kzg_info.blob) };
+    let p = c_kzg::ethereum_kzg_settings(8).compute_kzg_proof(
+        blob,
+        &c_kzg::Bytes32::new(challenge_point)
+    ).unwrap();
+    let proof = p.0;
+    println!("commitment: {:?}", kzg_info.kzg_commitment);
+    println!("versioned hash: {:?}", kzg_info.versioned_hash);
+    println!("point: {:?}", challenge_point);
+    println!("value: {:?}", p.1);
+
+    let mut result = [0u8; 96];
+    result[..48].copy_from_slice(&kzg_info.kzg_commitment);
+    result[48..].copy_from_slice(proof.as_slice());
+    result
 }

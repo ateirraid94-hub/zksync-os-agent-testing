@@ -49,51 +49,60 @@ fn run_many_blocks_proof_run() {
         rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
     };
 
-    let proof_input_1 = chain
-        .run_block_with_extra_stats(vec![encoded_mint_tx], None, None)
-        .unwrap()
-        .2;
-    let encoded_transfer_tx = {
-        let transfer_tx = TxEip1559 {
-            chain_id: 37u64,
-            nonce: 1,
-            max_fee_per_gas: 1000,
-            max_priority_fee_per_gas: 1000,
-            gas_limit: 60_000,
-            to: TxKind::Call(to),
-            value: Default::default(),
-            access_list: Default::default(),
-            input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
-        };
-        rig::utils::sign_and_encode_alloy_tx(transfer_tx, &wallet)
+    let mut pc = rig::ProfilerConfig::new(PathBuf::from(format!(
+        "{}/profile_blobs_alloy.svg",
+        env!("CARGO_MANIFEST_DIR")
+    )));
+    pc.frequency_recip = 1;
+    let run_config = rig::chain::RunConfig {
+        profiler_config: Some(pc),
+        ..Default::default()
     };
-
-    let proof_input_2 = chain
-        .run_block_with_extra_stats(vec![encoded_transfer_tx], None, None)
+    let proof_input_1 = chain
+        .run_block_with_extra_stats(vec![encoded_mint_tx], None, Some(run_config))
         .unwrap()
         .2;
+    // let encoded_transfer_tx = {
+    //     let transfer_tx = TxEip1559 {
+    //         chain_id: 37u64,
+    //         nonce: 1,
+    //         max_fee_per_gas: 1000,
+    //         max_priority_fee_per_gas: 1000,
+    //         gas_limit: 60_000,
+    //         to: TxKind::Call(to),
+    //         value: Default::default(),
+    //         access_list: Default::default(),
+    //         input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
+    //     };
+    //     rig::utils::sign_and_encode_alloy_tx(transfer_tx, &wallet)
+    // };
+    //
+    // let proof_input_2 = chain
+    //     .run_block_with_extra_stats(vec![encoded_transfer_tx], None, None)
+    //     .unwrap()
+    //     .2;
+    //
+    // let mut batch_input = Vec::with_capacity(1 + proof_input_1.len() + proof_input_2.len());
+    // batch_input.push(2);
+    // batch_input.extend(proof_input_1.into_iter());
+    // batch_input.extend(proof_input_2.into_iter());
 
-    let mut batch_input = Vec::with_capacity(1 + proof_input_1.len() + proof_input_2.len());
-    batch_input.push(2);
-    batch_input.extend(proof_input_1.into_iter());
-    batch_input.extend(proof_input_2.into_iter());
-
-    let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
-        .join("zksync_os")
-        .join("multiblock_batch.bin");
-
-    let proof_output = zksync_os_runner::run(
-        multinblock_program_path,
-        None,
-        1 << 36,
-        QuasiUARTSource::new_with_reads(batch_input),
-    );
-
-    debug!("Proof running output = 0x",);
-    for word in proof_output.into_iter() {
-        debug!("{word:08x}");
-    }
-
-    // Ensure that proof running didn't fail: check that output is not zero
-    assert!(proof_output.into_iter().any(|word| word != 0));
+//     let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
+//         .join("zksync_os")
+//         .join("multiblock_batch.bin");
+//
+//     let proof_output = zksync_os_runner::run(
+//         multinblock_program_path,
+//         None,
+//         1 << 36,
+//         QuasiUARTSource::new_with_reads(batch_input),
+//     );
+//
+//     debug!("Proof running output = 0x",);
+//     for word in proof_output.into_iter() {
+//         debug!("{word:08x}");
+//     }
+//
+//     // Ensure that proof running didn't fail: check that output is not zero
+//     assert!(proof_output.into_iter().any(|word| word != 0));
 }

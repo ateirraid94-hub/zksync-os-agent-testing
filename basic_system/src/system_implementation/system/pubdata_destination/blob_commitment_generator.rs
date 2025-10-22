@@ -3,7 +3,7 @@ use crypto::ark_ff::PrimeField;
 use crypto::ark_ff::Zero;
 use crypto::ark_ff::One;
 use crypto::ark_ff::Field;
-use crypto::{BigInt, MiniDigest, parse_u256_be, u256_to_be};
+use crypto::{BigInt, MiniDigest, parse_u256_be, parse_u256_le, u256_to_be};
 use crypto::sha3::Keccak256;
 use crypto::BigInteger;
 use zk_ee::memory::ArrayBuilder;
@@ -20,8 +20,8 @@ use crate::system_implementation::system::pubdata_destination::DACommitmentGener
 pub const BLOB_CHUNK_SIZE: usize = 31;
 pub const ELEMENTS_PER_4844_BLOCK: usize = 4096;
 // 1 element is used to encode len(following the alloy encoding)
-// pub const ENCODABLE_BYTES_PER_BLOB: usize = (BLOB_CHUNK_SIZE - 1) * ELEMENTS_PER_4844_BLOCK;
-pub const ENCODABLE_BYTES_PER_BLOB: usize = BLOB_CHUNK_SIZE * ELEMENTS_PER_4844_BLOCK;
+pub const ENCODABLE_BYTES_PER_BLOB: usize = (BLOB_CHUNK_SIZE - 1) * ELEMENTS_PER_4844_BLOCK;
+// pub const ENCODABLE_BYTES_PER_BLOB: usize = BLOB_CHUNK_SIZE * ELEMENTS_PER_4844_BLOCK;
 
 pub struct BlobCommitmentGenerator {
     pubdata_buffer: ArrayVec<u8, ENCODABLE_BYTES_PER_BLOB>,
@@ -46,8 +46,10 @@ impl WriteBytes for BlobCommitmentGenerator {
         let (filling_part, remainder) = buf.split_at(self.pubdata_buffer.capacity() - self.pubdata_buffer.len());
         self.pubdata_buffer.try_extend_from_slice(filling_part).unwrap();
 
-        self.versioned_hashes_hasher.update(&blob_versioned_hash(self.pubdata_buffer.as_slice()));
-
+        let brp_roots_of_unity = blob_polynom::calculate_brp_root_of_unity();
+        cycle_marker::wrap!("blob_versioned_hash", {
+            self.versioned_hashes_hasher.update(&blob_versioned_hash(self.pubdata_buffer.as_slice(), &brp_roots_of_unity));
+        });
         self.pubdata_buffer.clear();
         // theoretically remainder can be still bigger than buffer_capacity,
         // so we are making call to the `write` again to handle it recursively
@@ -58,17 +60,35 @@ impl WriteBytes for BlobCommitmentGenerator {
 impl DACommitmentGenerator for BlobCommitmentGenerator {
     fn da_commitment(&mut self) -> Bytes32 {
         if !self.pubdata_buffer.is_empty() {
-            self.versioned_hashes_hasher.update(&blob_versioned_hash(self.pubdata_buffer.as_slice()));
+            let brp_roots_of_unity = blob_polynom::calculate_brp_root_of_unity();
+            cycle_marker::wrap!("blob_versioned_hash", {
+            self.versioned_hashes_hasher.update(&blob_versioned_hash(self.pubdata_buffer.as_slice(), &brp_roots_of_unity));
+        });
         }
         self.versioned_hashes_hasher.finalize_reset().into()
     }
 }
 
-fn blob_versioned_hash(data: &[u8]) -> [u8; 32] {
+fn blob_versioned_hash(data: &[u8], brp_roots_of_unity: &[crypto::bls12_381::Fr]) -> [u8; 32] {
     let commitment_and_proof = blob_commitment_and_proof_advice(data);
     let versioned_hash = versioned_hash_for_kzg(&commitment_and_proof[..48]);
     let evaluation_point = calculate_evaluation_point(data, &versioned_hash);
-    let opening_value = evaluate_polynomial(data, &evaluation_point);
+    // let opening_value = evaluate_polynomial(data, &evaluation_point);
+    let opening_value = blob_polynom::evaluate_blob_polynomial(data, &evaluation_point, brp_roots_of_unity);
+
+    #[cfg(target_arch = "riscv32")]
+    {
+        use core::fmt::Write;
+        oracle::QuasiUART::new().write_fmt(format_args!("p commitment {:?}\n", &commitment_and_proof[0..48]));
+        oracle::QuasiUART::new().write_fmt(format_args!("p versioned hash {:?}\n", &versioned_hash));
+        let mut hasher = crypto::blake2s::Blake2s256::new();
+        hasher.update(&versioned_hash);
+        hasher.update(data);
+        let hash = hasher.finalize();
+        oracle::QuasiUART::new().write_fmt(format_args!("p hash {:?}\n", hash));
+        oracle::QuasiUART::new().write_fmt(format_args!("p eval point {:?}\n", evaluation_point));
+        oracle::QuasiUART::new().write_fmt(format_args!("p value {:?}\n", opening_value));
+    }
 
     let mut buffer = [0u8; 192];
     buffer[0..32].copy_from_slice(&versioned_hash);
@@ -106,14 +126,14 @@ pub const VERSIONED_HASH_ADVICE_QUERY_ID: u32 = ADVICE_SUBSPACE_MASK | 0x20;
 
 #[cfg(target_arch = "riscv32")]
 fn blob_commitment_and_proof_advice(
-    blob: &[u8]
+    data: &[u8]
 ) -> [u8; 96] {
     // TODO: rework to accept from outside, or think how to avoid duplication
     let mut oracle = oracle::CsrBasedIOOracle::<oracle::CSRBasedNonDeterminismSource>::init();
     let mut it = oracle
         .raw_query(
             VERSIONED_HASH_ADVICE_QUERY_ID,
-            &(blob.as_ptr() as usize as u32),
+            &(data.as_ptr() as usize as u32, data.len() as u32),
         )
         .unwrap();
 
@@ -143,11 +163,29 @@ fn blob_commitment_and_proof_advice(
 fn evaluate_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypto::bls12_381::Fr {
     let mut opening_value: crypto::bls12_381::Fr = crypto::bls12_381::Fr::zero();
 
-    for chunk in data.array_chunks::<BLOB_CHUNK_SIZE>() {
+    let mut number_of_terms = ELEMENTS_PER_4844_BLOCK;
+    let chunks = data.array_chunks::<BLOB_CHUNK_SIZE>();
+    let remainder = chunks.remainder();
+    for chunk in chunks {
         opening_value *= x;
         opening_value += crypto::bls12_381::Fr::from_bigint(
-            parse_u256_be(chunk)
+            parse_u256_le(chunk)
         ).unwrap();
+        number_of_terms -= 1;
+    }
+    if remainder.len() != 0 {
+        let mut chunk = [0u8; 31];
+        chunk[..remainder.len()].copy_from_slice(remainder);
+        opening_value *= x;
+        opening_value += crypto::bls12_381::Fr::from_bigint(
+            parse_u256_le(&chunk)
+        ).unwrap();
+        number_of_terms -= 1;
+    }
+    // zero coeffs
+    while number_of_terms != 0 {
+        opening_value *= x;
+        number_of_terms -= 1;
     }
 
     opening_value
@@ -157,14 +195,14 @@ mod blob_polynom {
     use crypto::parse_u256_be;
     use super::*;
 
-    pub const FIELD_ELEMENTS_PER_EXT_BLOB: usize = ELEMENTS_PER_4844_BLOCK << 1;
+    const FIELD_ELEMENTS_PER_EXT_BLOB: usize = ELEMENTS_PER_4844_BLOCK << 1;
 
     const ROOT_OF_UNITY: BigInt<4> = BigInt([
         0x6fdd00bfc78c8967, 0x146b58bc434906ac, 0x2ccddea2972e89ed, 0x485d512737b1da3d
     ]);
 
     // TODO: precalculate
-    fn calculate_brp_root_of_unity() -> [crypto::bls12_381::Fr; FIELD_ELEMENTS_PER_EXT_BLOB] {
+    pub fn calculate_brp_root_of_unity() -> [crypto::bls12_381::Fr; FIELD_ELEMENTS_PER_EXT_BLOB] {
         let mut roots_of_unity = [crypto::bls12_381::Fr::zero(); FIELD_ELEMENTS_PER_EXT_BLOB];
         roots_of_unity[0] = crypto::bls12_381::Fr::one();
         roots_of_unity[1] = crypto::bls12_381::Fr::from_bigint(ROOT_OF_UNITY).unwrap();
@@ -207,46 +245,37 @@ mod blob_polynom {
     /// Evaluate blob polynomial in the given point.
     /// Follows alloy SimpleCoder data encoding format.
     ///
-    fn evaluate_blob_polynomial(data: &[u8], x: crypto::bls12_381::Fr) -> crypto::bls12_381::Fr {
+    pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr, brp_roots_of_unity: &[crypto::bls12_381::Fr]) -> crypto::bls12_381::Fr {
         let mut poly = [crypto::bls12_381::Fr::zero(); ELEMENTS_PER_4844_BLOCK];
+        let mut poly_iter = poly.iter_mut();
         // len should be [0, len be, 23 zeroes] BE
         let mut length_element = [0u8; 31];
         length_element[..8].copy_from_slice(&(data.len() as u64).to_be_bytes());
-        poly[0] = crypto::bls12_381::Fr::from_bigint(parse_u256_be(&length_element)).unwrap();
-        for (index, chunk) in data.array_chunks::<BLOB_CHUNK_SIZE>().enumerate() {
-            poly[index + 1] = crypto::bls12_381::Fr::from_bigint(parse_u256_be(chunk)).unwrap();
+        *poly_iter.next().unwrap() = crypto::bls12_381::Fr::from_bigint(parse_u256_be(&length_element)).unwrap();
+        let chunks = data.array_chunks::<BLOB_CHUNK_SIZE>();
+        let mut last_chunk = [0u8; 31];
+        let remainder = chunks.remainder();
+        last_chunk[..remainder.len()].copy_from_slice(remainder);
+        for chunk in chunks {
+            *poly_iter.next().unwrap() = crypto::bls12_381::Fr::from_bigint(parse_u256_be(chunk)).unwrap();
         }
+        *poly_iter.next().unwrap() = crypto::bls12_381::Fr::from_bigint(parse_u256_be(&last_chunk)).unwrap();
 
-        let brp_roots_of_unity = calculate_brp_root_of_unity();
         // barycentric Lagrange interpolation evaluation
 
         let mut inverses_in = [crypto::bls12_381::Fr::zero(); ELEMENTS_PER_4844_BLOCK];
-        let mut inverses = [crypto::bls12_381::Fr::zero(); ELEMENTS_PER_4844_BLOCK];
 
         for i in 0..ELEMENTS_PER_4844_BLOCK {
             // If the point to evaluate at is one of the evaluation points by which the polynomial is
-            // given, we can just return the result directly.  Note that special-casing this is
+            // given, we can just return the result directly. Note that special-casing this is
             // necessary, as the formula below would divide by zero otherwise.
-            if x == brp_roots_of_unity[i] {
+            if *x == brp_roots_of_unity[i] {
                 return poly[i];
             }
-            inverses_in[i] = x - brp_roots_of_unity[i];
+            inverses_in[i] = *x - brp_roots_of_unity[i];
         }
 
-
-        // fr_batch_inv
-        let mut accumulator = crypto::bls12_381::Fr::one();
-        for i in 0..ELEMENTS_PER_4844_BLOCK {
-            inverses[i] = accumulator;
-            accumulator *= inverses_in[i];
-        }
-
-        accumulator.inverse_in_place();
-
-        for i in (0..ELEMENTS_PER_4844_BLOCK).rev() {
-            inverses[i] *= accumulator;
-            accumulator *= inverses_in[i];
-        }
+        let inverses = fr_batch_inv(&inverses_in);
 
         let mut out = crypto::bls12_381::Fr::zero();
         let mut tmp = crypto::bls12_381::Fr::zero();
@@ -263,6 +292,25 @@ mod blob_polynom {
         out *= tmp;
 
         out
+    }
+
+    #[inline(never)]
+    fn fr_batch_inv<const N: usize>(input: &[crypto::bls12_381::Fr; N]) -> [crypto::bls12_381::Fr; N] {
+        let mut accumulator = crypto::bls12_381::Fr::one();
+        let mut inverses = core::array::from_fn(|i| {
+            let inverse = accumulator.clone();
+            accumulator *= input[i];
+            inverse
+        });
+
+        accumulator.inverse_in_place();
+
+        for i in (0..N).rev() {
+            inverses[i] *= accumulator;
+            accumulator *= input[i];
+        }
+
+        inverses
     }
 }
 
@@ -378,6 +426,81 @@ mod oracle {
             };
 
             Ok(it)
+        }
+    }
+
+
+    #[derive(Default)]
+    pub struct QuasiUART {
+        buffer: [u8; 4],
+        len: usize,
+    }
+
+    impl QuasiUART {
+        const HELLO_MARKER: u32 = u32::MAX;
+
+        #[inline(never)]
+        pub const fn new() -> Self {
+            Self {
+                buffer: [0u8; 4],
+                len: 0,
+            }
+        }
+
+        #[inline(never)]
+        pub fn write_entry_sequence(&mut self, message_len: usize) {
+            csr_write_word(Self::HELLO_MARKER as usize);
+            // now write length is words for query
+            csr_write_word(message_len.next_multiple_of(4) / 4 + 1);
+            csr_write_word(message_len);
+        }
+
+        #[inline(never)]
+        pub fn write_word(&self, word: u32) {
+            csr_write_word(word as usize);
+        }
+
+        #[inline(never)]
+        pub fn read_word(&self) -> usize {
+            csr_read_word() as usize
+        }
+
+        #[inline(never)]
+        fn write_byte(&mut self, byte: u8) {
+            self.buffer[self.len] = byte;
+            self.len += 1;
+            if self.len == 4 {
+                self.len = 0;
+                let word = u32::from_le_bytes(self.buffer);
+                self.write_word(word);
+            }
+        }
+
+        fn flush(&mut self) {
+            if self.len == 0 {
+                // cleanup and return
+                for dst in self.buffer.iter_mut() {
+                    *dst = 0;
+                }
+                return;
+            }
+            for i in self.len..4 {
+                self.buffer[i] = 0u8;
+            }
+            self.len = 0;
+            csr_write_word(u32::from_le_bytes(self.buffer) as usize);
+        }
+    }
+
+    impl core::fmt::Write for QuasiUART {
+        fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
+            self.write_entry_sequence(s.len());
+            for c in s.bytes() {
+                self.write_byte(c);
+            }
+            self.flush();
+
+            Ok(())
         }
     }
 }
