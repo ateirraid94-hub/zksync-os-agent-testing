@@ -47,7 +47,7 @@ impl Block {
                     let calls_unsupported_percompile =
                         || calltrace.result.has_call_to_unsupported_precompile();
                     let transaction_type = tx.ty();
-                    let supported_tx_type = transaction_type <= 2;
+                    let supported_tx_type = transaction_type <= 3;
                     if supported_tx_type && !calls_unsupported_percompile() {
                         Some(encode_alloy_rpc_tx(tx))
                     } else {
