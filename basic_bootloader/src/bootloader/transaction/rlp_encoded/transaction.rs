@@ -10,6 +10,7 @@ use core::alloc::Allocator;
 
 use super::*;
 use ruint::aliases::{B160, U256};
+use transaction_types::eip_4844_tx::BlobHashesList;
 use zk_ee::system::Resources;
 use zk_ee::utils::UsizeAlignedByteBox;
 
@@ -262,6 +263,26 @@ impl<A: Allocator> RlpEncodedTransaction<A> {
             RlpEncodedTxInner::EIP1559(tx, _) => Some(&tx.max_priority_fee_per_gas),
             RlpEncodedTxInner::EIP4844(tx, _) => Some(&tx.max_priority_fee_per_gas),
             RlpEncodedTxInner::EIP7702(tx, _) => Some(&tx.max_priority_fee_per_gas),
+        }
+    }
+
+    pub fn max_fee_per_blob_gas(&self) -> Option<&U256> {
+        match &self.inner {
+            RlpEncodedTxInner::Legacy(_, _) | RlpEncodedTxInner::LegacyWithEIP155(_, _) => None,
+            RlpEncodedTxInner::EIP2930(_, _) => None,
+            RlpEncodedTxInner::EIP1559(_, _) => None,
+            RlpEncodedTxInner::EIP4844(tx, _) => Some(&tx.max_fee_per_blob_gas),
+            RlpEncodedTxInner::EIP7702(_, _) => None,
+        }
+    }
+
+    pub fn blobs_list<'a>(&'a self) -> Option<BlobHashesList<'a>> {
+        match &self.inner {
+            RlpEncodedTxInner::Legacy(_, _) | RlpEncodedTxInner::LegacyWithEIP155(_, _) => None,
+            RlpEncodedTxInner::EIP2930(_, _) => None,
+            RlpEncodedTxInner::EIP1559(_, _) => None,
+            RlpEncodedTxInner::EIP4844(tx, _) => Some(tx.blob_versioned_hashes),
+            RlpEncodedTxInner::EIP7702(_, _) => None,
         }
     }
 

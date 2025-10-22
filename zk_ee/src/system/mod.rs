@@ -147,6 +147,10 @@ impl<S: SystemTypes> System<S> {
         self.metadata.eip1559_basefee()
     }
 
+    pub fn get_blob_base_fee_per_gas(&self) -> ruint::aliases::U256 {
+        self.metadata.blob_base_fee_per_gas()
+    }
+
     pub fn get_gas_limit(&self) -> u64 {
         self.metadata.block_gas_limit()
     }

@@ -210,11 +210,14 @@ pub fn encode_envelope_2718(env: &TxEnvelope) -> Vec<u8> {
             out.push(0x02);
             signed.rlp_encode(&mut out);
         }
+        EthereumTxEnvelope::Eip4844(signed) => {
+            out.push(0x03);
+            signed.rlp_encode(&mut out);
+        }
         EthereumTxEnvelope::Eip7702(signed) => {
             out.push(0x04);
             signed.rlp_encode(&mut out);
         }
-        _ => unimplemented!(),
     }
     out
 }
@@ -232,6 +235,6 @@ pub fn sign_and_encode_transaction_request(
         TypedTransaction::Eip1559(tx) => sign_and_encode_alloy_tx(tx, wallet),
         TypedTransaction::Eip7702(tx) => sign_and_encode_alloy_tx(tx, wallet),
         TypedTransaction::Eip2930(tx) => sign_and_encode_alloy_tx(tx, wallet),
-        TypedTransaction::Eip4844(_) => panic!("Unsupported tx type"),
+        TypedTransaction::Eip4844(tx) => sign_and_encode_alloy_tx(tx, wallet),
     }
 }

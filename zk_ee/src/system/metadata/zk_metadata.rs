@@ -17,22 +17,21 @@ use ruint::aliases::{B160, U256};
 pub type ZkMetadata = SystemMetadata<
     EthereumIOTypesConfig,
     BlockMetadataFromOracle,
-    TxLevelMetadata<EthereumIOTypesConfig, { MAX_BLOBS_PER_BLOCK }>,
+    TxLevelMetadata<EthereumIOTypesConfig>,
 >;
 
+pub const VERSIONED_HASH_VERSION_KZG: u8 = 0x01;
 pub const MAX_BLOBS_PER_BLOCK: usize = 9;
 pub const GAS_PER_BLOB: u64 = 1 << 17;
 
 #[derive(Clone, Debug, Default)]
-pub struct TxLevelMetadata<IOTypes: SystemIOTypesConfig, const MAX_BLOBS: usize> {
+pub struct TxLevelMetadata<IOTypes: SystemIOTypesConfig> {
     pub tx_origin: IOTypes::Address,
     pub tx_gas_price: U256,
-    pub blobs: arrayvec::ArrayVec<Bytes32, { MAX_BLOBS }>,
+    pub blobs: arrayvec::ArrayVec<Bytes32, { MAX_BLOBS_PER_BLOCK }>,
 }
 
-impl<const MAX_BLOBS: usize> BasicTransactionMetadata<EthereumIOTypesConfig>
-    for TxLevelMetadata<EthereumIOTypesConfig, MAX_BLOBS>
-{
+impl BasicTransactionMetadata<EthereumIOTypesConfig> for TxLevelMetadata<EthereumIOTypesConfig> {
     fn tx_origin(&self) -> B160 {
         self.tx_origin
     }
