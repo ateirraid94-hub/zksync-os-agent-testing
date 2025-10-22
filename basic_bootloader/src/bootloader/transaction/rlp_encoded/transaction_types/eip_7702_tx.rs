@@ -88,11 +88,6 @@ impl<'a> RlpListDecode<'a> for EIP7702Tx<'a> {
             .try_into()
             .map_err(|_| InvalidTransaction::InvalidStructure)?;
 
-        if to.iter().all(|&b| b == 0) {
-            // Deployment transactions are not allowed in EIP-7702
-            return Err(InvalidTransaction::EIP7702HasNullDestination);
-        }
-
         let value = r.u256()?;
         let data = r.bytes()?;
         let access_list = AccessList::decode_list_from(r)?;
