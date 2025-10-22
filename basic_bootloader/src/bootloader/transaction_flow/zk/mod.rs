@@ -17,6 +17,8 @@ use core::fmt::Write;
 use crypto::secp256k1::SECP256K1N_HALF;
 use evm_interpreter::interpreter::CreateScheme;
 use evm_interpreter::{ERGS_PER_GAS, MAX_INITCODE_SIZE};
+use metadata::basic_metadata::BasicTransactionMetadata;
+use metadata::zk_metadata::GAS_PER_BLOB;
 use ruint::aliases::{B160, U256};
 use system_hooks::HooksStorage;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
@@ -325,14 +327,48 @@ where
         resources: &mut S::Resources,
         _tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError> {
-        let amount = gas_price
+        let amount_and_fee = gas_price
             .checked_mul(U256::from(transaction.gas_limit()))
             .ok_or(internal_error!("gp*gl"))?;
+
+        let num_blobs = system.metadata.num_blobs();
+        // NOTE: it's a special resource - not transaction gas. Will be used to charge fee only
+        let blob_gas_used = num_blobs as u64 * GAS_PER_BLOB;
+        let fee_for_blob_gas = if blob_gas_used > 0 {
+            let _ = system.get_logger().write_fmt(format_args!(
+                "Blob gas price = {}\n",
+                &system.get_blob_base_fee_per_gas()
+            ));
+
+            let Some(value) = system
+                .get_blob_base_fee_per_gas()
+                .checked_mul(U256::from(blob_gas_used))
+            else {
+                return Err(TxError::Validation(
+                    InvalidTransaction::OverflowPaymentInTransaction,
+                ));
+            };
+
+            value
+        } else {
+            U256::ZERO
+        };
+
+        let total_required = amount_and_fee
+            .checked_add(fee_for_blob_gas)
+            .ok_or(internal_error!("aaf+ffbg"))?;
+
         // Only spend the amount now, the transfer to coinbase happens after
         // execution
         system
             .io
-            .update_account_nominal_token_balance(caller_ee_type, resources, &from, &amount, true)
+            .update_account_nominal_token_balance(
+                caller_ee_type,
+                resources,
+                &from,
+                &total_required,
+                true,
+            )
             .map_err(|e| match e {
                 SubsystemError::LeafUsage(interface_error) => {
                     let _ = system
@@ -344,7 +380,7 @@ where
                     {
                         Ok(balance) => {
                             TxError::Validation(InvalidTransaction::LackOfFundForMaxFee {
-                                fee: amount,
+                                fee: total_required,
                                 balance,
                             })
                         }

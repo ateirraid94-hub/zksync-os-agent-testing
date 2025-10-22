@@ -62,14 +62,10 @@ pub trait BasicTransactionMetadata<IOTypes: SystemIOTypesConfig> {
     fn tx_gas_price(&self) -> U256;
 
     /// Number of EIP-4844 blobs carried by this transaction (if any).
-    fn num_blobs(&self) -> usize {
-        0
-    }
+    fn num_blobs(&self) -> usize;
 
     /// Hash (commitment) of the `idx`-th blob for this transaction, if present.
-    fn get_blob_hash(&self, _idx: usize) -> Option<Bytes32> {
-        None
-    }
+    fn get_blob_hash(&self, _idx: usize) -> Option<Bytes32>;
 }
 
 /// ZKsync-specific pricing knobs that are *not* standardized by Ethereum.
