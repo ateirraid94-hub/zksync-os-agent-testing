@@ -41,8 +41,6 @@ enum Command {
         skip_successful: bool,
         #[arg(long)]
         persist_all: bool,
-        #[arg(long)]
-        chain_id: Option<u64>,
     },
     // Run a single block from JSON files
     SingleRun {
@@ -102,7 +100,6 @@ fn main() -> anyhow::Result<()> {
             witness_output_dir,
             skip_successful,
             persist_all,
-            chain_id,
         } => live_run::live_run(
             start_block,
             end_block,
@@ -111,7 +108,6 @@ fn main() -> anyhow::Result<()> {
             witness_output_dir,
             skip_successful,
             persist_all,
-            chain_id,
         ),
         Command::ExportRatios { db, path } => live_run::export_block_ratios(db, path),
         Command::ShowStatus { db } => live_run::show_status(db),

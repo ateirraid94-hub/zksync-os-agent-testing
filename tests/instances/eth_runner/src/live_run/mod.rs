@@ -90,7 +90,7 @@ fn run_block(
     endpoint: &str,
     witness_output_dir: Option<String>,
     persist_all: bool,
-    chain_id: Option<u64>,
+    chain_id: u64,
 ) -> Result<BlockStatus> {
     let block_traces = fetch_block_traces(block_number, db, endpoint)?;
     let traces_clone = block_traces.clone();
@@ -154,7 +154,7 @@ fn run_block(
             .collect(),
     };
 
-    let mut chain = Chain::empty_randomized(Some(chain_id.unwrap_or(1)));
+    let mut chain = Chain::empty_randomized(Some(chain_id));
     chain.set_last_block_number(block_number - 1);
 
     chain.set_block_hashes(get_block_hashes_array(block_number, db)?);
@@ -241,11 +241,11 @@ pub fn live_run(
     witness_output_dir: Option<String>,
     skip_successful: bool,
     persist_all: bool,
-    chain_id: Option<u64>,
 ) -> Result<()> {
     let db = Database::init(db_path)?;
     assert!(start_block <= end_block);
     fetch_block_hashes(start_block, &db, &endpoint)?;
+    let chain_id = rpc::get_chain_id(&endpoint)?;
     let mut failures = 0;
     for n in start_block..=end_block {
         let status = db.get_block_status(n)?;
