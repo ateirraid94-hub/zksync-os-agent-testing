@@ -113,6 +113,10 @@ impl<A: Allocator + Clone> NewPreimagesPublicationStorage<A> {
     ) -> impl Iterator<Item = HistoryMapItemRef<Bytes32, CacheRecord<Elem, ()>, A>> {
         self.cache.iter()
     }
+
+    pub fn contains(&mut self, hash: &Bytes32) -> bool {
+        self.cache.get(hash).is_some()
+    }
 }
 
 #[cfg(test)]
