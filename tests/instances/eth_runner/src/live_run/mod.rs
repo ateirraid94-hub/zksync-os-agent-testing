@@ -17,7 +17,7 @@ use crate::{
 };
 
 const N_PREV_BLOCKS: usize = 256;
-const MAX_FAILURES: usize = 100;
+const MAX_FAILURES: usize = 1;
 
 // Fetches hashes for the N_PREV_BLOCKS previous to [start_block].
 // Persists them in DB.
