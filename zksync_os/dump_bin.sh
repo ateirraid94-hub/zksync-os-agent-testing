@@ -43,11 +43,11 @@ case "$TYPE" in
     ELF_NAME="for_tests.elf"
     TEXT_NAME="for_tests.text"
     ;;
-  debug-in-simulator)
-    FEATURES="$FEATURES,print_debug_info,for_tests"
-    BIN_NAME="app_debug.bin"
-    ELF_NAME="app_debug.elf"
-    TEXT_NAME="app_debug.text"
+  for-tests-logging-enabled)
+    FEATURES="$FEATURES,for_tests,print_debug_info"
+    BIN_NAME="for_tests_logging_enabled.bin"
+    ELF_NAME="for_tests_logging_enabled.elf"
+    TEXT_NAME="for_tests_logging_enabled.text"
     ;;
   evm-replay)
     FEATURES="$FEATURES,eth_runner"
