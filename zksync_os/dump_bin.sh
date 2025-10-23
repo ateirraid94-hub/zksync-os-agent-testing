@@ -26,13 +26,13 @@ FEATURES="proving"
 # Adjust for server modes
 case "$TYPE" in
   server)
-    FEATURES="$FEATURES"
+    FEATURES="$FEATURES,evm_compatibility"
     BIN_NAME="server_app.bin"
     ELF_NAME="server_app.elf"
     TEXT_NAME="server_app.text"
     ;;
   server-logging-enabled)
-    FEATURES="$FEATURES,print_debug_info"
+    FEATURES="$FEATURES,evm_compatibility,print_debug_info"
     BIN_NAME="server_app_logging_enabled.bin"
     ELF_NAME="server_app_logging_enabled.elf"
     TEXT_NAME="server_app_logging_enabled.text"
@@ -68,13 +68,13 @@ case "$TYPE" in
     TEXT_NAME="pectra.text"
     ;;
   multiblock-batch)
-    FEATURES="$FEATURES,multiblock-batch"
+    FEATURES="$FEATURES,evm_compatibility,multiblock-batch"
     BIN_NAME="multiblock_batch.bin"
     ELF_NAME="multiblock_batch.elf"
     TEXT_NAME="multiblock_batch.text"
     ;;
   multiblock-batch-logging-enabled)
-    FEATURES="$FEATURES,multiblock-batch,print_debug_info"
+    FEATURES="$FEATURES,evm_compatibility,multiblock-batch,print_debug_info"
     BIN_NAME="multiblock_batch_logging_enabled.bin"
     ELF_NAME="multiblock_batch_logging_enabled.elf"
     TEXT_NAME="multiblock_batch_logging_enabled.text"
