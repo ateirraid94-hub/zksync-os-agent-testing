@@ -327,29 +327,6 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         .0
     }
 
-    ///
-    /// Run block with given transactions, block context, and custom oracle factory.
-    /// If block context is `None` default testing values will be used.
-    ///
-    /// You can also pass a run config.
-    ///
-    pub fn run_block_with_oracle_factory<OF: TestingOracleFactory<RANDOMIZED_TREE>>(
-        &mut self,
-        transactions: Vec<EncodedTx>,
-        block_context: Option<BlockContext>,
-        run_config: Option<RunConfig>,
-        oracle_factory: &OF,
-    ) -> BlockOutput {
-        self.run_block_with_extra_stats_with_oracle_factory(
-            transactions,
-            block_context,
-            run_config,
-            oracle_factory,
-        )
-        .unwrap()
-        .0
-    }
-
     #[allow(clippy::result_large_err)]
     pub fn run_block_no_panic(
         &mut self,

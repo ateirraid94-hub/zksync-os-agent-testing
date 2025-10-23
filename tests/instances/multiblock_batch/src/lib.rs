@@ -51,7 +51,7 @@ fn run_many_blocks_proof_run() {
     };
 
     let mut pc = rig::ProfilerConfig::new(PathBuf::from(format!(
-        "{}/profile_blobs_alloy.svg",
+        "{}/profile_blobs_era.svg",
         env!("CARGO_MANIFEST_DIR")
     )));
     pc.frequency_recip = 1;

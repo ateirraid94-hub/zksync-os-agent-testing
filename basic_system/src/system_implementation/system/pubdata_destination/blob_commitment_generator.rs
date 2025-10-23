@@ -16,12 +16,13 @@ use zk_ee::utils::write_bytes::WriteBytes;
 use crate::system_functions::point_evaluation::{POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE, point_evaluation_as_system_function_inner};
 use crate::system_implementation::system::pubdata_destination::DACommitmentGenerator;
 
-// number of bytes we encode in 1 blob element
+/// Number of bytes we encode in one blob element
 pub const BLOB_CHUNK_SIZE: usize = 31;
+/// Number of element in one blob
 pub const ELEMENTS_PER_4844_BLOCK: usize = 4096;
+/// Number of bytes we can encode in one blob
 // 1 element is used to encode len(following the alloy encoding)
 pub const ENCODABLE_BYTES_PER_BLOB: usize = (BLOB_CHUNK_SIZE - 1) * ELEMENTS_PER_4844_BLOCK;
-// pub const ENCODABLE_BYTES_PER_BLOB: usize = BLOB_CHUNK_SIZE * ELEMENTS_PER_4844_BLOCK;
 
 pub struct BlobCommitmentGenerator {
     pubdata_buffer: ArrayVec<u8, ENCODABLE_BYTES_PER_BLOB>,
@@ -73,7 +74,6 @@ fn blob_versioned_hash(data: &[u8], brp_roots_of_unity: &[crypto::bls12_381::Fr]
     let commitment_and_proof = blob_commitment_and_proof_advice(data);
     let versioned_hash = versioned_hash_for_kzg(&commitment_and_proof[..48]);
     let evaluation_point = calculate_evaluation_point(data, &versioned_hash);
-    // let opening_value = evaluate_polynomial(data, &evaluation_point);
     let opening_value = blob_polynom::evaluate_blob_polynomial(data, &evaluation_point, brp_roots_of_unity);
 
     #[cfg(target_arch = "riscv32")]
@@ -156,41 +156,6 @@ fn blob_commitment_and_proof_advice(
     [0u8; 96]
 }
 
-///
-/// Evaluate polynomial in the given point.
-/// We will use data chunked by 31 bytes as polynomial coefficients.
-///
-fn evaluate_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypto::bls12_381::Fr {
-    let mut opening_value: crypto::bls12_381::Fr = crypto::bls12_381::Fr::zero();
-
-    let mut number_of_terms = ELEMENTS_PER_4844_BLOCK;
-    let chunks = data.array_chunks::<BLOB_CHUNK_SIZE>();
-    let remainder = chunks.remainder();
-    for chunk in chunks {
-        opening_value *= x;
-        opening_value += crypto::bls12_381::Fr::from_bigint(
-            parse_u256_le(chunk)
-        ).unwrap();
-        number_of_terms -= 1;
-    }
-    if remainder.len() != 0 {
-        let mut chunk = [0u8; 31];
-        chunk[..remainder.len()].copy_from_slice(remainder);
-        opening_value *= x;
-        opening_value += crypto::bls12_381::Fr::from_bigint(
-            parse_u256_le(&chunk)
-        ).unwrap();
-        number_of_terms -= 1;
-    }
-    // zero coeffs
-    while number_of_terms != 0 {
-        opening_value *= x;
-        number_of_terms -= 1;
-    }
-
-    opening_value
-}
-
 mod blob_polynom {
     use crypto::parse_u256_be;
     use super::*;
@@ -243,7 +208,11 @@ mod blob_polynom {
 
     ///
     /// Evaluate blob polynomial in the given point.
-    /// Follows alloy SimpleCoder data encoding format.
+    /// Please note that the function accepts not the blob itself, but the data that will be encoded in the blob.
+    ///
+    /// For encoding, it follows alloy default(`SimpleCoder` format):
+    /// - 1st element is `Fr::from_be([0, data_len_be, 23 zeroes])`
+    /// - `i`-th element(`i > 0`) is `Fr::from_be([0, data[(i-1)*31..i*31])`(`data` padded with zeroes if needed)
     ///
     pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr, brp_roots_of_unity: &[crypto::bls12_381::Fr]) -> crypto::bls12_381::Fr {
         let mut poly = [crypto::bls12_381::Fr::zero(); ELEMENTS_PER_4844_BLOCK];
@@ -269,6 +238,7 @@ mod blob_polynom {
             // If the point to evaluate at is one of the evaluation points by which the polynomial is
             // given, we can just return the result directly. Note that special-casing this is
             // necessary, as the formula below would divide by zero otherwise.
+            // TODO: can be checked by x^4096 == 0 or even in inverse_in(if grand product == 0)
             if *x == brp_roots_of_unity[i] {
                 return poly[i];
             }

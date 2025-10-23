@@ -97,6 +97,7 @@ pub fn point_evaluation_as_system_function_inner<D: ?Sized + TryExtend<u8>, R: R
     ))?;
 
     use crypto::ark_serialize::CanonicalDeserialize;
+    // TODO: precompute
     let g2_by_tau_point = <crypto::bls12_381::curves::Bls12_381 as crypto::ark_ec::pairing::Pairing>::G2Affine::deserialize_compressed(&TRUSTED_SETUP_TAU_G2_BYTES[..]).expect("must decode from trusted setup");
     let prepared_g2_generator: <crypto::bls12_381::curves::Bls12_381 as crypto::ark_ec::pairing::Pairing>::G2Prepared = crypto::bls12_381::G2Affine::generator().into();
 
