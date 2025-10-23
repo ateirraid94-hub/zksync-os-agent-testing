@@ -41,6 +41,8 @@ enum Command {
         skip_successful: bool,
         #[arg(long)]
         persist_all: bool,
+        #[arg(long)]
+        slack_webhook: Option<String>,
     },
     // Run a single block from JSON files
     SingleRun {
@@ -100,6 +102,7 @@ fn main() -> anyhow::Result<()> {
             witness_output_dir,
             skip_successful,
             persist_all,
+            slack_webhook,
         } => live_run::live_run(
             start_block,
             end_block,
@@ -108,6 +111,7 @@ fn main() -> anyhow::Result<()> {
             witness_output_dir,
             skip_successful,
             persist_all,
+            slack_webhook,
         ),
         Command::ExportRatios { db, path } => live_run::export_block_ratios(db, path),
         Command::ShowStatus { db } => live_run::show_status(db),

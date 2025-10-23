@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use alloy::primitives::U256;
 use anyhow::{anyhow, Context, Ok, Result};
 use db::{BlockStatus, BlockTraces, Database, ResourceInfo};
@@ -15,9 +17,38 @@ use crate::{
     prestate::{DiffTrace, PrestateTrace},
     receipts::TransactionReceipt,
 };
+use reqwest::blocking::Client;
+use serde_json::json;
+use std::backtrace::Backtrace;
+use std::panic;
 
 const N_PREV_BLOCKS: usize = 256;
 const MAX_FAILURES: usize = 1;
+
+fn send_slack(webhook: &str, text: &str) -> Result<()> {
+    let resp = Client::new()
+        .post(webhook)
+        .json(&serde_json::json!({ "text": text }))
+        .send()?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("slack webhook returned {}", resp.status()));
+    }
+    Ok(())
+}
+
+fn install_panic_hook(webhook: String) {
+    panic::set_hook(Box::new(move |info| {
+        let msg = format!(
+            ":rotating_light: eth-runner panicked: {info}\n{}",
+            Backtrace::force_capture()
+        );
+        let _ = Client::new()
+            .post(&webhook)
+            .json(&json!({ "text": msg }))
+            .send();
+        eprintln!("{msg}");
+    }));
+}
 
 // Fetches hashes for the N_PREV_BLOCKS previous to [start_block].
 // Persists them in DB.
@@ -235,7 +266,11 @@ pub fn live_run(
     witness_output_dir: Option<String>,
     skip_successful: bool,
     persist_all: bool,
+    webhook: Option<String>,
 ) -> Result<()> {
+    if let Some(webhook) = webhook.clone() {
+        install_panic_hook(webhook);
+    }
     let db = Database::init(db_path)?;
     assert!(start_block <= end_block);
     fetch_block_hashes(start_block, &db, &endpoint)?;
@@ -248,7 +283,7 @@ pub fn live_run(
             debug!("Skipping block {n}, already succeeded");
             continue;
         }
-        if let BlockStatus::Error(_) = run_block(
+        if let BlockStatus::Error(e) = run_block(
             n,
             &db,
             &endpoint,
@@ -257,11 +292,19 @@ pub fn live_run(
             chain_id,
         )? {
             failures += 1;
+            if let Some(webhook) = webhook.as_ref() {
+                let msg = format!(":rotating_light: eth_runner: Block {n} failed with: {e:?}");
+                send_slack(webhook, &msg)?
+            }
             if failures == MAX_FAILURES {
                 error!("Reached max number of failures");
                 panic!()
             }
         }
+    }
+    if let Some(webhook) = webhook.as_ref() {
+        let msg = format!(":white_check_mark: eth_runner: finished running from block {start_block} to {end_block} on chain with id {chain_id} successfully!");
+        send_slack(webhook, &msg)?
     }
     Ok(())
 }
