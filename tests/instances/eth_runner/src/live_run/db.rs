@@ -4,7 +4,7 @@ use crate::post_check::PostCheckError;
 use crate::prestate::{DiffTrace, PrestateTrace};
 use crate::receipts::BlockReceipts;
 use alloy::primitives::U256;
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use bincode::config::standard;
 use bincode::serde::{decode_from_slice, encode_to_vec};
 use csv::Writer;
@@ -153,8 +153,11 @@ impl Database {
 
     pub fn get_block_traces(&self, block_number: u64) -> Result<Option<BlockTraces>> {
         if let Some(bytes) = self.block_traces.get(block_number.to_be_bytes())? {
-            let (status, _) = decode_from_slice::<BlockTraces, _>(&bytes, standard())
-                .context("Failed to decode block traces")?;
+            let core::result::Result::Ok((status, _)) =
+                decode_from_slice::<BlockTraces, _>(&bytes, standard())
+            else {
+                return Ok(None);
+            };
             Ok(Some(status))
         } else {
             Ok(None)

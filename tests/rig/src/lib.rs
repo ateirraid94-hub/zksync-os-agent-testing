@@ -16,6 +16,8 @@ pub use alloy_rlp;
 pub use basic_system;
 pub use chain::BlockContext;
 pub use chain::Chain;
+#[cfg(feature = "airbender_cli")]
+pub use cli_lib;
 pub use crypto;
 pub use ethers;
 pub use forward_system;

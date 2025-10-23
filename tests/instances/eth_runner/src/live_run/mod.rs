@@ -141,7 +141,6 @@ fn run_block(
     info!("\n ===================");
     info!("Running block: {block_number}");
 
-    let miner = block.result.header.beneficiary;
     let block_context = block.get_block_context();
     let (transactions, skipped) = block.get_transactions(&call);
     info!("Transactions to run: {}", transactions.len());
@@ -204,7 +203,7 @@ fn run_block(
         check_storage_diff_hashes: true,
         ..Default::default()
     };
-    let (output, stats, _) = chain
+    let (output, stats, _prover_input) = chain
         .run_block_with_extra_stats(
             transactions,
             Some(block_context),
@@ -214,6 +213,33 @@ fn run_block(
         .unwrap();
 
     info!("Actual gas used: {}", output.header.gas_used);
+
+    #[cfg(feature = "proving")]
+    {
+        let bin_path = rig::chain::get_zksync_os_img_path(&Some("evm_replay".to_string()))
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let output_dir = std::env::var("PROOFS_DIR").expect("Set PROOFS_DIR env var");
+        let witness: Vec<u8> = _prover_input.iter().flat_map(|x| x.to_be_bytes()).collect();
+        let input_hex = hex::encode(witness);
+        let gpu = cfg!(feature = "gpu");
+
+        rig::cli_lib::prover_utils::create_proofs(
+            &bin_path,
+            &output_dir,
+            &Some(input_hex),
+            &None,
+            &rig::cli_lib::Machine::Standard,
+            // TODO: check if we need to set cycles
+            &None,
+            &Some(rig::cli_lib::prover_utils::ProvingLimit::FinalRecursion),
+            rig::cli_lib::prover_utils::RecursionStrategy::UseReducedLog23Machine,
+            &None,
+            gpu,
+        );
+    }
 
     if let Some(ratio) = compute_ratio(stats) {
         db.set_block_ratio(block_number, ratio)?;
