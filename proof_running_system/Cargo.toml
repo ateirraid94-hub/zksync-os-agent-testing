@@ -38,7 +38,7 @@ proving = ["crypto/proving", "basic_system/proving"]
 scalloc = []
 cycle_marker = ["zk_ee/cycle_marker", "evm_interpreter/cycle_marker", "basic_system/cycle_marker", "basic_bootloader/cycle_marker"]
 unlimited_native = ["basic_bootloader/unlimited_native"]
-benchmarking = ["cycle_marker", "unlimited_native"]
+benchmarking = ["cycle_marker"]
 global-alloc = []
 error_origins = ["zk_ee/error_origins"]
 multiblock-batch = ["basic_system/multiblock-batch"]
@@ -52,7 +52,7 @@ evm_compatibility = ["basic_bootloader/evm-compatibility", "basic_system/evm-com
 for_tests = ["evm_compatibility", "system_hooks/p256_precompile", "state-diffs-pi", "cycle_marker", "system_hooks/point_eval_precompile"]
 
 # Features used for eth_runner
-eth_runner = ["evm_compatibility", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "state-diffs-pi"]
+eth_runner = ["evm_compatibility", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "state-diffs-pi", "unlimited_native"]
 
 # Features used for evm_tester
 evm_tester = ["evm_compatibility", "basic_bootloader/resources_for_tester", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "state-diffs-pi", "basic_bootloader/pectra", "system_hooks/p256_precompile","system_hooks/point_eval_precompile"]
