@@ -232,8 +232,7 @@ fn run_block(
             &Some(input_hex),
             &None,
             &rig::cli_lib::Machine::Standard,
-            // TODO: check if we need to set cycles
-            &None,
+            &Some(1 << 32),
             &Some(rig::cli_lib::prover_utils::ProvingLimit::FinalRecursion),
             rig::cli_lib::prover_utils::RecursionStrategy::UseReducedLog23Machine,
             &None,
