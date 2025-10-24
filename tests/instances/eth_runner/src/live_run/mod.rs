@@ -356,7 +356,7 @@ pub fn live_run(
         )? {
             failures += 1;
             if let Some(webhook) = webhook.as_ref() {
-                let msg = format!(":rotating_light: eth_runner: Block {n} failed with: {e:?}");
+                let msg = format!(":rotating_light: eth_runner: Block {n} on chain with id {chain_id} failed with: {e:?}");
                 send_slack(webhook, &msg)?
             }
             if failures == MAX_FAILURES {
