@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context, Ok, Result};
 use db::{BlockStatus, BlockTraces, Database, ResourceInfo};
 mod db;
 mod rpc;
-use rig::log::{debug, error, info};
+use rig::log::{debug, error, info, warn};
 use rig::Chain;
 use zk_ee::system::tracer::NopTracer;
 
@@ -153,7 +153,14 @@ fn run_block(
     info!("Running block: {block_number}");
 
     let block_context = block.get_block_context();
-    let (transactions, skipped) = block.get_transactions(&call, single_tx);
+    let (transactions, skipped, calls_unsupported_precompile) =
+        block.get_transactions(&call, single_tx);
+    if calls_unsupported_precompile {
+        // Here it makes little sense to run the block, as the post check is gonna fail
+        // We just skip it, marking it as successful
+        warn!("Skipping block {block_number}, as it calls to an unsupported precompile");
+        return Ok(BlockStatus::Success);
+    }
     info!("Transactions to run: {}", transactions.len());
 
     let receipts: Vec<TransactionReceipt> = receipts

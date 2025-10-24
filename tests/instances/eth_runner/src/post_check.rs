@@ -145,7 +145,6 @@ impl DiffTrace {
                 }
             };
             if let Some(bal) = account.balance {
-                // Balance might differ due to refunds and access list gas charging
                 if Some(bal) != zk_account.balance {
                     error_internal!(
                         "Balance for {} is {:?} but expected {:?}.\n  Difference: {:?}",

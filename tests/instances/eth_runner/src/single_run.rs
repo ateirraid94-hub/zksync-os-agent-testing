@@ -98,7 +98,7 @@ pub fn single_run(
     let miner = block.result.header.beneficiary;
 
     let block_context = block.get_block_context();
-    let (transactions, skipped) = block.get_transactions(&calltrace, single_tx);
+    let (transactions, skipped, _) = block.get_transactions(&calltrace, single_tx);
 
     let receipts = receipts
         .result
