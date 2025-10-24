@@ -163,6 +163,10 @@ impl<S: SystemTypes> System<S> {
         self.metadata.block_timestamp()
     }
 
+    pub fn get_blob_hash(&self, idx: usize) -> Option<Bytes32> {
+        self.metadata.get_blob_hash(idx)
+    }
+
     pub fn set_tx_context(
         &mut self,
         tx_level_metadata: <S::Metadata as BasicMetadata<S::IOTypes>>::TransactionMetadata,
