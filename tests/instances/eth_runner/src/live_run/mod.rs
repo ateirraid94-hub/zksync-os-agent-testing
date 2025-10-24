@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use alloy::primitives::U256;
 use anyhow::{anyhow, Context, Ok, Result};
 use db::{BlockStatus, BlockTraces, Database, ResourceInfo};
@@ -115,6 +113,16 @@ fn fetch_block_traces(block_number: u64, db: &Database, endpoint: &str) -> Resul
     }
 }
 
+#[cfg(feature = "gpu")]
+type GpuSharedState = rig::cli_lib::prover_utils::GpuSharedState;
+
+#[cfg(all(feature = "proving", not(feature = "gpu")))]
+type GpuSharedState<'a> = rig::cli_lib::prover_utils::GpuSharedState<'a>;
+
+#[cfg(not(feature = "proving"))]
+type GpuSharedState = ();
+
+#[allow(clippy::too_many_arguments, unused_variables)]
 fn run_block(
     block_number: u64,
     db: &Database,
@@ -123,6 +131,7 @@ fn run_block(
     persist_all: bool,
     chain_id: u64,
     single_tx: Option<u64>,
+    gpu_shared_state: &mut Option<&mut GpuSharedState>,
 ) -> Result<BlockStatus> {
     let block_traces = fetch_block_traces(block_number, db, endpoint)?;
     let traces_clone = block_traces.clone();
@@ -222,23 +231,25 @@ fn run_block(
             .to_str()
             .unwrap()
             .to_string();
-        let output_dir = std::env::var("PROOFS_DIR").expect("Set PROOFS_DIR env var");
         let witness: Vec<u8> = _prover_input.iter().flat_map(|x| x.to_be_bytes()).collect();
         let input_hex = hex::encode(witness);
-        let gpu = cfg!(feature = "gpu");
+        let non_determinism_data = rig::cli_lib::prover_utils::u32_from_hex_string(&input_hex);
+        let binary = rig::cli_lib::prover_utils::load_binary_from_path(&bin_path);
+        #[cfg(not(feature = "gpu"))]
+        let gpu_shared_state = &mut None;
+        let mut total_proof_time = Some(0f64);
 
-        rig::cli_lib::prover_utils::create_proofs(
-            &bin_path,
-            &output_dir,
-            &Some(input_hex),
-            &None,
+        info!("Starting base layer proofs...");
+        rig::cli_lib::prover_utils::create_proofs_internal(
+            &binary,
+            non_determinism_data,
             &rig::cli_lib::Machine::Standard,
-            &Some(1 << 32),
-            &Some(rig::cli_lib::prover_utils::ProvingLimit::FinalRecursion),
-            rig::cli_lib::prover_utils::RecursionStrategy::UseReducedLog23Machine,
-            &None,
-            gpu,
+            1024,
+            None,
+            gpu_shared_state,
+            &mut total_proof_time,
         );
+        info!("Done with base layer proofs");
     }
 
     if let Some(ratio) = compute_ratio(stats) {
@@ -303,6 +314,29 @@ pub fn live_run(
     fetch_block_hashes(start_block, &db, &endpoint)?;
     let chain_id = rpc::get_chain_id(&endpoint)?;
     let mut failures = 0;
+
+    #[cfg(feature = "gpu")]
+    let mut gpu_state = {
+        info!("Setting up GPU state...");
+        let bin_path = rig::chain::get_zksync_os_img_path(&Some("evm_replay".to_string()))
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let binary = rig::cli_lib::prover_utils::load_binary_from_path(&bin_path);
+        let s = rig::cli_lib::prover_utils::GpuSharedState::new(
+            &binary,
+            rig::gpu_prover::circuit_type::MainCircuitType::ReducedRiscVMachine,
+        );
+        info!("Done setting up GPU state...");
+        s
+    };
+    #[cfg(feature = "gpu")]
+    let gpu_state = &mut Some(&mut gpu_state);
+
+    #[cfg(not(feature = "gpu"))]
+    let gpu_state = &mut None;
+
     for n in start_block..=end_block {
         let status = db.get_block_status(n)?;
         let already_succeeded = status.is_some_and(|s| matches!(s, BlockStatus::Success));
@@ -318,6 +352,7 @@ pub fn live_run(
             persist_all,
             chain_id,
             single_tx,
+            gpu_state,
         )? {
             failures += 1;
             if let Some(webhook) = webhook.as_ref() {
