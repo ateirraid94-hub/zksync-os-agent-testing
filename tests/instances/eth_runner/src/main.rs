@@ -45,6 +45,8 @@ enum Command {
         slack_webhook: Option<String>,
         #[arg(long)]
         single_tx: Option<u64>,
+        #[arg(long)]
+        only_forward: bool,
     },
     // Run a single block from JSON files
     SingleRun {
@@ -110,6 +112,7 @@ fn main() -> anyhow::Result<()> {
             persist_all,
             slack_webhook,
             single_tx,
+            only_forward,
         } => live_run::live_run(
             start_block,
             end_block,
@@ -120,6 +123,7 @@ fn main() -> anyhow::Result<()> {
             persist_all,
             slack_webhook,
             single_tx,
+            only_forward,
         ),
         Command::ExportRatios { db, path } => live_run::export_block_ratios(db, path),
         Command::ShowStatus { db } => live_run::show_status(db),

@@ -132,6 +132,7 @@ fn run_block(
     chain_id: u64,
     single_tx: Option<u64>,
     gpu_shared_state: &mut Option<&mut GpuSharedState>,
+    only_forward: bool,
 ) -> Result<BlockStatus> {
     let block_traces = fetch_block_traces(block_number, db, endpoint)?;
     let traces_clone = block_traces.clone();
@@ -208,7 +209,7 @@ fn run_block(
     });
     let run_config = rig::chain::RunConfig {
         witness_output_file: output_path,
-        only_forward: false,
+        only_forward,
         app: Some("evm_replay".to_string()),
         check_storage_diff_hashes: true,
         ..Default::default()
@@ -305,6 +306,7 @@ pub fn live_run(
     persist_all: bool,
     webhook: Option<String>,
     single_tx: Option<u64>,
+    only_forward: bool,
 ) -> Result<()> {
     if let Some(webhook) = webhook.clone() {
         install_panic_hook(webhook);
@@ -353,6 +355,7 @@ pub fn live_run(
             chain_id,
             single_tx,
             gpu_state,
+            only_forward,
         )? {
             failures += 1;
             if let Some(webhook) = webhook.as_ref() {
