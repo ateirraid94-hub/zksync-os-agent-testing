@@ -68,6 +68,7 @@ pub fn single_run(
     randomized: bool,
     witness_output_dir: Option<String>,
     chain_id: Option<u64>,
+    single_tx: Option<u64>,
 ) -> anyhow::Result<()> {
     use std::path::Path;
     let dir = Path::new(&block_dir);
@@ -97,7 +98,7 @@ pub fn single_run(
     let miner = block.result.header.beneficiary;
 
     let block_context = block.get_block_context();
-    let (transactions, skipped) = block.get_transactions(&calltrace);
+    let (transactions, skipped) = block.get_transactions(&calltrace, single_tx);
 
     let receipts = receipts
         .result

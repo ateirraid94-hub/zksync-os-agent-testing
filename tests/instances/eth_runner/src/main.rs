@@ -43,6 +43,8 @@ enum Command {
         persist_all: bool,
         #[arg(long)]
         slack_webhook: Option<String>,
+        #[arg(long)]
+        single_tx: Option<u64>,
     },
     // Run a single block from JSON files
     SingleRun {
@@ -62,6 +64,8 @@ enum Command {
         witness_output_dir: Option<String>,
         #[arg(long)]
         chain_id: Option<u64>,
+        #[arg(long)]
+        single_tx: Option<u64>,
     },
     // Export block ratios from DB
     ExportRatios {
@@ -87,12 +91,14 @@ fn main() -> anyhow::Result<()> {
             randomized,
             witness_output_dir,
             chain_id,
+            single_tx,
         } => crate::single_run::single_run(
             block_dir,
             block_hashes,
             randomized,
             witness_output_dir,
             chain_id,
+            single_tx,
         ),
         Command::LiveRun {
             start_block,
@@ -103,6 +109,7 @@ fn main() -> anyhow::Result<()> {
             skip_successful,
             persist_all,
             slack_webhook,
+            single_tx,
         } => live_run::live_run(
             start_block,
             end_block,
@@ -112,6 +119,7 @@ fn main() -> anyhow::Result<()> {
             skip_successful,
             persist_all,
             slack_webhook,
+            single_tx,
         ),
         Command::ExportRatios { db, path } => live_run::export_block_ratios(db, path),
         Command::ShowStatus { db } => live_run::show_status(db),

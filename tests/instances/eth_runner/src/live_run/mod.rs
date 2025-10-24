@@ -122,6 +122,7 @@ fn run_block(
     witness_output_dir: Option<String>,
     persist_all: bool,
     chain_id: u64,
+    single_tx: Option<u64>,
 ) -> Result<BlockStatus> {
     let block_traces = fetch_block_traces(block_number, db, endpoint)?;
     let traces_clone = block_traces.clone();
@@ -142,7 +143,7 @@ fn run_block(
     info!("Running block: {block_number}");
 
     let block_context = block.get_block_context();
-    let (transactions, skipped) = block.get_transactions(&call);
+    let (transactions, skipped) = block.get_transactions(&call, single_tx);
     info!("Transactions to run: {}", transactions.len());
 
     let receipts: Vec<TransactionReceipt> = receipts
@@ -292,6 +293,7 @@ pub fn live_run(
     skip_successful: bool,
     persist_all: bool,
     webhook: Option<String>,
+    single_tx: Option<u64>,
 ) -> Result<()> {
     if let Some(webhook) = webhook.clone() {
         install_panic_hook(webhook);
@@ -315,6 +317,7 @@ pub fn live_run(
             witness_output_dir.clone(),
             persist_all,
             chain_id,
+            single_tx,
         )? {
             failures += 1;
             if let Some(webhook) = webhook.as_ref() {
