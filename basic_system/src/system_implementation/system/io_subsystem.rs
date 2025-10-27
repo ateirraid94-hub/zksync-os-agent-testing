@@ -780,7 +780,9 @@ where
         block_metadata: BlockMetadataFromOracle,
         current_block_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
-        builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder,
+        builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder<
+            A,
+        >,
     ) -> O {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
