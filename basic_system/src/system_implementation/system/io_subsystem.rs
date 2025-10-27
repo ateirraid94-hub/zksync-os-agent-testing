@@ -636,7 +636,7 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut da_commitment_generator = Keccak256CommitmentGenerator::new();
+        let mut da_commitment_generator = alloc::boxed::Box::new(Keccak256CommitmentGenerator::new());
         da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
@@ -644,7 +644,7 @@ impl<
                 .finish_and_calculate_state_diffs_hash(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut da_commitment_generator,
+                    da_commitment_generator.as_mut(),
                     result_keeper,
                     &mut logger,
                 )
@@ -654,7 +654,7 @@ impl<
                 .finish(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut da_commitment_generator,
+                    da_commitment_generator.as_mut(),
                     result_keeper,
                     &mut logger,
                 )
@@ -663,7 +663,7 @@ impl<
         };
 
         self.logs_storage
-            .apply_pubdata(&mut da_commitment_generator, result_keeper);
+            .apply_pubdata(da_commitment_generator.as_mut(), result_keeper);
         result_keeper.logs(self.logs_storage.messages_ref_iter());
         result_keeper.events(self.events_storage.events_ref_iter());
         let mut full_root_hasher = crypto::sha3::Keccak256::new();
@@ -810,14 +810,14 @@ where
             .finish(
                 &mut self.oracle,
                 Some(&mut state_commitment),
-                &mut builder.da_commitment_generator,
+                builder.da_commitment_generator.as_mut(),
                 &mut NopResultKeeper,
                 &mut NullLogger,
             )
             .expect("Failed to finish storage");
 
         self.logs_storage
-            .apply_pubdata(&mut builder.da_commitment_generator, &mut NopResultKeeper);
+            .apply_pubdata(builder.da_commitment_generator.as_mut(), &mut NopResultKeeper);
         self.logs_storage
             .apply_to_array_vec(&mut builder.logs_storage);
         // TODO: we should calculate l1 txs hashes in the bootloader, should be fixed with STF definition from v2

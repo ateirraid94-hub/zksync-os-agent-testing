@@ -10,8 +10,8 @@ pub use blake2s_commitment_generator::Blake2sCommitmentGenerator;
 pub use keccak256_commitment_generator::Keccak256CommitmentGenerator;
 
 pub trait DACommitmentGenerator: WriteBytes {
-    // we accept `&mut self` to make trait dyn compatible, but in fact self is not supposed to be used after this function call
-    fn da_commitment(&mut self) -> Bytes32;
+    // we accept Box here to make trait dyn compatible
+    fn da_commitment(self: alloc::boxed::Box<Self>) -> Bytes32;
 }
 
 pub struct NopCommitmentGenerator;
@@ -21,7 +21,7 @@ impl WriteBytes for NopCommitmentGenerator {
 }
 
 impl DACommitmentGenerator for NopCommitmentGenerator {
-    fn da_commitment(&mut self) -> Bytes32 {
+    fn da_commitment(self: alloc::boxed::Box<Self>) -> Bytes32 {
         Bytes32::zero()
     }
 }

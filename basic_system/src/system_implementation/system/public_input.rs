@@ -275,7 +275,7 @@ impl BatchPublicInputBuilder {
     ///
     /// Create public input for a batch that contains previously added blocks.
     ///
-    pub fn into_public_input(mut self, mut logger: impl Logger) -> BatchPublicInput {
+    pub fn into_public_input(self, mut logger: impl Logger) -> BatchPublicInput {
         assert!(!self.is_first_block);
 
         let mut full_root_hasher = crypto::sha3::Keccak256::new();

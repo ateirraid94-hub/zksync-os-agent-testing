@@ -23,7 +23,7 @@ impl WriteBytes for Blake2sCommitmentGenerator {
 }
 
 impl DACommitmentGenerator for Blake2sCommitmentGenerator {
-    fn da_commitment(&mut self) -> Bytes32 {
-        self.pubdata_hasher.finalize_reset().into()
+    fn da_commitment(self: alloc::boxed::Box<Self>) -> Bytes32 {
+        self.pubdata_hasher.finalize().into()
     }
 }
