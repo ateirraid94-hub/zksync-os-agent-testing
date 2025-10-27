@@ -21,7 +21,7 @@ use std::backtrace::Backtrace;
 use std::panic;
 
 const N_PREV_BLOCKS: usize = 256;
-const MAX_FAILURES: usize = 1;
+const MAX_FAILURES: usize = 10;
 
 fn send_slack(webhook: &str, text: &str) -> Result<()> {
     let resp = Client::new()
