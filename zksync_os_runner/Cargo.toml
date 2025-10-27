@@ -10,11 +10,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_use_new_vm", features = ["delegation"] }
-riscv_transpiler = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_use_new_vm" }
-prover_examples = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_use_new_vm", optional = true }
-trace_and_split = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_use_new_vm", optional = true }
-execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_use_new_vm", optional = true }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", features = ["delegation"] }
+riscv_transpiler = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries" }
+prover_examples = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", optional = true }
+trace_and_split = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", optional = true }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", optional = true }
 cycle_marker = { path = "../cycle_marker" }
 
 [features]

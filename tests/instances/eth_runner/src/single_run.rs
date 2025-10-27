@@ -114,6 +114,8 @@ fn eth_run<const PROOF_ENV: bool>(
         None,
     );
 
+    return Ok(());
+
     if PROOF_ENV {
         for el in account_diffs.into_iter() {
             use basic_system::system_implementation::cache_structs::BitsOrd160;

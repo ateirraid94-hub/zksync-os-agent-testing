@@ -377,3 +377,20 @@ where
         self.original_source.write_with_memory_access(memory, value);
     }
 }
+
+impl<M: riscv_transpiler::vm::RAM> riscv_transpiler::vm::NonDeterminismCSRSource<M>
+    for ReadWitnessSource<M>
+where
+    M: U32Memory,
+{
+    fn read(&mut self) -> u32 {
+        let item = self.original_source.read();
+        // on read - remember the items.
+        self.read_items.borrow_mut().push(item);
+        item
+    }
+
+    fn write_with_memory_access(&mut self, memory: &M, value: u32) {
+        self.original_source.write_with_memory_access(memory, value);
+    }
+}

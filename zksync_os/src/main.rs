@@ -2,24 +2,6 @@
 #![feature(allocator_api)]
 #![no_main]
 
-extern "C" {
-    // Boundaries of the heap
-    static mut _sheap: usize;
-    static mut _eheap: usize;
-
-    // Boundaries of the stack
-    static mut _sstack: usize;
-    static mut _estack: usize;
-
-    // Boundaries of the .data section (and it's part in ROM)
-    static mut _sidata: usize;
-    static mut _sdata: usize;
-    static mut _edata: usize;
-}
-
-// core::arch::global_asm!(include_str!("asm/asm.S"));
-core::arch::global_asm!(include_str!("asm/asm_reduced.S"));
-
 pub mod helper_reg_utils;
 
 #[cfg(not(feature = "no_exception_handling"))]
@@ -166,15 +148,9 @@ static GLOBAL_ALLOC: OptionalGlobalAllocator = OptionalGlobalAllocator;
 // static GLOBAL_ALLOCATOR_PLACEHOLDER: NullAllocator = NullAllocator;
 // static GLOBAL_ALLOCATOR_PLACEHOLDER: FakeAllocator = FakeAllocator;
 
-core::arch::global_asm!(include_str!("memset.s"));
-core::arch::global_asm!(include_str!("memcpy.s"));
-
 unsafe fn workload() -> ! {
-    use core::ptr::addr_of_mut;
-    let heap_start = addr_of_mut!(_sheap);
-    let heap_end = addr_of_mut!(_eheap);
     use proof_running_system::system::bootloader::init_allocator;
-    init_allocator(heap_start, heap_end);
+    init_allocator(riscv_common::boot_sequence::heap_start(), riscv_common::boot_sequence::heap_end());
 
     #[cfg(not(feature = "print_debug_info"))]
     type LoggerTy = proof_running_system::zk_ee::system::NullLogger;
@@ -196,13 +172,15 @@ unsafe fn workload() -> ! {
     let output = proof_running_system::system::bootloader::run_proving::<
         CSRBasedNonDeterminismSource,
         LoggerTy,
-    >(heap_start, heap_end);
+    >(riscv_common::boot_sequence::heap_start(), riscv_common::boot_sequence::heap_end());
 
     zksync_os_finish_success(&output);
 }
 
 #[inline(never)]
 fn main() -> ! {
+    riscv_common::boot_sequence::init();
+
     unsafe { workload() }
 }
 
