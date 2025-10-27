@@ -6,6 +6,7 @@ use super::history_list::HistoryList;
 use crate::internal_error;
 use crate::system::errors::internal::InternalError;
 use crate::system::IOResultKeeper;
+use crate::utils::write_bytes::WriteBytes;
 use crate::{
     memory::stack_trait::StackFactory,
     system::errors::system::SystemError,
@@ -283,13 +284,13 @@ impl<SF: StackFactory<M>, const M: usize, A: Allocator + Clone + Default> LogsSt
         }
     }
 
-    pub fn apply_pubdata(
+    pub fn apply_pubdata<T: WriteBytes + ?Sized>(
         &self,
-        hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut T,
         results_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
     ) {
         let logs_count = (self.list.len() as u32).to_be_bytes();
-        hasher.update(logs_count);
+        pubdata_dst.write(&logs_count);
         results_keeper.pubdata(&logs_count);
         let mut messages_count: u32 = 0;
         // First we encode all the L2L1 log information.
@@ -298,19 +299,19 @@ impl<SF: StackFactory<M>, const M: usize, A: Allocator + Clone + Default> LogsSt
                 messages_count += 1;
             }
             let log: L2ToL1Log = el.into();
-            log.add_encoding_to_hasher(hasher);
+            log.write_encoding(pubdata_dst);
             log.pubdata(results_keeper);
         });
         // Then, we do a second pass to publish messages
         let messages_count = messages_count.to_be_bytes();
-        hasher.update(messages_count);
+        pubdata_dst.write(&messages_count);
         results_keeper.pubdata(&messages_count);
         self.list.iter().for_each(|el| {
             if let GenericLogContentData::UserMsg(UserMsgData { data, .. }) = &el.data {
                 let len = (data.as_slice().len() as u32).to_be_bytes();
-                hasher.update(len);
+                pubdata_dst.write(&len);
                 results_keeper.pubdata(&len);
-                hasher.update(data.as_slice());
+                pubdata_dst.write(data.as_slice());
                 results_keeper.pubdata(data.as_slice());
             }
         })
@@ -513,20 +514,20 @@ impl L2ToL1Log {
     ///
     fn hash(&self) -> Bytes32 {
         let mut hasher = crypto::sha3::Keccak256::new();
-        self.add_encoding_to_hasher(&mut hasher);
+        self.write_encoding(&mut hasher);
         hasher.finalize().into()
     }
 
     ///
     /// Adds the packed abi encoding of the log to the hasher.
     ///
-    fn add_encoding_to_hasher(&self, hasher: &mut impl MiniDigest) {
-        hasher.update([self.l2_shard_id]);
-        hasher.update([if self.is_service { 1 } else { 0 }]);
-        hasher.update(self.tx_number_in_block.to_be_bytes());
-        hasher.update(self.sender.to_be_bytes::<20>());
-        hasher.update(self.key.as_u8_ref());
-        hasher.update(self.value.as_u8_ref());
+    fn write_encoding<T: WriteBytes + ?Sized>(&self, dst: &mut T) {
+        dst.write(&[self.l2_shard_id]);
+        dst.write(&[if self.is_service { 1 } else { 0 }]);
+        dst.write(&self.tx_number_in_block.to_be_bytes());
+        dst.write(&self.sender.to_be_bytes::<20>());
+        dst.write(self.key.as_u8_ref());
+        dst.write(self.value.as_u8_ref());
     }
 
     ///

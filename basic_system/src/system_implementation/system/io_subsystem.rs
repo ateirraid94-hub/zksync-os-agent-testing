@@ -2,6 +2,9 @@
 use super::*;
 use crate::system_functions::keccak256::keccak256_native_cost;
 use crate::system_functions::keccak256::Keccak256Impl;
+use crate::system_implementation::system::da_commitment_generator::{
+    DACommitmentGenerator, Keccak256CommitmentGenerator, NopCommitmentGenerator,
+};
 #[cfg(feature = "aggregation")]
 use crate::system_implementation::system::public_input::{BlocksOutput, BlocksPublicInput};
 use cost_constants::EVENT_DATA_PER_BYTE_COST;
@@ -26,6 +29,7 @@ use zk_ee::oracle::basic_queries::ZKProofDataQuery;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::out_of_ergs_error;
 use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
+use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::{
     common_structs::{EventsStorage, LogsStorage},
     memory::ArrayBuilder,
@@ -435,6 +439,7 @@ pub trait FinishIO {
     ) -> Self::FinalData;
 }
 
+// forward run finish (PROOF_ENV == false)
 impl<
         A: Allocator + Clone + Default,
         R: Resources,
@@ -462,7 +467,7 @@ impl<
                 // no storage commitment
                 None,
                 // we don't need to append pubdata to the hash
-                &mut NopHasher,
+                &mut NopCommitmentGenerator,
                 result_keeper,
                 &mut logger,
             )
@@ -476,7 +481,9 @@ impl<
     }
 }
 
-// In practice we will not use single block batches
+// aggregation proving finish
+// creates intermediate, aggregation-friendly public input
+// not used in production at the moment
 #[cfg(feature = "aggregation")]
 impl<
         A: Allocator + Clone + Default,
@@ -519,15 +526,15 @@ impl<
         };
 
         // finishing IO, applying changes
-        let mut pubdata_hasher = Blake2s256::new();
-        pubdata_hasher.update(current_block_hash.as_u8_ref());
+        let mut da_commitment_generator = crate::system_implementation::system::da_commitment_generator::Blake2sCommitmentGenerator::new();
+        da_commitment_generator.write(current_block_hash.as_u8_ref());
         let mut l2_to_l1_logs_hasher = Blake2s256::new();
 
         self.storage
             .finish(
                 &mut self.oracle,
                 Some(&mut state_commitment),
-                &mut pubdata_hasher,
+                &mut da_commitment_generator,
                 result_keeper,
                 &mut logger,
             )
@@ -535,10 +542,9 @@ impl<
         self.logs_storage
             .apply_l2_to_l1_logs_hashes_to_hasher(&mut l2_to_l1_logs_hasher);
         self.logs_storage
-            .apply_pubdata(&mut pubdata_hasher, result_keeper);
+            .apply_pubdata(&mut da_commitment_generator, result_keeper);
         result_keeper.logs(self.logs_storage.messages_ref_iter());
         result_keeper.events(self.events_storage.events_ref_iter());
-        let pubdata_hash = pubdata_hasher.finalize();
         let l2_to_l1_logs_hashes_hash = l2_to_l1_logs_hasher.finalize();
 
         blocks_hasher = Blake2s256::new();
@@ -564,7 +570,7 @@ impl<
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
-            pubdata_hash: pubdata_hash.into(),
+            pubdata_hash: da_commitment_generator.da_commitment(),
             priority_ops_hashes_hash: l1_to_l2_txs_hash,
             l2_to_l1_logs_hashes_hash: l2_to_l1_logs_hashes_hash.into(),
             upgrade_tx_hash,
@@ -580,9 +586,11 @@ impl<
     }
 }
 
-///
-/// With `state-diffs-pi` feature is used for testing, to compare state diffs from forward run and proof run.
-///
+// Default proving finish
+// creates one block batch public input
+// currently used for proof input generation
+//
+// With `state-diffs-pi` feature is used for testing, to compare state diffs from forward run and proof run.
 #[cfg(not(any(feature = "multiblock-batch", feature = "aggregation")))]
 impl<
         A: Allocator + Clone + Default,
@@ -628,15 +636,15 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut pubdata_hasher = crypto::sha3::Keccak256::new();
-        pubdata_hasher.update(current_block_hash.as_u8_ref());
+        let mut da_commitment_generator = Keccak256CommitmentGenerator::new();
+        da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
             self.storage
                 .finish_and_calculate_state_diffs_hash(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut pubdata_hasher,
+                    &mut da_commitment_generator,
                     result_keeper,
                     &mut logger,
                 )
@@ -646,7 +654,7 @@ impl<
                 .finish(
                     &mut self.oracle,
                     Some(&mut state_commitment),
-                    &mut pubdata_hasher,
+                    &mut da_commitment_generator,
                     result_keeper,
                     &mut logger,
                 )
@@ -655,7 +663,7 @@ impl<
         };
 
         self.logs_storage
-            .apply_pubdata(&mut pubdata_hasher, result_keeper);
+            .apply_pubdata(&mut da_commitment_generator, result_keeper);
         result_keeper.logs(self.logs_storage.messages_ref_iter());
         result_keeper.events(self.events_storage.events_ref_iter());
         let mut full_root_hasher = crypto::sha3::Keccak256::new();
@@ -663,7 +671,6 @@ impl<
         full_root_hasher.update([0u8; 32]); // aggregated root 0 for now
         let full_l2_to_l1_logs_root = full_root_hasher.finalize();
         let l1_txs_commitment = self.logs_storage.l1_txs_commitment();
-        let pubdata_hash = pubdata_hasher.finalize();
 
         blocks_hasher = Blake2s256::new();
         for block_hash in block_metadata.block_hashes.0.iter().skip(1) {
@@ -685,18 +692,12 @@ impl<
         let _ = logger.write_fmt(format_args!(
             "PI calculation: state commitment after {chain_state_commitment_after:?}\n",
         ));
-        let mut da_commitment_hasher = crypto::sha3::Keccak256::new();
-        da_commitment_hasher.update([0u8; 32]); // we don't have to validate state diffs hash
-        da_commitment_hasher.update(pubdata_hash); // full pubdata keccak
-        da_commitment_hasher.update([1u8]); // with calldata we should provide 1 blob
-        da_commitment_hasher.update([0u8; 32]); // its hash will be ignored on the settlement layer
-        let da_commitment = da_commitment_hasher.finalize();
         let batch_output = public_input::BatchOutput {
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
             used_l2_da_validator_address: ruint::aliases::B160::ZERO,
-            pubdata_commitment: da_commitment.into(),
+            pubdata_commitment: da_commitment_generator.da_commitment().into(),
             number_of_layer_1_txs: U256::try_from(l1_txs_commitment.0).unwrap(),
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
@@ -728,6 +729,9 @@ impl<
     }
 }
 
+// Multiblock batch proving finish
+// Returns passed inputs, together with self to later be aggregated into the batch(see `apply_to_batch` below)
+// Used for proving in production
 #[cfg(feature = "multiblock-batch")]
 impl<
         A: Allocator + Clone + Default,
@@ -799,23 +803,24 @@ where
         };
 
         builder
-            .pubdata_hasher
-            .update(current_block_hash.as_u8_ref());
+            .da_commitment_generator
+            .write(current_block_hash.as_u8_ref());
 
         self.storage
             .finish(
                 &mut self.oracle,
                 Some(&mut state_commitment),
-                &mut builder.pubdata_hasher,
+                &mut builder.da_commitment_generator,
                 &mut NopResultKeeper,
                 &mut NullLogger,
             )
             .expect("Failed to finish storage");
 
         self.logs_storage
-            .apply_pubdata(&mut builder.pubdata_hasher, &mut NopResultKeeper);
+            .apply_pubdata(&mut builder.da_commitment_generator, &mut NopResultKeeper);
         self.logs_storage
             .apply_to_array_vec(&mut builder.logs_storage);
+        // TODO: we should calculate l1 txs hashes in the bootloader, should be fixed with STF definition from v2
         (builder.number_of_layer_1_txs, builder.l1_txs_rolling_hash) = self
             .logs_storage
             .apply_l1_txs_to_commitment(builder.number_of_layer_1_txs, builder.l1_txs_rolling_hash);

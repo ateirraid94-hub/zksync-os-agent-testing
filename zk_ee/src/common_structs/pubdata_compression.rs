@@ -3,8 +3,8 @@
 //!
 use crate::system::IOResultKeeper;
 use crate::types_config::SystemIOTypesConfig;
+use crate::utils::write_bytes::WriteBytes;
 use crate::utils::*;
-use crypto::MiniDigest;
 use ruint::aliases::U256;
 
 ///
@@ -58,18 +58,18 @@ impl ValueDiffCompressionStrategy {
         }
     }
 
-    fn compress<IOTypes: SystemIOTypesConfig>(
+    fn compress<IOTypes: SystemIOTypesConfig, T: WriteBytes + ?Sized>(
         &self,
         initial_value: U256,
         final_value: U256,
-        hasher: &mut impl MiniDigest,
+        dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) -> Result<(), ()> {
         match self {
             Self::Nothing => {
                 let metadata_byte = 0u8;
-                hasher.update([metadata_byte]);
-                hasher.update(final_value.to_be_bytes::<32>());
+                dst.write(&[metadata_byte]);
+                dst.write(&final_value.to_be_bytes::<32>());
                 result_keeper.pubdata(&[metadata_byte]);
                 result_keeper.pubdata(&final_value.to_be_bytes::<32>());
 
@@ -83,8 +83,8 @@ impl ValueDiffCompressionStrategy {
                     Err(())
                 } else {
                     let metadata_byte = (length << 3) | 1;
-                    hasher.update([metadata_byte]);
-                    hasher.update(&result.to_be_bytes::<32>()[32usize - length as usize..]);
+                    dst.write(&[metadata_byte]);
+                    dst.write(&result.to_be_bytes::<32>()[32usize - length as usize..]);
                     result_keeper.pubdata(&[metadata_byte]);
                     result_keeper.pubdata(&result.to_be_bytes::<32>()[32usize - length as usize..]);
 
@@ -99,8 +99,8 @@ impl ValueDiffCompressionStrategy {
                     Err(())
                 } else {
                     let metadata_byte = (length << 3) | 2;
-                    hasher.update([metadata_byte]);
-                    hasher.update(&result.to_be_bytes::<32>()[32usize - length as usize..]);
+                    dst.write(&[metadata_byte]);
+                    dst.write(&result.to_be_bytes::<32>()[32usize - length as usize..]);
                     result_keeper.pubdata(&[metadata_byte]);
                     result_keeper.pubdata(&result.to_be_bytes::<32>()[32usize - length as usize..]);
 
@@ -113,8 +113,8 @@ impl ValueDiffCompressionStrategy {
                     Err(())
                 } else {
                     let metadata_byte = (length << 3) | 3;
-                    hasher.update([metadata_byte]);
-                    hasher.update(&final_value.to_be_bytes::<32>()[32usize - length as usize..]);
+                    dst.write(&[metadata_byte]);
+                    dst.write(&final_value.to_be_bytes::<32>()[32usize - length as usize..]);
                     result_keeper.pubdata(&[metadata_byte]);
                     result_keeper
                         .pubdata(&final_value.to_be_bytes::<32>()[32usize - length as usize..]);
@@ -147,10 +147,10 @@ impl ValueDiffCompressionStrategy {
         Self::optimal_compression_length_u256(initial_value, final_value)
     }
 
-    pub fn optimal_compression_u256<IOTypes: SystemIOTypesConfig>(
+    pub fn optimal_compression_u256<IOTypes: SystemIOTypesConfig, T: WriteBytes + ?Sized>(
         initial_value: U256,
         final_value: U256,
-        hasher: &mut impl MiniDigest,
+        dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) {
         let mut optimal_strategy = Self::Nothing;
@@ -170,19 +170,19 @@ impl ValueDiffCompressionStrategy {
 
         // safe to unwrap here as strategy is checked to be applicable to the current values
         optimal_strategy
-            .compress(initial_value, final_value, hasher, result_keeper)
+            .compress(initial_value, final_value, dst, result_keeper)
             .unwrap()
     }
 
-    pub fn optimal_compression<IOTypes: SystemIOTypesConfig>(
+    pub fn optimal_compression<IOTypes: SystemIOTypesConfig, T: WriteBytes + ?Sized>(
         initial_value: &Bytes32,
         final_value: &Bytes32,
-        hasher: &mut impl MiniDigest,
+        dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<IOTypes>,
     ) {
         let initial_value = initial_value.into_u256_be();
         let final_value = final_value.into_u256_be();
-        Self::optimal_compression_u256(initial_value, final_value, hasher, result_keeper);
+        Self::optimal_compression_u256(initial_value, final_value, dst, result_keeper);
     }
 }
 

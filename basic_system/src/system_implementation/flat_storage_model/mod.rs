@@ -29,6 +29,7 @@ use zk_ee::system::BalanceSubsystemError;
 use zk_ee::system::DeconstructionSubsystemError;
 use zk_ee::system::NonceSubsystemError;
 use zk_ee::system::Resources;
+use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::{
     common_structs::{
         history_map::CacheSnapshotId, state_root_view::StateRootView, WarmStorageKey,
@@ -119,22 +120,17 @@ impl<
     }
 
     /// Standard finish method that completes storage model processing.
-    fn finish(
+    fn finish<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError> {
         // Complete the finalization but discard the returned storage cache
-        let _ = self.finish_internal(
-            oracle,
-            state_commitment,
-            pubdata_hasher,
-            result_keeper,
-            logger,
-        )?;
+        let _ =
+            self.finish_internal(oracle, state_commitment, pubdata_dst, result_keeper, logger)?;
 
         Ok(())
     }
@@ -143,22 +139,17 @@ impl<
     /// and computes a deterministic hash over all storage key-value pairs that were modified.
     /// Can be used to validate that forward execution and RISC-V
     /// proof execution produce identical state changes.
-    fn finish_and_calculate_state_diffs_hash(
+    fn finish_and_calculate_state_diffs_hash<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<Bytes32, InternalError> {
         // First complete the normal storage finalization process
-        let storage_cache = self.finish_internal(
-            oracle,
-            state_commitment,
-            pubdata_hasher,
-            result_keeper,
-            logger,
-        )?;
+        let storage_cache =
+            self.finish_internal(oracle, state_commitment, pubdata_dst, result_keeper, logger)?;
 
         let mut hasher = crypto::blake2s::Blake2s256::new();
         let mut state_diffs_hasher = crypto::blake2s::Blake2s256::new();
@@ -525,11 +516,11 @@ impl<
     /// 4. Verifies and applies all storage reads/writes to the state commitment
     ///
     /// Returns the final storage cache for further processing by the caller.
-    fn finish_internal(
+    fn finish_internal<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
         state_commitment: Option<&mut <Self as StorageModel>::StorageCommitment>,
-        pubdata_hasher: &mut impl MiniDigest,
+        pubdata_dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<<Self as StorageModel>::IOTypes>,
         logger: &mut impl Logger,
     ) -> Result<NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>, InternalError> {
@@ -560,7 +551,7 @@ impl<
         // 2. Commit to/return compressed pubdata
         let encdoded_state_diffs_count =
             (storage_cache.net_diffs_iter().count() as u32).to_be_bytes();
-        pubdata_hasher.update(&encdoded_state_diffs_count);
+        pubdata_dst.write(&encdoded_state_diffs_count);
         result_keeper.pubdata(&encdoded_state_diffs_count);
 
         let mut hasher = crypto::blake2s::Blake2s256::new();
@@ -575,7 +566,7 @@ impl<
                 // TODO(EVM-1074): use tree index instead of key for repeated writes
                 let derived_key =
                     derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
-                pubdata_hasher.update(derived_key.as_u8_ref());
+                pubdata_dst.write(derived_key.as_u8_ref());
                 result_keeper.pubdata(derived_key.as_u8_ref());
 
                 // we publish preimages for account details
@@ -585,11 +576,11 @@ impl<
                         .into();
                     let cache_item = account_data_cache.cache.get(&account_address).ok_or(())?;
                     let (l, r) = cache_item.get_initial_and_last_values().ok_or(())?;
-                    AccountProperties::diff_compression::<PROOF_ENV, _, _>(
+                    AccountProperties::diff_compression::<PROOF_ENV, _, _, _>(
                         l.value(),
                         r.value(),
                         r.metadata().not_publish_bytecode,
-                        pubdata_hasher,
+                        pubdata_dst,
                         result_keeper,
                         &mut preimages_cache,
                         oracle,
@@ -599,7 +590,7 @@ impl<
                     ValueDiffCompressionStrategy::optimal_compression(
                         l.value(),
                         r.value(),
-                        pubdata_hasher,
+                        pubdata_dst,
                         result_keeper,
                     );
                 }
