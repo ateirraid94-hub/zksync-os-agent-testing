@@ -637,7 +637,7 @@ impl<
 
         // finishing IO, applying changes
         let mut da_commitment_generator =
-            alloc::boxed::Box::new(Keccak256CommitmentGenerator::new());
+            alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), A::default());
         da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
@@ -698,7 +698,7 @@ impl<
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
             used_l2_da_validator_address: ruint::aliases::B160::ZERO,
-            pubdata_commitment: da_commitment_generator.da_commitment().into(),
+            pubdata_commitment: da_commitment_generator.da_commitment(),
             number_of_layer_1_txs: U256::try_from(l1_txs_commitment.0).unwrap(),
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),

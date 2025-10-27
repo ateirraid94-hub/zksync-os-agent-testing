@@ -204,22 +204,22 @@ impl BatchPublicInput {
 ///
 /// Batch PI builder, it allows to apply blocks info on by one to persist data needed for the batch PI and at the end create it.
 ///
-pub struct BatchPublicInputBuilder {
+pub struct BatchPublicInputBuilder<A: alloc::alloc::Allocator> {
     is_first_block: bool,
     initial_state_commitment: Option<Bytes32>,
     current_state_commitment: Option<Bytes32>,
     first_block_timestamp: Option<u64>,
     current_block_timestamp: Option<u64>,
     chain_id: Option<U256>,
-    pub da_commitment_generator: alloc::boxed::Box<dyn DACommitmentGenerator>,
+    pub da_commitment_generator: alloc::boxed::Box<dyn DACommitmentGenerator, A>,
     pub logs_storage: ArrayVec<Bytes32, 16384>,
     pub number_of_layer_1_txs: U256,
     pub l1_txs_rolling_hash: Bytes32,
     upgrade_tx_hash: Option<Bytes32>,
 }
 
-impl BatchPublicInputBuilder {
-    pub fn new() -> Self {
+impl<A: alloc::alloc::Allocator> BatchPublicInputBuilder<A> {
+    pub fn new_in(alloc: A) -> Self {
         Self {
             is_first_block: true,
             initial_state_commitment: None,
@@ -227,7 +227,7 @@ impl BatchPublicInputBuilder {
             first_block_timestamp: None,
             current_block_timestamp: None,
             chain_id: None,
-            da_commitment_generator: alloc::boxed::Box::new(Keccak256CommitmentGenerator::new()),
+            da_commitment_generator: alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), alloc),
             logs_storage: ArrayVec::new(),
             number_of_layer_1_txs: U256::ZERO,
             // keccak256([])
@@ -275,7 +275,7 @@ impl BatchPublicInputBuilder {
     ///
     /// Create public input for a batch that contains previously added blocks.
     ///
-    pub fn into_public_input(self, mut logger: impl Logger) -> BatchPublicInput {
+    pub fn into_public_input(mut self, mut logger: impl Logger) -> BatchPublicInput {
         assert!(!self.is_first_block);
 
         let mut full_root_hasher = crypto::sha3::Keccak256::new();
