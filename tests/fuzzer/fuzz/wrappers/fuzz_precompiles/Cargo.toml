@@ -1,0 +1,13 @@
+[package]
+name = "fuzz_precompiles"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+basic_system = { path = "../../../../../basic_system"}
+zk_ee = { path = "../../../../zk_ee" }
+
+
+[features]
+proving = ["basic_system/proving"]

@@ -1,7 +1,7 @@
 #[cfg(all(target_arch = "riscv32", not(feature = "bigint_ops")))]
 compile_error!("feature `bigint_ops` must be activated for RISC-V target");
 
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
 pub fn init() {
     unsafe {
         MODULUS.as_mut_ptr().write(MODULUS_CONSTANT);

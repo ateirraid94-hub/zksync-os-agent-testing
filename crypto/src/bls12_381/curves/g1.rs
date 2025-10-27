@@ -10,9 +10,9 @@ use ark_ec::{
 use ark_ff::{AdditiveGroup, One, PrimeField, Zero};
 use ruint::aliases::U512;
 
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
 use crate::ark_ff_delegation::{BigIntMacro as BigInt, MontFp};
-#[cfg(not(any(all(target_arch = "riscv32", feature = "bigint_ops"), test)))]
+#[cfg(not(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing))))]
 use ark_ff::{BigInt, MontFp};
 use ark_serialize::{Compress, SerializationError};
 use core::ops::Neg;

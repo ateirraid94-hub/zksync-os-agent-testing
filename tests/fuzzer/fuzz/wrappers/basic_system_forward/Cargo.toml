@@ -1,0 +1,65 @@
+[package]
+name = "basic_system_forward"
+resolver = "2"
+version = "0.1.0"
+edition = "2021"
+authors = ["The Matter Labs Team <hello@matterlabs.dev>"]
+homepage = "https://zksync.io/"
+repository = "https://github.com/matter-labs/zksync-os/"
+license = "MIT OR Apache-2.0"
+keywords = ["blockchain", "zksync", "zk", "risc-v"]
+categories = ["cryptography"]
+
+[lib]
+path = "../../../../../basic_system/src/lib.rs"
+
+[dependencies]
+zk_ee = { package = "zk_ee_forward", path = "../zk_ee_forward", default-features = false }
+evm_interpreter = { package = "evm_interpreter_forward", path = "../evm_interpreter_forward"  }
+ruint = { version = "1.12.3", default-features = false, features = ["alloc"] }
+crypto = { package = "crypto_forward", path = "../crypto_forward", default-features = false, features = ["secp256k1-static-context"]}
+arrayvec = { version = "0.7.4", default-features = false }
+either = { version = "*", default-features = false }
+storage_models = { package = "storage_models_forward", path = "../storage_models_forward", default-features = false }
+modexp = { path = "../../../../../supporting_crates/modexp" }
+cycle_marker = { path = "../../../../../cycle_marker" }
+num-bigint = { version =  "*", optional = true}
+num-traits = { version =  "*", optional = true}
+
+cfg-if = "1.0.0"
+const_for = "0.1.5"
+const-hex = { version = "1", default-features = false }
+
+rand = {version = "0.9.0", optional = true}
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"], optional = true }
+strum_macros = "0.27.1"
+paste = "1.0.15"
+
+[features]
+testing = ["zk_ee/testing", "evm_interpreter/testing", "serde", "ruint/serde", "rand", "crypto/testing", "num-bigint", "num-traits"]
+evm-compatibility = []
+default = ["testing"]
+cycle_marker = ["cycle_marker/log_to_file"]
+wrap-in-batch = []
+proving = ["crypto/proving"]
+evm_refunds = ["storage_models/evm_refunds"]
+# The finish method will just return inputs, so outputs can be procesed outside bootloader
+# Used for proving multi block batch within 1 run
+multiblock-batch = []
+state-diffs-pi = []
+
+[dev-dependencies]
+hex = {version = "0.4.3"}
+proptest = "1.6.0"
+crypto = { package = "crypto_forward", path = "../crypto_forward", default-features = false, features = ["secp256k1-static-context", "testing"]}
+num-bigint = "*"
+num-traits = "*"
+arbitrary = { version = "1", features = ["derive"] }
+serde_json = "*"
+alloy-rpc-types-debug = { version = "*", default-features = false }
+alloy = { version = "1", features = ["rlp", "full"] }
+alloy-rlp = { version = "*" }
+alloy-primitives = { version = "1", features = ["arbitrary"] }
+reqwest = { version = "*", features = ["blocking", "json"] }
+reth-trie-common = { git = "https://github.com/paradigmxyz/reth.git" }
+reth-trie-sparse = { git = "https://github.com/paradigmxyz/reth.git" }

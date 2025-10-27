@@ -26,7 +26,7 @@ impl DelegatedBarretParams<4> for FieldParams {
     }
 }
 
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
 pub fn init() {
     unsafe {
         MODULUS.as_mut_ptr().write(FieldElement8x32::MODULUS.0);

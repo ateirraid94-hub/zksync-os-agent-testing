@@ -11,9 +11,9 @@ mod scalar64;
 #[cfg(all(target_pointer_width = "32", not(feature = "bigint_ops")))]
 mod scalar32;
 
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
 pub(crate) mod scalar32_delegation;
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
 pub use scalar32_delegation::init;
 
 cfg_if! {
@@ -202,7 +202,7 @@ mod tests {
     use proptest::{prop_assert, prop_assert_eq, proptest};
 
     fn init() {
-        #[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+        #[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
         super::scalar32_delegation::init();
     }
 

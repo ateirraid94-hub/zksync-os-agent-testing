@@ -77,7 +77,7 @@ pub use self::raw_delegation_interface::{
 };
 
 pub fn init_lib() {
-    #[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+    #[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
     {
         bn254::fields::init();
         bls12_381::fields::init();

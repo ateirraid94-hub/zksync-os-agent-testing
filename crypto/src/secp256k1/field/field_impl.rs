@@ -3,7 +3,7 @@ use crate::k256::FieldBytes;
 use cfg_if::cfg_if;
 
 cfg_if! {
-    if #[cfg(target_arch = "riscv32")] {
+    if #[cfg(any(target_arch = "riscv32"), all(feature = "proving", fuzzing))] {
         use super::field_10x26::{FieldElement10x26 as FieldElementInner, FieldStorage10x26 as FieldStorageInner};
     } else if #[cfg(target_pointer_width = "64")] {
         use super::field_5x52::{FieldElement5x52 as FieldElementInner, FieldStorage5x52 as FieldStorageInner};

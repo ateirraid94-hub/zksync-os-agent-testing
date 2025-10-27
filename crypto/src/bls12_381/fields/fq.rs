@@ -7,7 +7,7 @@ compile_error!("feature `bigint_ops` must be activated for RISC-V target");
 
 // NOTE: we operate with 256-bit "limbs", so Montgomery representation is 512 bits
 
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test, all(feature = "proving", fuzzing)))]
 pub fn init() {
     unsafe {
         MODULUS.as_mut_ptr().write(MODULUS_CONSTANT);
