@@ -1,5 +1,4 @@
 use super::snapshottable_io::SnapshottableIo;
-use crypto::MiniDigest;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::oracle::IOOracle;
 use zk_ee::system::{BalanceSubsystemError, DeconstructionSubsystemError, NonceSubsystemError};

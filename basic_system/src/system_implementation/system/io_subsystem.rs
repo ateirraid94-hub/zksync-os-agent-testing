@@ -636,7 +636,8 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut da_commitment_generator = alloc::boxed::Box::new(Keccak256CommitmentGenerator::new());
+        let mut da_commitment_generator =
+            alloc::boxed::Box::new(Keccak256CommitmentGenerator::new());
         da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
@@ -816,8 +817,10 @@ where
             )
             .expect("Failed to finish storage");
 
-        self.logs_storage
-            .apply_pubdata(builder.da_commitment_generator.as_mut(), &mut NopResultKeeper);
+        self.logs_storage.apply_pubdata(
+            builder.da_commitment_generator.as_mut(),
+            &mut NopResultKeeper,
+        );
         self.logs_storage
             .apply_to_array_vec(&mut builder.logs_storage);
         // TODO: we should calculate l1 txs hashes in the bootloader, should be fixed with STF definition from v2

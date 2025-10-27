@@ -286,11 +286,11 @@ impl<SF: StackFactory<M>, const M: usize, A: Allocator + Clone + Default> LogsSt
 
     pub fn apply_pubdata<T: WriteBytes + ?Sized>(
         &self,
-        pubdata_dst: &mut T,
+        dst: &mut T,
         results_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
     ) {
         let logs_count = (self.list.len() as u32).to_be_bytes();
-        pubdata_dst.write(&logs_count);
+        dst.write(&logs_count);
         results_keeper.pubdata(&logs_count);
         let mut messages_count: u32 = 0;
         // First we encode all the L2L1 log information.
@@ -299,19 +299,19 @@ impl<SF: StackFactory<M>, const M: usize, A: Allocator + Clone + Default> LogsSt
                 messages_count += 1;
             }
             let log: L2ToL1Log = el.into();
-            log.write_encoding(pubdata_dst);
+            log.write_encoding(dst);
             log.pubdata(results_keeper);
         });
         // Then, we do a second pass to publish messages
         let messages_count = messages_count.to_be_bytes();
-        pubdata_dst.write(&messages_count);
+        dst.write(&messages_count);
         results_keeper.pubdata(&messages_count);
         self.list.iter().for_each(|el| {
             if let GenericLogContentData::UserMsg(UserMsgData { data, .. }) = &el.data {
                 let len = (data.as_slice().len() as u32).to_be_bytes();
-                pubdata_dst.write(&len);
+                dst.write(&len);
                 results_keeper.pubdata(&len);
-                pubdata_dst.write(data.as_slice());
+                dst.write(data.as_slice());
                 results_keeper.pubdata(data.as_slice());
             }
         })

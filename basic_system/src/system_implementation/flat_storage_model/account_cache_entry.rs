@@ -331,7 +331,7 @@ impl AccountProperties {
         initial: &Self,
         r#final: &Self,
         not_publish_bytecode: bool,
-        pubdata_dst: &mut T,
+        dst: &mut T,
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         preimages_cache: &mut BytecodeAndAccountDataPreimagesStorage<R, A>,
         oracle: &mut impl IOOracle,
@@ -352,9 +352,9 @@ impl AccountProperties {
                 0b00000100
             };
 
-            pubdata_dst.write(&[metadata_byte]);
+            dst.write(&[metadata_byte]);
             result_keeper.pubdata(&[metadata_byte]);
-            pubdata_dst.write(&r#final.versioning_data.into_u64().to_be_bytes());
+            dst.write(&r#final.versioning_data.into_u64().to_be_bytes());
             result_keeper.pubdata(&r#final.versioning_data.into_u64().to_be_bytes());
             ValueDiffCompressionStrategy::optimal_compression_u256(
                 initial
@@ -365,23 +365,23 @@ impl AccountProperties {
                     .nonce
                     .try_into()
                     .map_err(|_| internal_error!("u64 into U256"))?,
-                pubdata_dst,
+                dst,
                 result_keeper,
             );
             ValueDiffCompressionStrategy::optimal_compression_u256(
                 initial.balance,
                 r#final.balance,
-                pubdata_dst,
+                dst,
                 result_keeper,
             );
 
             if not_publish_bytecode {
-                pubdata_dst.write(r#final.bytecode_hash.as_u8_ref());
+                dst.write(r#final.bytecode_hash.as_u8_ref());
                 result_keeper.pubdata(r#final.bytecode_hash.as_u8_ref());
             } else {
-                pubdata_dst.write(&r#final.unpadded_code_len.to_be_bytes());
+                dst.write(&r#final.unpadded_code_len.to_be_bytes());
                 result_keeper.pubdata(&r#final.unpadded_code_len.to_be_bytes());
-                pubdata_dst.write(&r#final.artifacts_len.to_be_bytes());
+                dst.write(&r#final.artifacts_len.to_be_bytes());
                 result_keeper.pubdata(&r#final.artifacts_len.to_be_bytes());
                 let preimage_type = PreimageRequest {
                     hash: r#final.bytecode_hash,
@@ -405,10 +405,10 @@ impl AccountProperties {
                         }
                         SystemError::LeafDefect(i) => i,
                     })?;
-                pubdata_dst.write(bytecode);
+                dst.write(bytecode);
                 result_keeper.pubdata(bytecode);
             }
-            pubdata_dst.write(&r#final.observable_bytecode_len.to_be_bytes());
+            dst.write(&r#final.observable_bytecode_len.to_be_bytes());
             result_keeper.pubdata(&r#final.observable_bytecode_len.to_be_bytes());
             Ok(())
         } else {
@@ -424,7 +424,7 @@ impl AccountProperties {
             if initial.balance != r#final.balance {
                 metadata_byte |= 2 << 3;
             }
-            pubdata_dst.write(&[metadata_byte]);
+            dst.write(&[metadata_byte]);
             result_keeper.pubdata(&[metadata_byte]);
             if initial.nonce != r#final.nonce {
                 ValueDiffCompressionStrategy::optimal_compression_u256(
@@ -436,7 +436,7 @@ impl AccountProperties {
                         .nonce
                         .try_into()
                         .map_err(|_| internal_error!("u64 into U256"))?,
-                    pubdata_dst,
+                    dst,
                     result_keeper,
                 );
             }
@@ -444,7 +444,7 @@ impl AccountProperties {
                 ValueDiffCompressionStrategy::optimal_compression_u256(
                     initial.balance,
                     r#final.balance,
-                    pubdata_dst,
+                    dst,
                     result_keeper,
                 );
             }
@@ -518,7 +518,7 @@ mod tests {
         > = BytecodeAndAccountDataPreimagesStorage::new_from_parts(Global);
         let mut test_oracle = TestOracle;
 
-        AccountProperties::diff_compression::<false, _, _>(
+        AccountProperties::diff_compression::<false, _, _, _>(
             &initial,
             &r#final,
             false,
@@ -583,7 +583,7 @@ mod tests {
             .unwrap();
         let mut test_oracle = TestOracle;
 
-        AccountProperties::diff_compression::<false, _, _>(
+        AccountProperties::diff_compression::<false, _, _, _>(
             &initial,
             &r#final,
             false,
