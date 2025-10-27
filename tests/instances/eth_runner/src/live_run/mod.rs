@@ -299,6 +299,48 @@ fn run_block(
     }
 }
 
+#[allow(clippy::too_many_arguments, unused_variables)]
+fn run_block_with_retries(
+    block_number: u64,
+    db: &Database,
+    endpoint: &str,
+    witness_output_dir: Option<String>,
+    persist_all: bool,
+    chain_id: u64,
+    single_tx: Option<u64>,
+    gpu_shared_state: &mut Option<&mut GpuSharedState>,
+    only_forward: bool,
+) -> Result<BlockStatus> {
+    const MAX_RETRIES: usize = 3;
+
+    for attempt in 1..=MAX_RETRIES {
+        match run_block(
+            block_number,
+            db,
+            endpoint,
+            witness_output_dir.clone(), // avoid moving on first attempt
+            persist_all,
+            chain_id,
+            single_tx,
+            gpu_shared_state,
+            only_forward,
+        ) {
+            core::result::Result::Ok(res) => return Ok(res),
+            Err(e) if attempt < MAX_RETRIES => {
+                warn!(
+                    "Block {block_number} failed on attempt {attempt}/{MAX_RETRIES} with {e:?}, retrying..."
+                );
+            }
+            Err(e) => {
+                warn!("Block {block_number} failed after {MAX_RETRIES} attempts with {e:?}");
+                return Err(e);
+            }
+        }
+    }
+
+    unreachable!()
+}
+
 ///
 /// Run blocks from [start_block] to [end_block].
 ///
@@ -353,7 +395,7 @@ pub fn live_run(
             debug!("Skipping block {n}, already succeeded");
             continue;
         }
-        if let BlockStatus::Error(e) = run_block(
+        if let BlockStatus::Error(e) = run_block_with_retries(
             n,
             &db,
             &endpoint,
