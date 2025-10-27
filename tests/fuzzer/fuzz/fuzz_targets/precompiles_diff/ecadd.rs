@@ -6,71 +6,40 @@ use libfuzzer_sys::fuzz_target;
 use fuzz_precompiles_forward::precompiles::ecadd as ecadd_forward;
 use fuzz_precompiles_proving::precompiles::ecadd as ecadd_proving;
 use revm_precompile::bn254;
+use crate::common::{PointKind,CoordMut,build_point_bytes};
 
-const P_BE: [u8; 32] = [
-    0x30, 0x64, 0x4E, 0x72, 0xE1, 0x31, 0xA0, 0x29,
-    0xB8, 0x50, 0x45, 0xB6, 0x81, 0x81, 0x58, 0x5D,
-    0x28, 0x33, 0xE8, 0x48, 0x79, 0xB9, 0x70, 0x91,
-    0x43, 0xE1, 0xF5, 0x93, 0xF0, 0x00, 0x00, 0x01,
-];
+mod common;
 
 #[derive(Arbitrary, Debug, Clone)]
 struct Input {
-    inf1: bool,
-    inf2: bool,
-    seed1: [u8; 32],
-    seed2: [u8; 32],
-    seed3: [u8; 32],
-    seed4: [u8; 32],
-}
+    // Point generation class
+    kind1: PointKind,
+    kind2: PointKind,
 
-#[inline]
-fn be_lt(a: &[u8; 32], b: &[u8; 32]) -> bool {
-    for i in 0..32 {
-        if a[i] < b[i] { return true; }
-        if a[i] > b[i] { return false; }
-    }
-    false
-}
+    // Scalars for contructing valid points
+    s1_bytes: [u8; 32],
+    s2_bytes: [u8; 32],
 
-fn reduce_mod_p(mut x: [u8; 32]) -> [u8; 32] {
-    let mut p = P_BE;
-    for _ in 0..2 {
-        if !be_lt(&x, &p) {
-            let mut borrow = 0u16;
-            for i in (0..32).rev() {
-                let xi = x[i] as u16;
-                let pi = p[i] as u16;
-                let t = 256 + xi - pi - (borrow & 1);
-                x[i] = (t & 0xFF) as u8;
-                borrow = (t >> 8) ^ 1;
-            }
-        }
-    }
-    x
-}
+    // Coordinate-level mutations
+    m_x1: CoordMut,
+    m_y1: CoordMut,
+    m_x2: CoordMut,
+    m_y2: CoordMut,
 
-fn make_point(
-    x_seed: [u8; 32],
-    y_seed: [u8; 32],
-    force_infinity: bool,
-) -> ([u8; 32], [u8; 32]) {
-    if force_infinity {
-        return ([0u8; 32], [0u8; 32]);
-    }
-    let mut x = reduce_mod_p(x_seed);
-    let mut y = reduce_mod_p(y_seed);
-    (x, y)
+    // Decide which coordinate to mutate
+    spice: u8,
+
+    // Raw bytes
+    raw_p1: [u8; 64],
+    raw_p2: [u8; 64],
 }
 
 fn build_input_bytes(i: &Input) -> [u8; 128] {
-    let (x1, y1) = make_point(i.seed1, i.seed2, i.inf1);
-    let (x2, y2) = make_point(i.seed3, i.seed4, i.inf2);
+    let p1 = build_point_bytes(i.kind1, i.s1_bytes, i.m_x1, i.m_y1, i.spice, i.raw_p1);
+    let p2 = build_point_bytes(i.kind2, i.s2_bytes, i.m_x2, i.m_y2, i.spice.rotate_left(1), i.raw_p2);
     let mut buf = [0u8; 128];
-    buf[0..32].copy_from_slice(&x1);
-    buf[32..64].copy_from_slice(&y1);
-    buf[64..96].copy_from_slice(&x2);
-    buf[96..128].copy_from_slice(&y2);
+    buf[..64].copy_from_slice(&p1);
+    buf[64..].copy_from_slice(&p2);
     buf
 }
 
