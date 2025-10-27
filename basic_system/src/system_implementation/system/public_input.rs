@@ -227,7 +227,10 @@ impl<A: alloc::alloc::Allocator> BatchPublicInputBuilder<A> {
             first_block_timestamp: None,
             current_block_timestamp: None,
             chain_id: None,
-            da_commitment_generator: alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), alloc),
+            da_commitment_generator: alloc::boxed::Box::new_in(
+                Keccak256CommitmentGenerator::new(),
+                alloc,
+            ),
             logs_storage: ArrayVec::new(),
             number_of_layer_1_txs: U256::ZERO,
             // keccak256([])
