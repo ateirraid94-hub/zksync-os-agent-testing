@@ -10,6 +10,7 @@ use bincode::serde::{decode_from_slice, encode_to_vec};
 use csv::Writer;
 use serde::{Deserialize, Serialize};
 use sled::{Db, Tree};
+use std::env;
 use std::fs::File;
 
 #[derive(Clone)]
@@ -152,15 +153,19 @@ impl Database {
     }
 
     pub fn get_block_traces(&self, block_number: u64) -> Result<Option<BlockTraces>> {
-        if let Some(bytes) = self.block_traces.get(block_number.to_be_bytes())? {
-            let core::result::Result::Ok((status, _)) =
-                decode_from_slice::<BlockTraces, _>(&bytes, standard())
-            else {
-                return Ok(None);
-            };
-            Ok(Some(status))
-        } else {
+        if env::var("REFETCH_TRACES").is_ok() {
             Ok(None)
+        } else {
+            if let Some(bytes) = self.block_traces.get(block_number.to_be_bytes())? {
+                let core::result::Result::Ok((status, _)) =
+                    decode_from_slice::<BlockTraces, _>(&bytes, standard())
+                else {
+                    return Ok(None);
+                };
+                Ok(Some(status))
+            } else {
+                Ok(None)
+            }
         }
     }
 
