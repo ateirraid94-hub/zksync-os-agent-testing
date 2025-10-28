@@ -533,14 +533,6 @@ impl Case {
                     );
                 });
         }
-        // Collect coinbase and sender address to filter out in balance check
-        let mut coinbase_and_sender_addresses = HashSet::new();
-        self.pre_blocks.iter().for_each(|pre_block| {
-            coinbase_and_sender_addresses.insert(pre_block.env.current_coinbase);
-            pre_block.transactions.iter().for_each(|tx| {
-                coinbase_and_sender_addresses.insert(tx.common().sender.unwrap());
-            })
-        });
 
         let expect_exceptions = self
             .pre_blocks
@@ -561,18 +553,16 @@ impl Case {
         for (address, filler_struct) in self.expected_state {
             if filler_struct.balance.is_some() {
                 // We do not have equivalent gas refunds, so balances will be different
-                if !coinbase_and_sender_addresses.contains(&address) {
-                    let expected_balance = filler_struct.balance.as_ref().unwrap();
-                    if let Some(expected_balance_value) = expected_balance.as_value() {
-                        if vm.get_balance(address) != expected_balance_value {
-                            expected = Some(format!(
-                                "Balance of {address:?}: {:?}",
-                                expected_balance_value
-                            ));
-                            actual = Some(vm.get_balance(address).to_string());
-                            check_successful = false;
-                            break;
-                        }
+                let expected_balance = filler_struct.balance.as_ref().unwrap();
+                if let Some(expected_balance_value) = expected_balance.as_value() {
+                    if vm.get_balance(address) != expected_balance_value {
+                        expected = Some(format!(
+                            "Balance of {address:?}: {:?}",
+                            expected_balance_value
+                        ));
+                        actual = Some(vm.get_balance(address).to_string());
+                        check_successful = false;
+                        break;
                     }
                 }
             }
