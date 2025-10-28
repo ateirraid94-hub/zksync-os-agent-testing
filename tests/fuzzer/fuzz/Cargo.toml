@@ -265,4 +265,3 @@ path = "fuzz_targets/precompiles_diff/sha256.rs"
 test = false
 doc = false
 bench = false
-bench = false
