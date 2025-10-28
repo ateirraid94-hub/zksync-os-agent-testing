@@ -50,7 +50,7 @@ for_tests = ["evm_compatibility", "system_hooks/p256_precompile", "system_hooks/
 eth_runner = ["evm_compatibility", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "unlimited_native"]
 
 # Features used for evm_tester
-evm_tester = ["evm_compatibility", "basic_bootloader/resources_for_tester", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao","basic_bootloader/pectra", "system_hooks/p256_precompile","system_hooks/point_eval_precompile"]
+evm_tester = ["evm_compatibility", "basic_bootloader/resources_for_tester", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao","basic_bootloader/pectra", "system_hooks/p256_precompile","system_hooks/point_eval_precompile", "unlimited_native"]
 
 # Features used for pectra tests
 pectra = ["evm_compatibility", "basic_bootloader/pectra"]
