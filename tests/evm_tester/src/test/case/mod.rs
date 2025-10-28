@@ -256,6 +256,7 @@ impl Case {
         let mut cases = vec![];
 
         let mut skip_balance_check_for_sender_and_coinbase = hardfork_version != "Cancun";
+
         let mut indexes_for_expected_results = vec![];
         // The boolean represents if the expectException flag is set.
         let mut expected_results_states: Vec<(HashMap<Address, AccountFillerStruct>, bool)> =
@@ -364,6 +365,11 @@ impl Case {
 
                     let prestate = test_definition.pre.clone();
 
+                    if test_definition.transaction.max_fee_per_blob_gas.is_some() {
+                        // We don't support blobs yet
+                        skip_balance_check_for_sender_and_coinbase = true;
+                    }
+
                     let transaction = transaction_from_tx_section(
                         &test_definition.transaction,
                         *value,
@@ -425,6 +431,7 @@ impl Case {
         }
 
         let mut skip_balance_check_for_sender_and_coinbase = hardfork_version != "Cancun";
+
         // Apply hash-based filter
         if test_definition
             ._info
@@ -435,6 +442,7 @@ impl Case {
             return vec![];
         }
         let mut pre_blocks = vec![];
+        let mut any_4844 = false;
         for block in test_definition.blocks.clone() {
             let transactions = block
                 .transactions
@@ -447,6 +455,9 @@ impl Case {
                         .access_lists
                         .clone()
                         .map(|v| v.first().cloned().unwrap().unwrap());
+                    if tx.max_fee_per_blob_gas.is_some() {
+                        any_4844 = true;
+                    }
                     transaction_from_tx_section(&tx, value, data, gas_limit, access_list)
                 })
                 .collect_vec();
@@ -466,6 +477,9 @@ impl Case {
                 transactions,
                 expect_exception,
             })
+        }
+        if any_4844 {
+            skip_balance_check_for_sender_and_coinbase = true;
         }
 
         vec![Case {
