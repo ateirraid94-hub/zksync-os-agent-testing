@@ -6445,7 +6445,8 @@ entries:
                 comment: Overflows u64 used to store ergs
               static_Call1MB1024Calldepth.json:
                 hash: '0x6df33d3331193f78bcdf57af5d41809b'
-                enabled: true
+                enabled: false
+                comment: Runs out of memory due to increased gas limit
               static_Call50000.json:
                 hash: '0xead456a053fa94f933ebbd7cccac4814'
                 enabled: true
