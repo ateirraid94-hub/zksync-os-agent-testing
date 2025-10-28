@@ -41,6 +41,9 @@ pub struct Case {
     pub prestate: PreState,
     pub pre_blocks: Vec<PreBlock>,
     pub expected_state: HashMap<Address, AccountFillerStruct>,
+    /// We run some tests from different hardforks (p256, 7702),
+    /// which means that fee computation diverges.
+    pub skip_balance_check_for_sender_and_coinbase: bool,
 }
 
 fn parse_label(val: &LabelValue) -> Vec<String> {
@@ -234,6 +237,7 @@ impl Case {
                         prestate,
                         pre_blocks: vec![pre_block],
                         expected_state: expected_state.clone(),
+                        skip_balance_check_for_sender_and_coinbase: false,
                     });
 
                     case_counter += 1;
@@ -251,6 +255,7 @@ impl Case {
     ) -> Vec<Self> {
         let mut cases = vec![];
 
+        let mut skip_balance_check_for_sender_and_coinbase = hardfork_version != "Cancun";
         let mut indexes_for_expected_results = vec![];
         // The boolean represents if the expectException flag is set.
         let mut expected_results_states: Vec<(HashMap<Address, AccountFillerStruct>, bool)> =
@@ -396,6 +401,7 @@ impl Case {
                         prestate,
                         pre_blocks: vec![pre_block],
                         expected_state: expected_state.clone(),
+                        skip_balance_check_for_sender_and_coinbase,
                     });
 
                     case_counter += 1;
@@ -418,6 +424,7 @@ impl Case {
             return vec![];
         }
 
+        let mut skip_balance_check_for_sender_and_coinbase = hardfork_version != "Cancun";
         // Apply hash-based filter
         if test_definition
             ._info
@@ -466,6 +473,7 @@ impl Case {
             prestate,
             pre_blocks,
             expected_state,
+            skip_balance_check_for_sender_and_coinbase,
         }]
     }
 
@@ -534,6 +542,15 @@ impl Case {
                 });
         }
 
+        // Collect coinbase and sender address to filter out in balance check
+        let mut coinbase_and_sender_addresses = HashSet::new();
+        self.pre_blocks.iter().for_each(|pre_block| {
+            coinbase_and_sender_addresses.insert(pre_block.env.current_coinbase);
+            pre_block.transactions.iter().for_each(|tx| {
+                coinbase_and_sender_addresses.insert(tx.common().sender.unwrap());
+            })
+        });
+
         let expect_exceptions = self
             .pre_blocks
             .iter()
@@ -552,17 +569,22 @@ impl Case {
         // TODO merge with prestate!
         for (address, filler_struct) in self.expected_state {
             if filler_struct.balance.is_some() {
-                // We do not have equivalent gas refunds, so balances will be different
-                let expected_balance = filler_struct.balance.as_ref().unwrap();
-                if let Some(expected_balance_value) = expected_balance.as_value() {
-                    if vm.get_balance(address) != expected_balance_value {
-                        expected = Some(format!(
-                            "Balance of {address:?}: {:?}",
-                            expected_balance_value
-                        ));
-                        actual = Some(vm.get_balance(address).to_string());
-                        check_successful = false;
-                        break;
+                // We skip balance check when [skip_balance_check_for_sender_and_coinbase] is set
+                // and the address is a coinbase or sender.
+                let skip_bal_check = self.skip_balance_check_for_sender_and_coinbase
+                    && coinbase_and_sender_addresses.contains(&address);
+                if !skip_bal_check {
+                    let expected_balance = filler_struct.balance.as_ref().unwrap();
+                    if let Some(expected_balance_value) = expected_balance.as_value() {
+                        if vm.get_balance(address) != expected_balance_value {
+                            expected = Some(format!(
+                                "Balance of {address:?}: {:?}",
+                                expected_balance_value
+                            ));
+                            actual = Some(vm.get_balance(address).to_string());
+                            check_successful = false;
+                            break;
+                        }
                     }
                 }
             }
