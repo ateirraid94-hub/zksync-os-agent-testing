@@ -43,8 +43,211 @@ ark-ec = "0.4"
 ark-bn254 = "0.4"
 
 [[bin]]
+name = "ripemd160"
+path = "fuzz_targets/system_functions/ripemd160.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keccak256"
+path = "fuzz_targets/system_functions/keccak256.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sha256"
+path = "fuzz_targets/system_functions/sha256.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "modexp"
+path = "fuzz_targets/system_functions/modexp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "modexp_delegation"
+path = "fuzz_targets/system_functions/modexp_delegation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "p256_verify"
+path = "fuzz_targets/system_functions/p256_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ecrecover"
+path = "fuzz_targets/system_functions/ecrecover.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bn254_ecadd"
+path = "fuzz_targets/system_functions/bn254_ecadd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bn254_ecmul"
+path = "fuzz_targets/system_functions/bn254_ecmul.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bn254_pairing_check"
+path = "fuzz_targets/system_functions/bn254_pairing_check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "blake2s"
+path = "fuzz_targets/crypto/blake2s.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_sha256"
+path = "fuzz_targets/precompiles/precompiles_sha256.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_id"
+path = "fuzz_targets/precompiles/precompiles_id.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_ripemd160"
+path = "fuzz_targets/precompiles/precompiles_ripemd160.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "forward_oracle_run_simple_once"
+path = "fuzz_targets/forward_oracle/forward_oracle_run_simple_once.rs"
+test = false
+doc = false
+bench = false
+
+# [[bin]]
+# name = "bootloader_process_transaction"
+# path = "fuzz_targets/bootloader/bootloader_process_transaction.rs"
+# test = false
+# doc = false
+# bench = false
+
+# [[bin]]
+# name = "bootloader_tx_try_from_slice"
+# path = "fuzz_targets/bootloader/bootloader_tx_try_from_slice.rs"
+# test = false
+# doc = false
+# bench = false
+
+# [[bin]]
+# name = "bootloader_tx_parser"
+# path = "fuzz_targets/bootloader/bootloader_tx_parser.rs"
+# test = false
+# doc = false
+# bench = false
+
+[[bin]]
+name = "bootloader_run_single_interaction"
+path = "fuzz_targets/bootloader/bootloader_run_single_interaction.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bootloader_supported_ees"
+path = "fuzz_targets/bootloader/bootloader_supported_ees.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bootloader_execute_frame"
+path = "fuzz_targets/bootloader/bootloader_execute_frame.rs"
+test = false
+doc = false
+bench = false
+
+# [[bin]]
+# name = "bootloader_tx_validate"
+# path = "fuzz_targets/bootloader/bootloader_tx_validate.rs"
+# test = false
+# doc = false
+# bench = false
+
+# [[bin]]
+# name = "bootloader_tx_calculate_signed_hash"
+# path = "fuzz_targets/bootloader/bootloader_tx_calculate_signed_hash.rs"
+# test = false
+# doc = false
+# bench = false
+
+[[bin]]
+name = "precompiles_ecrecover"
+path = "fuzz_targets/precompiles/precompiles_ecrecover.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_modexp"
+path = "fuzz_targets/precompiles/precompiles_modexp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "precompiles_ecadd"
 path = "fuzz_targets/precompiles/precompiles_ecadd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_ecmul"
+path = "fuzz_targets/precompiles/precompiles_ecmul.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_ecpairing"
+path = "fuzz_targets/precompiles/precompiles_ecpairing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_modexplen"
+path = "fuzz_targets/precompiles/precompiles_modexp_len.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "precompiles_p256"
+path = "fuzz_targets/precompiles/precompiles_p256.rs"
 test = false
 doc = false
 bench = false
@@ -61,4 +264,5 @@ name = "precompiles_diff_sha256"
 path = "fuzz_targets/precompiles_diff/sha256.rs"
 test = false
 doc = false
+bench = false
 bench = false
