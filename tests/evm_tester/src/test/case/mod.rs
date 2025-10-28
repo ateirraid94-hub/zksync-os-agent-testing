@@ -714,9 +714,10 @@ impl Case {
         vm: &mut ZKsyncOS,
         proof_run: bool,
     ) -> Vec<Result<Vec<ZKsyncOSTxExecutionResult>, String>> {
+        let mut block_hashes = [ruint::aliases::U256::ZERO; 256];
         pre_blocks
             .into_iter()
-            .map(|pre_block| Self::run_zksync_os_block(vm, pre_block, proof_run))
+            .map(|pre_block| Self::run_zksync_os_block(vm, pre_block, proof_run, &mut block_hashes))
             .collect_vec()
     }
 
@@ -724,6 +725,7 @@ impl Case {
         vm: &mut ZKsyncOS,
         pre_block: PreBlock,
         proof_run: bool,
+        block_hashes: &mut [ruint::aliases::U256; 256],
     ) -> Result<Vec<ZKsyncOSTxExecutionResult>, String> {
         let mut system_context = ZKsyncOSEVMContext::default();
 
@@ -732,6 +734,18 @@ impl Case {
         system_context.block_timestamp = pre_block.env.current_timestamp.try_into().unwrap();
         system_context.coinbase = pre_block.env.current_coinbase;
         system_context.block_gas_limit = pre_block.env.current_gas_limit;
+        let parent_hash = pre_block
+            .env
+            .previous_hash
+            .map(|bytes| ruint::aliases::U256::from_be_bytes(bytes.0))
+            .unwrap_or_default();
+
+        // Shift block hashes to the left to make room for the new one
+        for i in 0..255 {
+            block_hashes[i] = block_hashes[i + 1];
+        }
+        block_hashes[255] = parent_hash;
+        vm.chain.set_block_hashes(block_hashes.clone());
 
         if let Some(base_fee) = pre_block.env.current_base_fee {
             system_context.base_fee = base_fee;
