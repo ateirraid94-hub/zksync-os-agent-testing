@@ -10,6 +10,9 @@ use crate::common::{PointKind,CoordMut,build_point_bytes};
 
 mod common;
 
+const BN254_ECADD_SRC_REQUIRED_LENGTH: usize = 128;
+const BN254_ECADD_DST_MIN_LENGTH: usize = 64;
+
 #[derive(Arbitrary, Debug, Clone)]
 struct Input {
     // Point generation class
@@ -32,12 +35,28 @@ struct Input {
     // Raw bytes
     raw_p1: [u8; 64],
     raw_p2: [u8; 64],
+
+    // Mutate the input bytes by trimming length
+    #[arbitrary(with = mutate_len)]
+    max_len: u8,
 }
 
-fn build_input_bytes(i: &Input) -> [u8; 128] {
+fn mutate_len(u: &mut Unstructured<'_>) -> arbitrary::Result<u8> {
+    let x: u8 = u.arbitrary()?;
+    let len = match x % 8 {
+        0 => 0,
+        1 => 1,
+        2 => BN254_ECADD_SRC_REQUIRED_LENGTH as u8 / 2,
+        3 => BN254_ECADD_SRC_REQUIRED_LENGTH as u8 - 1,
+        _ => BN254_ECADD_SRC_REQUIRED_LENGTH as u8,
+    };
+    Ok(len)
+}
+
+fn build_input_bytes(i: &Input) -> [u8; BN254_ECADD_SRC_REQUIRED_LENGTH] {
     let p1 = build_point_bytes(i.kind1, i.s1_bytes, i.m_x1, i.m_y1, i.spice, i.raw_p1);
     let p2 = build_point_bytes(i.kind2, i.s2_bytes, i.m_x2, i.m_y2, i.spice.rotate_left(1), i.raw_p2);
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; BN254_ECADD_SRC_REQUIRED_LENGTH];
     buf[..64].copy_from_slice(&p1);
     buf[64..].copy_from_slice(&p2);
     buf
@@ -51,14 +70,16 @@ fn fuzz(data: &[u8]) {
     };
 
     let in_bytes = build_input_bytes(&input);
+    let n = usize::from(input.max_len);
+    let input_slice = &in_bytes[..n.min(BN254_ECADD_SRC_REQUIRED_LENGTH)];
 
     let mut dst1 = Vec::new();
     let mut dst2 = Vec::new();
 
-    let r_reth = bn254::run_add(&in_bytes, u64::MAX, u64::MAX);
+    let r_reth = bn254::run_add(input_slice, u64::MAX, u64::MAX);
     let reth_ok = r_reth.as_ref().is_ok_and(|x| !x.reverted);
 
-    let r1 = ecadd_forward(&in_bytes, &mut dst1);
+    let r1 = ecadd_forward(input_slice, &mut dst1);
     let r1_ok = r1.is_ok();
 
     // Skip if both RETH and Forward run failed
@@ -66,7 +87,7 @@ fn fuzz(data: &[u8]) {
         return;
     }
 
-    let r2 = ecadd_proving(&in_bytes, &mut dst2);
+    let r2 = ecadd_proving(input_slice, &mut dst2);
     let r2_ok = r2.is_ok();
 
     if reth_ok || r1_ok || r2_ok {
@@ -75,6 +96,11 @@ fn fuzz(data: &[u8]) {
         assert!(r2_ok,   "proving run rejected but reth accepted");
 
         let reth_out = r_reth.unwrap().bytes.to_vec();
+
+        assert_eq!(reth_out.len(), BN254_ECADD_DST_MIN_LENGTH, "reth output length mismatch");
+        assert_eq!(dst1.len(), BN254_ECADD_DST_MIN_LENGTH, "forward output length mismatch");
+        assert_eq!(dst2.len(), BN254_ECADD_DST_MIN_LENGTH, "proving output length mismatch");
+
         assert_eq!(dst1, reth_out, "forward <> reth bytes mismatch");
         assert_eq!(dst2, reth_out, "proving <> reth bytes mismatch");
     }
