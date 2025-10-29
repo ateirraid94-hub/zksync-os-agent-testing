@@ -9,7 +9,6 @@ use super::{
     cache_record::{Appearance, CacheRecord},
     history_map::{CacheSnapshotId, HistoryMap, HistoryMapItemRef},
 };
-use crate::memory::stack_implementations::vec_stack::VecStackFactory;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
