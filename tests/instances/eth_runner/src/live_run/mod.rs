@@ -325,15 +325,15 @@ fn run_block_with_retries(
             gpu_shared_state,
             only_forward,
         ) {
-            core::result::Result::Ok(res) => return Ok(res),
-            Err(e) if attempt < MAX_RETRIES => {
+            core::result::Result::Ok(BlockStatus::Success) => return Ok(BlockStatus::Success),
+            e if attempt < MAX_RETRIES => {
                 warn!(
                     "Block {block_number} failed on attempt {attempt}/{MAX_RETRIES} with {e:?}, retrying..."
                 );
             }
-            Err(e) => {
+            e => {
                 warn!("Block {block_number} failed after {MAX_RETRIES} attempts with {e:?}");
-                return Err(e);
+                return e;
             }
         }
     }
