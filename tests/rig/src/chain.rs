@@ -33,6 +33,7 @@ use zksync_os_interface::traits::EncodedTx;
 use zksync_os_interface::traits::TxListSource;
 use zksync_os_interface::types::BlockOutput;
 use zksync_os_interface::types::StorageWrite;
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 
 /// Trait for creating oracles with custom configuration
 pub trait TestingOracleFactory<const RANDOMIZED_TREE: bool> {
@@ -43,6 +44,7 @@ pub trait TestingOracleFactory<const RANDOMIZED_TREE: bool> {
         preimage_source: InMemoryPreimageSource,
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         add_uart: bool,
     ) -> ZkEENonDeterminismSource<M>;
 }
@@ -60,6 +62,7 @@ impl<const RANDOMIZED_TREE: bool> TestingOracleFactory<RANDOMIZED_TREE>
         preimage_source: InMemoryPreimageSource,
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         add_uart: bool,
     ) -> ZkEENonDeterminismSource<M> {
         forward_system::run::make_oracle_for_proofs_and_dumps(
@@ -68,6 +71,7 @@ impl<const RANDOMIZED_TREE: bool> TestingOracleFactory<RANDOMIZED_TREE>
             preimage_source,
             tx_source,
             proof_data,
+            da_commitment_scheme,
             add_uart,
         )
     }
@@ -268,6 +272,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             tx_source.clone(),
             NoopTxCallback,
             None,
+            None,
             &mut nop_tracer,
         )
         .unwrap();
@@ -425,12 +430,14 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             transactions: transactions.into(),
         };
 
+        let da_commitment_scheme = DACommitmentScheme::BlobsZKsyncOS;
         let oracle = oracle_factory.create_oracle(
             block_metadata,
             self.state_tree.clone(),
             self.preimage_source.clone(),
             tx_source.clone(),
             Some(proof_data),
+            Some(da_commitment_scheme),
             true,
         );
 
@@ -440,6 +447,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             self.preimage_source.clone(),
             tx_source.clone(),
             Some(proof_data),
+            Some(da_commitment_scheme),
             true,
         );
 
@@ -451,6 +459,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
                 self.preimage_source.clone(),
                 tx_source.clone(),
                 Some(proof_data),
+                Some(da_commitment_scheme),
                 false,
             )
         };

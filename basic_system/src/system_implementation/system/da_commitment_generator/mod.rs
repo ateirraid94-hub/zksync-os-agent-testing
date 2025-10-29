@@ -1,17 +1,26 @@
 use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::utils::Bytes32;
+use alloc::boxed::Box;
+use alloc::alloc::Allocator;
 
 #[cfg(feature = "aggregation")]
 mod blake2s_commitment_generator;
 mod keccak256_commitment_generator;
+mod blob_commitment_generator;
 
 #[cfg(feature = "aggregation")]
 pub use blake2s_commitment_generator::Blake2sCommitmentGenerator;
 pub use keccak256_commitment_generator::Keccak256CommitmentGenerator;
+pub use blob_commitment_generator::BlobCommitmentGenerator;
+pub use blob_commitment_generator::commitment_and_proof_advice::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
+use zk_ee::internal_error;
+use zk_ee::oracle::IOOracle;
+use zk_ee::system::errors::internal::InternalError;
 
-pub trait DACommitmentGenerator: WriteBytes {
+pub trait DACommitmentGenerator<O: IOOracle>: WriteBytes {
     // we accept mutable reference to make this trait dyn compatible
-    fn da_commitment(&mut self) -> Bytes32;
+    fn da_commitment(&mut self, oracle: &mut O) -> Bytes32;
 }
 
 pub struct NopCommitmentGenerator;
@@ -20,8 +29,17 @@ impl WriteBytes for NopCommitmentGenerator {
     fn write(&mut self, _buf: &[u8]) {}
 }
 
-impl DACommitmentGenerator for NopCommitmentGenerator {
-    fn da_commitment(&mut self) -> Bytes32 {
+impl<O: IOOracle> DACommitmentGenerator<O> for NopCommitmentGenerator {
+    fn da_commitment(&mut self, _oracle: &mut O) -> Bytes32 {
         Bytes32::zero()
+    }
+}
+
+pub fn da_commitment_generator_from_scheme<A: Allocator, O: IOOracle>(da_commitment_scheme: DACommitmentScheme, alloc: A) -> Result<Box<dyn DACommitmentGenerator<O>, A>, InternalError> {
+    match da_commitment_scheme {
+        DACommitmentScheme::BlobsAndPubdataKeccak256 => Ok(alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), alloc)),
+        DACommitmentScheme::EmptyNoDA => Ok(alloc::boxed::Box::new_in(NopCommitmentGenerator, alloc)),
+        DACommitmentScheme::BlobsZKsyncOS => Ok(alloc::boxed::Box::new_in(BlobCommitmentGenerator::new(), alloc)),
+        _ => Err(internal_error!("Unsupported DA commitment scheme"))
     }
 }

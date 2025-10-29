@@ -84,7 +84,7 @@ fn parse_g1_compressed(input: &[u8]) -> Result<crypto::bls12_381::G1Affine, ()> 
     crypto::bls12_381::G1Affine::deserialize_compressed(input).map_err(|_| ())
 }
 
-fn point_evaluation_as_system_function_inner<D: ?Sized + TryExtend<u8>, R: Resources>(
+pub fn point_evaluation_as_system_function_inner<D: ?Sized + TryExtend<u8>, R: Resources>(
     input: &[u8],
     dst: &mut D,
     resources: &mut R,

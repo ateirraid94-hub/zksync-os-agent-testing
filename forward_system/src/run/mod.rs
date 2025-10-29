@@ -12,14 +12,14 @@ pub mod result_keeper;
 pub mod test_impl;
 mod tracing_impl;
 
-use crate::run::query_processors::BlockMetadataResponder;
+use crate::run::query_processors::{BlockMetadataResponder, DACommitmentSchemeResponder};
 use crate::run::query_processors::ForwardRunningOracleDump;
 use crate::run::query_processors::GenericPreimageResponder;
 use crate::run::query_processors::ReadStorageResponder;
 use crate::run::query_processors::ReadTreeResponder;
 use crate::run::query_processors::TxDataResponder;
 use crate::run::query_processors::UARTPrintResponder;
-use crate::run::query_processors::ZKProofDataResponder;
+use crate::run::query_processors::ProofDataResponder;
 use crate::run::result_keeper::ForwardRunningResultKeeper;
 use crate::system::bootloader::run_forward;
 use crate::system::bootloader::run_forward_no_panic;
@@ -61,6 +61,7 @@ pub use basic_bootloader::bootloader::errors::InvalidTransaction;
 use basic_system::system_implementation::flat_storage_model::*;
 pub use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle as BlockContext;
 use zksync_os_interface::traits::TxListSource;
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 
 pub type StorageCommitment = FlatStorageCommitment<{ TREE_HEIGHT }>;
 
@@ -101,6 +102,7 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
     zk_os_program_path: PathBuf,
     block_context: BlockContext,
     proof_data: ProofData<StorageCommitment>,
+    da_commitment_scheme: DACommitmentScheme,
     tree: T,
     preimage_source: PS,
     tx_source: TS,
@@ -114,8 +116,11 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
         next_tx_format: None,
         next_tx_from: None,
     };
-    let zk_proof_data_responder = ZKProofDataResponder {
+    let proof_data_responder = ProofDataResponder {
         data: Some(proof_data),
+    };
+    let da_commitment_scheme_responder = DACommitmentSchemeResponder {
+        da_commitment_scheme: Some(da_commitment_scheme)
     };
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
@@ -123,7 +128,8 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_reponsder);
     oracle.add_external_processor(tx_data_responder);
-    oracle.add_external_processor(zk_proof_data_responder);
+    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(da_commitment_scheme_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
@@ -149,6 +155,7 @@ pub fn make_oracle_for_proofs_and_dumps<
     preimage_source: PS,
     tx_source: TS,
     proof_data: Option<ProofData<StorageCommitment>>,
+    da_commitment_scheme: Option<DACommitmentScheme>,
     add_uart: bool,
 ) -> ZkEENonDeterminismSource<M> {
     make_oracle_for_proofs_and_dumps_for_init_data(
@@ -157,7 +164,8 @@ pub fn make_oracle_for_proofs_and_dumps<
         preimage_source,
         tx_source,
         proof_data,
-        add_uart,
+        da_commitment_scheme,
+        add_uart
     )
 }
 
@@ -172,6 +180,7 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     preimage_source: PS,
     tx_source: TS,
     proof_data: Option<ProofData<StorageCommitment>>,
+    da_commitment_scheme: Option<DACommitmentScheme>,
     add_uart: bool,
 ) -> ZkEENonDeterminismSource<M> {
     let block_metadata_responder = BlockMetadataResponder {
@@ -185,15 +194,20 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     };
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
-    let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
+    let proof_data_responder = ProofDataResponder { data: proof_data };
+    let da_commitment_scheme_responder = DACommitmentSchemeResponder {
+        da_commitment_scheme
+    };
 
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
-    oracle.add_external_processor(zk_proof_data_responder);
+    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(da_commitment_scheme_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
+    oracle.add_external_processor(callable_oracles::blob_kzg_commitment::BlobCommitmentAndProofQuery::default());
 
     if add_uart {
         let uart_responder = UARTPrintResponder;
@@ -215,6 +229,7 @@ pub fn run_block_with_oracle_dump<
     tx_source: TS,
     tx_result_callback: TR,
     proof_data: Option<ProofData<StorageCommitment>>,
+    da_commitment_scheme: Option<DACommitmentScheme>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     run_block_with_oracle_dump_ext::<T, PS, TS, TR, BasicBootloaderForwardSimulationConfig>(
@@ -224,6 +239,7 @@ pub fn run_block_with_oracle_dump<
         tx_source,
         tx_result_callback,
         proof_data,
+        da_commitment_scheme,
         tracer,
     )
 }
@@ -241,6 +257,7 @@ pub fn run_block_with_oracle_dump_ext<
     tx_source: TS,
     tx_result_callback: TR,
     proof_data: Option<ProofData<StorageCommitment>>,
+    da_commitment_scheme: Option<DACommitmentScheme>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     let block_metadata_reponsder = BlockMetadataResponder {
@@ -254,11 +271,13 @@ pub fn run_block_with_oracle_dump_ext<
     };
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
-    let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
+    let proof_data_responder = ProofDataResponder { data: proof_data };
+    let da_commitment_scheme_responder = DACommitmentSchemeResponder { da_commitment_scheme };
 
     if let Ok(path) = std::env::var("ORACLE_DUMP_FILE") {
         let dump = ForwardRunningOracleDump {
-            zk_proof_data_responder: zk_proof_data_responder.clone(),
+            proof_data_responder: proof_data_responder.clone(),
+            da_commitment_scheme_responder: da_commitment_scheme_responder.clone(),
             block_metadata_reponsder,
             tree_responder: tree_responder.clone(),
             tx_data_responder: tx_data_responder.clone(),
@@ -273,7 +292,7 @@ pub fn run_block_with_oracle_dump_ext<
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
-    oracle.add_external_processor(zk_proof_data_responder);
+    oracle.add_external_processor(proof_data_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
     oracle.add_external_processor(UARTPrintResponder);
 
@@ -297,7 +316,8 @@ pub fn run_block_from_oracle_dump<
         bincode::deserialize_from(file).expect("should deserialize");
 
     let ForwardRunningOracleDump {
-        zk_proof_data_responder,
+        proof_data_responder,
+        da_commitment_scheme_responder,
         block_metadata_reponsder,
         tree_responder,
         tx_data_responder,
@@ -309,7 +329,8 @@ pub fn run_block_from_oracle_dump<
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
-    oracle.add_external_processor(zk_proof_data_responder);
+    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(da_commitment_scheme_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
 
     let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);

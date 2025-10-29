@@ -489,7 +489,7 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
             }
             CreateScheme::Create2 { salt } => {
                 // we need to compute address based on the hash of the code and salt
-                let mut initcode_hash = ArrayBuilder::default();
+                let mut initcode_hash = ArrayBuilder::<32>::default();
                 resources
                     .with_infinite_ergs(|inf_resources| {
                         S::SystemFunctions::keccak256(

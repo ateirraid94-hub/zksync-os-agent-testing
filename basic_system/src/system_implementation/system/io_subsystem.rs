@@ -2,9 +2,7 @@
 use super::*;
 use crate::system_functions::keccak256::keccak256_native_cost;
 use crate::system_functions::keccak256::Keccak256Impl;
-use crate::system_implementation::system::da_commitment_generator::{
-    DACommitmentGenerator, Keccak256CommitmentGenerator, NopCommitmentGenerator,
-};
+use crate::system_implementation::system::da_commitment_generator::{da_commitment_generator_from_scheme, DACommitmentGenerator, Keccak256CommitmentGenerator, NopCommitmentGenerator};
 #[cfg(feature = "aggregation")]
 use crate::system_implementation::system::public_input::{BlocksOutput, BlocksPublicInput};
 use cost_constants::EVENT_DATA_PER_BYTE_COST;
@@ -25,11 +23,10 @@ use storage_models::common_structs::StorageModel;
 use zk_ee::common_structs::ProofData;
 use zk_ee::common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE;
 use zk_ee::interface_error;
-use zk_ee::oracle::basic_queries::ZKProofDataQuery;
+use zk_ee::oracle::basic_queries::ProofDataQuery;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::out_of_ergs_error;
 use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
-use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::{
     common_structs::{EventsStorage, LogsStorage},
     memory::ArrayBuilder,
@@ -40,6 +37,8 @@ use zk_ee::{
     types_config::{EthereumIOTypesConfig, SystemIOTypesConfig},
     utils::UsizeAlignedByteBox,
 };
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
+use zk_ee::oracle::query_ids::DA_COMMITMENT_SCHEME_QUERY_ID;
 
 pub struct FullIO<
     A: Allocator + Clone + Default,
@@ -57,6 +56,7 @@ pub struct FullIO<
     pub(crate) allocator: A,
     pub(crate) oracle: O,
     pub(crate) tx_number: u32,
+    pub(crate) da_commitment_scheme: Option<DACommitmentScheme>
 }
 
 pub struct FullIOStateSnapshot {
@@ -215,7 +215,7 @@ impl<
 
         // TODO(EVM-1078): for Era backward compatibility we may need to add events for l2 to l1 log and l1 message
 
-        let mut data_hash = ArrayBuilder::default();
+        let mut data_hash = ArrayBuilder::<32>::default();
         Keccak256Impl::execute(&data, &mut data_hash, resources, self.allocator.clone())
             .map_err(SystemError::from)?;
         let data_hash = Bytes32::from_array(data_hash.build());
@@ -506,7 +506,7 @@ impl<
     ) -> Self::FinalData {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
-                ZKProofDataQuery::get(&mut self.oracle, &())
+                ProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
             (proof_data.state_root_view, proof_data.last_block_timestamp)
         };
@@ -570,7 +570,7 @@ impl<
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
-            pubdata_hash: da_commitment_generator.da_commitment(),
+            pubdata_hash: da_commitment_generator.da_commitment(&mut self.oracle),
             priority_ops_hashes_hash: l1_to_l2_txs_hash,
             l2_to_l1_logs_hashes_hash: l2_to_l1_logs_hashes_hash.into(),
             upgrade_tx_hash,
@@ -613,7 +613,7 @@ impl<
     ) -> Self::FinalData {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
-                ZKProofDataQuery::get(&mut self.oracle, &())
+                ProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
             (proof_data.state_root_view, proof_data.last_block_timestamp)
         };
@@ -636,8 +636,7 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut da_commitment_generator =
-            alloc::boxed::Box::new_in(Keccak256CommitmentGenerator::new(), A::default());
+        let mut da_commitment_generator = da_commitment_generator_from_scheme(self.da_commitment_scheme.unwrap(), A::default()).unwrap();
         da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
@@ -698,7 +697,7 @@ impl<
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
             used_l2_da_validator_address: ruint::aliases::B160::ZERO,
-            pubdata_commitment: da_commitment_generator.da_commitment(),
+            pubdata_commitment: da_commitment_generator.da_commitment(&mut self.oracle),
             number_of_layer_1_txs: U256::try_from(l1_txs_commitment.0).unwrap(),
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
@@ -782,11 +781,12 @@ where
         upgrade_tx_hash: Bytes32,
         builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder<
             A,
+            O
         >,
     ) -> O {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
-                ZKProofDataQuery::get(&mut self.oracle, &())
+                ProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
             (proof_data.state_root_view, proof_data.last_block_timestamp)
         };
@@ -805,22 +805,33 @@ where
             last_block_timestamp,
         };
 
+        let da_commitment_scheme = self.da_commitment_scheme.unwrap();
+        if builder.da_commitment_generator.is_none() {
+            debug_assert!(builder.da_commitment_scheme.is_none());
+            builder.da_commitment_scheme = Some(da_commitment_scheme);
+            builder.da_commitment_generator = Some(da_commitment_generator_from_scheme(da_commitment_scheme, A::default()).unwrap());
+        } else {
+            assert_eq!(builder.da_commitment_scheme.unwrap(), da_commitment_scheme);
+        }
+
         builder
             .da_commitment_generator
+            .as_mut()
+            .unwrap()
             .write(current_block_hash.as_u8_ref());
 
         self.storage
             .finish(
                 &mut self.oracle,
                 Some(&mut state_commitment),
-                builder.da_commitment_generator.as_mut(),
+                builder.da_commitment_generator.as_mut().unwrap().as_mut(),
                 &mut NopResultKeeper,
                 &mut NullLogger,
             )
             .expect("Failed to finish storage");
 
         self.logs_storage.apply_pubdata(
-            builder.da_commitment_generator.as_mut(),
+            builder.da_commitment_generator.as_mut().unwrap().as_mut(),
             &mut NopResultKeeper,
         );
         self.logs_storage
@@ -875,7 +886,7 @@ where
     type IOOracle = O;
     type FinalData = <Self as FinishIO>::FinalData;
 
-    fn init_from_oracle(oracle: Self::IOOracle) -> Result<Self, InternalError> {
+    fn init_from_oracle(mut oracle: Self::IOOracle) -> Result<Self, InternalError> {
         let allocator = A::default();
 
         let storage =
@@ -889,6 +900,11 @@ where
         let events_storage =
             EventsStorage::<MAX_EVENT_TOPICS, SF, M, A>::new_from_parts(allocator.clone());
 
+        let da_commitment_scheme = if PROOF_ENV {
+            Some(oracle.query_with_empty_input(DA_COMMITMENT_SCHEME_QUERY_ID)?)
+        } else {
+            None
+        };
         let new = Self {
             storage,
             transient_storage,
@@ -897,6 +913,7 @@ where
             allocator,
             oracle,
             tx_number: 0u32,
+            da_commitment_scheme
         };
 
         Ok(new)

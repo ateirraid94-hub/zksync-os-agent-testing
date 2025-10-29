@@ -226,7 +226,7 @@ fn recover_authority<S: EthereumLikeTypes>(
     ecrecover_input[63] = if parity <= 1 { parity + 27 } else { parity };
     ecrecover_input[64..96][(32 - r.len())..].copy_from_slice(r);
     ecrecover_input[96..128][(32 - s.len())..].copy_from_slice(s);
-    let mut ecrecover_output = ArrayBuilder::default();
+    let mut ecrecover_output = ArrayBuilder::<32>::default();
     // Recover is counted in intrinsic gas
     resources
         .with_infinite_ergs(|inf_ergs| {

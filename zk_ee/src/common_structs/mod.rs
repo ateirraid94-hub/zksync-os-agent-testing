@@ -12,6 +12,7 @@ pub mod skip_list_quasi_vec;
 pub mod state_root_view;
 pub mod warm_storage_key;
 pub mod warm_storage_value;
+pub mod da_commitment_scheme;
 
 pub use self::callee_account_properties::*;
 pub use self::events_storage::*;

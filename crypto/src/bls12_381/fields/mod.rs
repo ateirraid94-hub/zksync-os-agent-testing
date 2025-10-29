@@ -19,6 +19,12 @@ pub mod fr;
 #[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
 pub use self::fr::Fr;
 
+
+#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+pub use crate::ark_ff_delegation::Fp;
+#[cfg(not(any(all(target_arch = "riscv32", feature = "bigint_ops"), test)))]
+pub use ark_ff::Fp;
+
 pub mod fq2;
 pub use self::fq2::*;
 
