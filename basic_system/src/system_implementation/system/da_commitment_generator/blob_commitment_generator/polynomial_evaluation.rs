@@ -54,6 +54,7 @@ pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypt
     out
 }
 
+// TODO: it's not a good idea to pass big arrays at the stack, rust may be not really efficient...
 #[inline(never)]
 fn fr_batch_inv<const N: usize>(input: &[crypto::bls12_381::Fr; N]) -> [crypto::bls12_381::Fr; N] {
     let mut accumulator = crypto::bls12_381::Fr::one();
