@@ -37,4 +37,4 @@ We exclude from the scope the [hash_to_prime](callable_oracles/src/hash_to_prime
 
 ## Enabled features
 
-The featureset that should be considered for the scope is the one that corresponds to the `server` feature defined in the [proof_running_system](proof_running_system/Cargo.toml). Any other code under disabled features is considered out of scope.
+The featureset that should be considered for the scope is the one that corresponds to the `production` and `multiblock-batch` features defined in the [proof_running_system](proof_running_system/Cargo.toml). Any other code under disabled features is considered out of scope.
