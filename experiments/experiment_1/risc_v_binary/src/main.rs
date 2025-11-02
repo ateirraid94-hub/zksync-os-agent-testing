@@ -41,6 +41,14 @@ pub struct MachineTrapFrame {
     pub registers: [u32; 32],
 }
 
+fn read_from_input() -> u32 {
+    csr_read_word()
+}
+
+fn return_data(x0: u32, x1: u32) -> ! {
+    zksync_os_finish_success(&[x0, x1, 0, 0, 0, 0, 0, 0]);
+}
+
 /// Exception (trap) handler in rust.
 /// Called from the asm/asm.S
 #[link_section = ".trap.rust"]
@@ -51,11 +59,14 @@ pub extern "C" fn machine_start_trap_rust(_trap_frame: *mut MachineTrapFrame) ->
     }
 }
 
+// ↑ Nothing to see here
+// ↓ Actual interesting stuff
+
 const MODULUS: u32 = 7919;
 
 unsafe fn workload() -> ! {
     // Read the n number from the input.
-    let n = csr_read_word();
+    let n = read_from_input();
     let mut a = 0;
     let mut b = 1;
     for _i in 0..n {
@@ -63,7 +74,7 @@ unsafe fn workload() -> ! {
         a = b;
         b = c;
     }
-    zksync_os_finish_success(&[b, n, 0, 0, 0, 0, 0, 0]);
+    return_data(b, n);
 }
 
 #[inline(never)]
