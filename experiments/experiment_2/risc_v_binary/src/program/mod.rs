@@ -1,6 +1,5 @@
 mod storage_layer;
 use storage_layer::StorageLayer;
-use crate::custom_allocator::CustomAllocator;
 
 
 pub unsafe fn program() -> u32 {
