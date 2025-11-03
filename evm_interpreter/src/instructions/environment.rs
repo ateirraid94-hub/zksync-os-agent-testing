@@ -1,6 +1,6 @@
 use super::*;
 use native_resource_constants::*;
-use zk_ee::metadata_markers::basic_metadata::BasicTransactionMetadata;
+use zk_ee::metadata_markers::basic_metadata::{BasicBlockMetadata, BasicTransactionMetadata};
 
 impl<S: EthereumLikeTypes> Interpreter<'_, S> {
     pub fn chainid(&mut self, system: &mut System<S>) -> InstructionResult {
@@ -108,8 +108,8 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
         Ok(())
     }
 
-    pub fn blobbasefee(&mut self, _system: &mut System<S>) -> InstructionResult {
+    pub fn blobbasefee(&mut self, system: &mut System<S>) -> InstructionResult {
         self.gas.spend_gas_and_native(gas_constants::BASE, 40)?;
-        self.stack.push(&U256::from(1))
+        self.stack.push(&system.metadata.blob_base_fee_per_gas())
     }
 }

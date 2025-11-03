@@ -330,6 +330,21 @@ where
             &value
         ));
 
+        // let _ = system.get_logger().write_fmt(format_args!(
+        //     "Balance of 0x{:040x} before transaction is {}\n",
+        //     from.as_uint(),
+        //     context
+        //     .resources
+        //     .main_resources
+        //     .with_infinite_ergs(|resources| {
+        //         system.io.get_nominal_token_balance(
+        //             ExecutionEnvironmentType::NoEE, // out of scope of other interactions
+        //             resources,
+        //             from,
+        //         ).unwrap()
+        //     })
+        // ));
+
         context
             .resources
             .main_resources
@@ -360,6 +375,21 @@ where
                 },
                 SubsystemError::Cascaded(cascaded_error) => match cascaded_error {},
             })?;
+
+        // let _ = system.get_logger().write_fmt(format_args!(
+        //     "Balance of 0x{:040x} after precharge is {}\n",
+        //     from.as_uint(),
+        //     context
+        //     .resources
+        //     .main_resources
+        //     .with_infinite_ergs(|resources| {
+        //         system.io.get_nominal_token_balance(
+        //             ExecutionEnvironmentType::NoEE, // out of scope of other interactions
+        //             resources,
+        //             from,
+        //         ).unwrap()
+        //     })
+        // ));
 
         Ok(())
     }
@@ -505,6 +535,21 @@ where
                 &refund
             ));
 
+            // let _ = system.get_logger().write_fmt(format_args!(
+            //     "Balance of 0x{:040x} before refund is {}\n",
+            //     receiver.as_uint(),
+            //     context
+            //     .resources
+            //     .main_resources
+            //     .with_infinite_ergs(|resources| {
+            //         system.io.get_nominal_token_balance(
+            //             ExecutionEnvironmentType::NoEE, // out of scope of other interactions
+            //             resources,
+            //             receiver,
+            //         ).unwrap()
+            //     })
+            // ));
+
             context
                 .resources
                 .main_resources
@@ -517,6 +562,21 @@ where
                         false,
                     )
                 })?;
+
+            // let _ = system.get_logger().write_fmt(format_args!(
+            //     "Balance of 0x{:040x} after refund is {}\n",
+            //     receiver.as_uint(),
+            //     context
+            //     .resources
+            //     .main_resources
+            //     .with_infinite_ergs(|resources| {
+            //         system.io.get_nominal_token_balance(
+            //             ExecutionEnvironmentType::NoEE, // out of scope of other interactions
+            //             resources,
+            //             receiver,
+            //         ).unwrap()
+            //     })
+            // ));
         }
 
         assert!(context.gas_used > 0);
@@ -534,6 +594,21 @@ where
                 .get_logger()
                 .write_fmt(format_args!("Coinbase's share of fee is {:?}\n", &fee));
 
+            // let _ = system.get_logger().write_fmt(format_args!(
+            //     "Balance of coinbase 0x{:040x} before fee collection is {}\n",
+            //     coinbase.as_uint(),
+            //     context
+            //     .resources
+            //     .main_resources
+            //     .with_infinite_ergs(|resources| {
+            //         system.io.get_nominal_token_balance(
+            //             ExecutionEnvironmentType::NoEE, // out of scope of other interactions
+            //             resources,
+            //             &coinbase,
+            //         ).unwrap()
+            //     })
+            // ));
+
             context
                 .resources
                 .main_resources
@@ -546,6 +621,21 @@ where
                         false,
                     )
                 })?;
+
+            // let _ = system.get_logger().write_fmt(format_args!(
+            //     "Balance of coinbase 0x{:040x} after fee collection is {}\n",
+            //     coinbase.as_uint(),
+            //     context
+            //     .resources
+            //     .main_resources
+            //     .with_infinite_ergs(|resources| {
+            //         system.io.get_nominal_token_balance(
+            //             ExecutionEnvironmentType::NoEE, // out of scope of other interactions
+            //             resources,
+            //             &coinbase,
+            //         ).unwrap()
+            //     })
+            // ));
         }
 
         Ok(())
