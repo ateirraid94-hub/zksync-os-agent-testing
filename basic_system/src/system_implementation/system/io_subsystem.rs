@@ -26,7 +26,7 @@ use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::common_structs::ProofData;
 use zk_ee::common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE;
 use zk_ee::interface_error;
-use zk_ee::oracle::basic_queries::ProofDataQuery;
+use zk_ee::oracle::basic_queries::ZKProofDataQuery;
 use zk_ee::oracle::query_ids::DA_COMMITMENT_SCHEME_QUERY_ID;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::out_of_ergs_error;
@@ -507,7 +507,7 @@ impl<
     ) -> Self::FinalData {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
-                ProofDataQuery::get(&mut self.oracle, &())
+                ZKProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
             (proof_data.state_root_view, proof_data.last_block_timestamp)
         };
@@ -614,7 +614,7 @@ impl<
     ) -> Self::FinalData {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
-                ProofDataQuery::get(&mut self.oracle, &())
+                ZKProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
             (proof_data.state_root_view, proof_data.last_block_timestamp)
         };
@@ -789,7 +789,7 @@ where
     ) -> O {
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
-                ProofDataQuery::get(&mut self.oracle, &())
+                ZKProofDataQuery::get(&mut self.oracle, &())
                     .expect("must get proof data from oracle");
             (proof_data.state_root_view, proof_data.last_block_timestamp)
         };

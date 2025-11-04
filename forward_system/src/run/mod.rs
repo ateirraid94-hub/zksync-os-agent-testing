@@ -14,11 +14,11 @@ mod tracing_impl;
 
 use crate::run::query_processors::ForwardRunningOracleDump;
 use crate::run::query_processors::GenericPreimageResponder;
-use crate::run::query_processors::ProofDataResponder;
 use crate::run::query_processors::ReadStorageResponder;
 use crate::run::query_processors::ReadTreeResponder;
 use crate::run::query_processors::TxDataResponder;
 use crate::run::query_processors::UARTPrintResponder;
+use crate::run::query_processors::ZKProofDataResponder;
 use crate::run::query_processors::{BlockMetadataResponder, DACommitmentSchemeResponder};
 use crate::run::result_keeper::ForwardRunningResultKeeper;
 use crate::system::bootloader::run_forward;
@@ -116,7 +116,7 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
         next_tx_format: None,
         next_tx_from: None,
     };
-    let proof_data_responder = ProofDataResponder {
+    let zk_proof_data_responder = ZKProofDataResponder {
         data: Some(proof_data),
     };
     let da_commitment_scheme_responder = DACommitmentSchemeResponder {
@@ -128,7 +128,7 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);
     oracle.add_external_processor(tx_data_responder);
-    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(zk_proof_data_responder);
     oracle.add_external_processor(da_commitment_scheme_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
@@ -252,7 +252,7 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     };
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
-    let proof_data_responder = ProofDataResponder { data: proof_data };
+    let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
     let da_commitment_scheme_responder = DACommitmentSchemeResponder {
         da_commitment_scheme,
     };
@@ -262,7 +262,7 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
-    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(zk_proof_data_responder);
     oracle.add_external_processor(da_commitment_scheme_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
     oracle.add_external_processor(
@@ -331,14 +331,14 @@ pub fn run_block_with_oracle_dump_ext<
     };
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
-    let proof_data_responder = ProofDataResponder { data: proof_data };
+    let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
     let da_commitment_scheme_responder = DACommitmentSchemeResponder {
         da_commitment_scheme,
     };
 
     if let Ok(path) = std::env::var("ORACLE_DUMP_FILE") {
         let dump = ForwardRunningOracleDump {
-            proof_data_responder: proof_data_responder.clone(),
+            zk_proof_data_responder: zk_proof_data_responder.clone(),
             da_commitment_scheme_responder: da_commitment_scheme_responder.clone(),
             block_metadata_responder,
             tree_responder: tree_responder.clone(),
@@ -354,7 +354,7 @@ pub fn run_block_with_oracle_dump_ext<
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
-    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(zk_proof_data_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
     oracle.add_external_processor(UARTPrintResponder);
 
@@ -378,7 +378,7 @@ pub fn run_block_from_oracle_dump<
         bincode::deserialize_from(file).expect("should deserialize");
 
     let ForwardRunningOracleDump {
-        proof_data_responder,
+        zk_proof_data_responder,
         da_commitment_scheme_responder,
         block_metadata_responder,
         tree_responder,
@@ -391,7 +391,7 @@ pub fn run_block_from_oracle_dump<
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
-    oracle.add_external_processor(proof_data_responder);
+    oracle.add_external_processor(zk_proof_data_responder);
     oracle.add_external_processor(da_commitment_scheme_responder);
     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
 

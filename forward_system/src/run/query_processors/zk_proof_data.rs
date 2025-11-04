@@ -2,7 +2,7 @@ use super::*;
 use basic_system::system_implementation::flat_storage_model::FlatStorageCommitment;
 use basic_system::system_implementation::flat_storage_model::TREE_HEIGHT;
 use zk_ee::common_structs::ProofData;
-use zk_ee::oracle::basic_queries::ProofDataQuery;
+use zk_ee::oracle::basic_queries::ZKProofDataQuery;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::types_config::EthereumIOTypesConfig;
 
@@ -12,17 +12,17 @@ use zk_ee::types_config::EthereumIOTypesConfig;
 ///
 /// The data is consumed once per query and must be set initially.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProofDataResponder {
+pub struct ZKProofDataResponder {
     /// Proof data to be returned when queried (consumed on first access)
     pub data: Option<ProofData<FlatStorageCommitment<TREE_HEIGHT>>>,
 }
 
-impl ProofDataResponder {
+impl ZKProofDataResponder {
     const SUPPORTED_QUERY_IDS: &[u32] =
-        &[ProofDataQuery::<EthereumIOTypesConfig, FlatStorageCommitment<TREE_HEIGHT>>::QUERY_ID];
+        &[ZKProofDataQuery::<EthereumIOTypesConfig, FlatStorageCommitment<TREE_HEIGHT>>::QUERY_ID];
 }
 
-impl<M: MemorySource> OracleQueryProcessor<M> for ProofDataResponder {
+impl<M: MemorySource> OracleQueryProcessor<M> for ZKProofDataResponder {
     fn supported_query_ids(&self) -> Vec<u32> {
         Self::SUPPORTED_QUERY_IDS.to_vec()
     }

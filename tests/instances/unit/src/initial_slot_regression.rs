@@ -14,7 +14,7 @@ use rig::basic_system::system_implementation::flat_storage_model::{
 };
 use rig::chain::TestingOracleFactory;
 use rig::forward_system::run::query_processors::{
-    BlockMetadataResponder, GenericPreimageResponder, ProofDataResponder, TxDataResponder,
+    BlockMetadataResponder, GenericPreimageResponder, TxDataResponder, ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::forward_system::run::ReadStorage;
@@ -144,14 +144,14 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
         let malicious_storage_responder =
             MaliciousStorageResponder::new(state_tree, self.targets.clone());
 
-        let proof_data_responder = ProofDataResponder { data: proof_data };
+        let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
 
         let mut oracle = ZkEENonDeterminismSource::default();
         oracle.add_external_processor(block_metadata_responder);
         oracle.add_external_processor(tx_data_responder);
         oracle.add_external_processor(preimage_responder);
         oracle.add_external_processor(malicious_storage_responder);
-        oracle.add_external_processor(proof_data_responder);
+        oracle.add_external_processor(zk_proof_data_responder);
 
         oracle
     }

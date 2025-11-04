@@ -10,21 +10,21 @@ use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable}
 mod block_metadata;
 mod da_commitment_scheme;
 mod generic_preimage;
-mod proof_data;
 mod read_storage;
 mod read_tree;
 mod simple_storage_map;
 mod tx_data;
 mod uart_print;
+mod zk_proof_data;
 
 pub use self::block_metadata::BlockMetadataResponder;
 pub use self::da_commitment_scheme::DACommitmentSchemeResponder;
 pub use self::generic_preimage::GenericPreimageResponder;
-pub use self::proof_data::ProofDataResponder;
 pub use self::read_storage::ReadStorageResponder;
 pub use self::read_tree::ReadTreeResponder;
 pub use self::tx_data::TxDataResponder;
 pub use self::uart_print::UARTPrintResponder;
+pub use self::zk_proof_data::ZKProofDataResponder;
 
 use crate::run::*;
 
@@ -35,7 +35,7 @@ pub struct ForwardRunningOracleDump<
     PS: PreimageSource + Clone,
     TS: TxSource + Clone,
 > {
-    pub proof_data_responder: ProofDataResponder,
+    pub zk_proof_data_responder: ZKProofDataResponder,
     pub da_commitment_scheme_responder: DACommitmentSchemeResponder,
     pub block_metadata_responder: BlockMetadataResponder,
     /// Handles storage tree read operations and Merkle proofs
