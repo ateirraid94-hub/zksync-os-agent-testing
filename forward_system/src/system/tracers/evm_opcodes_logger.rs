@@ -1,4 +1,15 @@
-// Reference implementation of EVM opcodes logger. Not feature complete for production
+//! # EVM Opcodes Logger - Reference Implementation
+//!
+//! **⚠️  WARNING: This module is NOT intended for production use! ⚠️**
+//!
+//! This is a reference implementation designed solely for:
+//! - Testing and validating tracing traits
+//! - Demonstrating the general design patterns for EVM tracers
+//! - Development and debugging purposes
+//!
+//! The implementation is incomplete and may have performance issues,
+//! missing edge cases, and other limitations that make it unsuitable
+//! for production environments.
 
 use std::{collections::HashMap, marker::PhantomData};
 
@@ -18,21 +29,21 @@ use zksync_os_evm_errors::EvmError;
 #[derive(Default, Debug)]
 #[allow(dead_code)]
 pub struct EvmExecutionStep {
-    pc: usize,
-    opcode_raw: u8,
-    opcode: Option<String>,
-    gas: u64,
+    pub pc: usize,
+    pub opcode_raw: u8,
+    pub opcode: Option<String>,
+    pub gas: u64,
     /// Gas used for opcode execution, None means we can't derive this value
-    gas_used: Option<u64>,
-    memory: Option<Vec<u8>>,
-    mem_size: usize,
-    stack: Option<Vec<U256>>,
-    return_data: Option<Vec<u8>>,
-    storage: Option<Vec<(Bytes32, Bytes32)>>,
-    transient_storage: Option<Vec<(Bytes32, Bytes32)>>,
-    depth: usize,
-    refund: u64,
-    error: Option<EvmError>,
+    pub gas_used: Option<u64>,
+    pub memory: Option<Vec<u8>>,
+    pub mem_size: usize,
+    pub stack: Option<Vec<U256>>,
+    pub return_data: Option<Vec<u8>>,
+    pub storage: Option<Vec<(Bytes32, Bytes32)>>,
+    pub transient_storage: Option<Vec<(Bytes32, Bytes32)>>,
+    pub depth: usize,
+    pub refund: u64,
+    pub error: Option<EvmError>,
 }
 
 #[derive(Default, Debug)]
@@ -128,7 +139,7 @@ impl<S: EthereumLikeTypes> EvmTracer<S> for EvmOpcodesLogger<S> {
         opcode: u8,
         interpreter_state: &impl EvmFrameInterface<S>,
     ) {
-        if self.limit != 0 && self.steps_counter > self.limit {
+        if self.limit != 0 && self.steps_counter >= self.limit {
             return;
         }
         self.steps_counter += 1;
@@ -303,38 +314,18 @@ impl<S: EthereumLikeTypes> Tracer<S> for EvmOpcodesLogger<S> {
     fn after_execution_frame_completed(&mut self, result: Option<(&S::Resources, &CallResult<S>)>) {
         assert_ne!(self.current_call_depth, 0);
 
-        // Hacking our way to track gas used by call-like opcodes
-        if let Some((opcode_log_index, last_known_gas)) =
-            self.pending_call_opcodes.remove(&self.current_call_depth)
-        {
-            // Looks like call frame finished immediately after call-like opcode
-
-            let tx_log = self.transaction_logs.last_mut().expect("Should exist");
-            let opcode_log = tx_log
-                .steps
-                .get_mut(opcode_log_index)
-                .expect("Should exist");
-            match result {
-                Some((resources_to_return, _)) => {
-                    // TODO: we blindly expect that `gas_used_by_last_call` calculation is correct
-                    let gas_used = last_known_gas
-                        - resources_to_return.ergs().0 / ERGS_PER_GAS
-                        - self.gas_used_by_last_call;
-                    opcode_log.gas_used = Some(gas_used);
-                }
-                None => {
-                    // Something terrible happened. Unfortunately we can't derive gas used for the parent's call opcode
-                    opcode_log.gas_used = None
-                }
-            }
-        }
-
         if let Some(call_result) = result {
             let last_call_gas_record = self.gas_used_by_calls.pop().expect("Should exist");
             self.gas_used_by_last_call =
                 last_call_gas_record - call_result.0.ergs().0 / ERGS_PER_GAS; // Save gas used by call
         } else {
             // Something terrible happened (fatal error)
+        }
+
+        if let Some((_, _)) = self.pending_call_opcodes.remove(&self.current_call_depth) {
+            // Looks like call frame finished immediately after call-like opcode
+            // Should not happen since even out-of-bounds execution is interpreted as STOP opcode
+            unreachable!();
         }
 
         self.current_call_depth -= 1;

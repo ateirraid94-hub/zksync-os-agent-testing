@@ -163,7 +163,7 @@ where
     }
 
     /// Commits (freezes) changes up to this point and frees memory taken by snapshots that can't be
-    /// rollbacked to.
+    /// rolled back to.
     pub fn commit(&mut self) {
         self.state.frozen_snapshot_id = self.snapshot();
 
@@ -278,6 +278,10 @@ where
         unsafe { &self.history.initial.as_ref().value }
     }
 
+    pub fn committed(&self) -> &V {
+        unsafe { &self.history.committed.as_ref().value }
+    }
+
     /// Returns (initial_value, current_value) if any
     pub fn get_initial_and_last_values(&self) -> Option<(&V, &V)> {
         self.history.get_initial_and_last_values()
@@ -304,6 +308,10 @@ where
 
     pub fn initial(&self) -> &V {
         unsafe { &self.history.initial.as_ref().value }
+    }
+
+    pub fn committed(&self) -> &V {
+        unsafe { &self.history.committed.as_ref().value }
     }
 
     #[allow(dead_code)]
@@ -541,7 +549,7 @@ mod tests {
 
         let mut v = map.get_or_insert::<()>(&1, || Ok(4)).unwrap();
 
-        // This snapshot will be rollbacked.
+        // This snapshot will be rolled back.
         v.update::<_, ()>(|x| {
             *x = 3;
             Ok(())
@@ -555,7 +563,7 @@ mod tests {
 
         let mut v = map.get_or_insert::<()>(&1, || Ok(5)).unwrap();
 
-        // This will create a new snapshot and will reuse the one that rollbacked.
+        // This will create a new snapshot and will reuse the one that rolled back.
         v.update::<_, ()>(|x| {
             *x = 6;
             Ok(())

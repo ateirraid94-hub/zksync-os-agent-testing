@@ -1,6 +1,10 @@
 use core::u64;
 
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    test,
+    all(feature = "proving", fuzzing)
+))]
 use crate::ark_ff_delegation::MontFp;
 use ark_ec::{
     bn,
@@ -9,7 +13,11 @@ use ark_ec::{
     short_weierstrass::{Affine, Projective},
     AffineRepr,
 };
-#[cfg(not(any(all(target_arch = "riscv32", feature = "bigint_ops"), test)))]
+#[cfg(not(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    test,
+    all(feature = "proving", fuzzing)
+)))]
 use ark_ff::MontFp;
 use ark_ff::{AdditiveGroup, BigInt, Field, PrimeField, Zero};
 use ruint::aliases::U512;

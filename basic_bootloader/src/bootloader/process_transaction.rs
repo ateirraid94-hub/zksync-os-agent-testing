@@ -648,7 +648,7 @@ where
         )?;
 
         // Parse, validate and apply authorization list, following EIP-7702
-        #[cfg(feature = "pectra")]
+        #[cfg(feature = "eip-7702")]
         {
             if let Some(authorization_list) = transaction.authorization_list() {
                 crate::bootloader::transaction::authorization_list:: parse_authorization_list_and_apply_delegations(
@@ -941,11 +941,7 @@ where
             TxError::Validation(InvalidTransaction::BaseFeeGreaterThanMaxFee,),
             system
         )?;
-        let priority_fee_per_gas = if cfg!(feature = "charge_priority_fee") {
-            (*max_priority_fee_per_gas).min(max_fee_per_gas - base_fee)
-        } else {
-            U256::ZERO
-        };
+        let priority_fee_per_gas = (*max_priority_fee_per_gas).min(max_fee_per_gas - base_fee);
         Ok(base_fee + priority_fee_per_gas)
     }
 

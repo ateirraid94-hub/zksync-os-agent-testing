@@ -15,9 +15,12 @@ pub struct HistoryRecord<V> {
 pub struct ElementWithHistory<V, A: Allocator + Clone> {
     /// Initial record (before history started)
     pub initial: HistoryRecordLink<V>,
-    pub first: HistoryRecordLink<V>,
+    first: HistoryRecordLink<V>,
     /// Current history record
     pub head: HistoryRecordLink<V>,
+    /// Record that has been committed, or initial if not commit has been
+    /// performed.
+    pub committed: HistoryRecordLink<V>,
     alloc: A,
 }
 
@@ -43,6 +46,7 @@ impl<V, A: Allocator + Clone> ElementWithHistory<V, A> {
             head: elem,
             initial: elem,
             first: elem,
+            committed: elem,
             alloc,
         }
     }
@@ -116,8 +120,11 @@ impl<V, A: Allocator + Clone> ElementWithHistory<V, A> {
     }
 
     /// Commits (freezes) changes up to this point
-    /// Frees memory taken by snapshots that can't be rollbacked to.
+    /// Frees memory taken by snapshots that can't be rolled back to.
     pub fn commit(&mut self, records_memory_pool: &mut ElementPool<V, A>) {
+        // Head becomes the committed value
+        self.committed = self.head;
+
         // Case with only initial value (no writes at all)
         if self.head == self.initial {
             return;
@@ -178,6 +185,8 @@ mod tests {
             ElementWithHistory::new(1, &mut element_pool, Global);
 
         check_that_head_is_initial_element(1, &element_with_history);
+
+        assert_eq!(element_with_history.committed, element_with_history.initial);
     }
 
     #[test]
@@ -207,6 +216,8 @@ mod tests {
         assert_eq!(element_with_history.first, first_element);
 
         assert_eq!(unsafe { element_with_history.head.as_ref().value }, 3);
+
+        assert_eq!(element_with_history.committed, element_with_history.initial);
     }
 
     #[test]
@@ -217,6 +228,7 @@ mod tests {
 
         element_with_history.rollback(&mut element_pool, CacheSnapshotId(0));
         check_that_head_is_initial_element(1, &element_with_history);
+        assert_eq!(element_with_history.committed, element_with_history.initial);
     }
 
     #[test]
@@ -233,6 +245,7 @@ mod tests {
 
         element_with_history.rollback(&mut element_pool, CacheSnapshotId(0));
         check_that_head_is_initial_element(1, &element_with_history);
+        assert_eq!(element_with_history.committed, element_with_history.initial);
     }
 
     #[test]
@@ -243,6 +256,7 @@ mod tests {
 
         element_with_history.commit(&mut element_pool);
         check_that_head_is_initial_element(1, &element_with_history);
+        assert_eq!(element_with_history.committed, element_with_history.initial);
     }
 
     #[test]
@@ -259,6 +273,7 @@ mod tests {
         element_with_history.commit(&mut element_pool);
         assert_eq!(element_with_history.head, new_element);
         assert_eq!(element_with_history.first, new_element);
+        assert_eq!(element_with_history.committed, new_element);
     }
 
     #[test]
@@ -278,5 +293,6 @@ mod tests {
 
         assert_eq!(element_with_history.head, new_element_2);
         assert_eq!(element_with_history.first, new_element_2);
+        assert_eq!(element_with_history.committed, new_element_2);
     }
 }

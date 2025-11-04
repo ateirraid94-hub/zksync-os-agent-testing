@@ -1,5 +1,9 @@
 use super::super::{g1, Fq, Fr};
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    test,
+    all(feature = "proving", fuzzing)
+))]
 use crate::ark_ff_delegation::MontFp;
 use ark_ec::{
     hashing::curve_maps::{swu::SWUConfig, wb::IsogenyMap},
@@ -8,7 +12,11 @@ use ark_ec::{
         CurveConfig,
     },
 };
-#[cfg(not(any(all(target_arch = "riscv32", feature = "bigint_ops"), test)))]
+#[cfg(not(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    test,
+    all(feature = "proving", fuzzing)
+)))]
 use ark_ff::MontFp;
 
 type G1Affine = Affine<SwuIsoConfig>;
@@ -137,8 +145,6 @@ mod test {
     #[ignore = "requires single threaded runner"]
     #[test]
     fn test_gen() {
-        crate::bls12_381::fields::init();
-
         let gen: G1Affine = SwuIsoConfig::GENERATOR;
         assert!(gen.is_on_curve());
         assert!(gen.is_in_correct_subgroup_assuming_on_curve());

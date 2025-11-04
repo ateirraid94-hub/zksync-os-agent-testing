@@ -33,6 +33,7 @@ use either::Either;
 use errors::EvmSubsystemError;
 use evm_stack::EvmStack;
 use gas::Gas;
+use gas_constants::{SHA3, SHA3WORD};
 use ruint::aliases::U256;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::memory::slice_vec::SliceVec;
@@ -40,7 +41,7 @@ use zk_ee::system::errors::root_cause::{GetRootCause, RootCause};
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::{internal::InternalError, system::SystemError};
 use zk_ee::system::evm::{EvmFrameInterface, EvmStackInterface};
-use zk_ee::system::{EthereumLikeTypes, Resource, Resources, System, SystemTypes};
+use zk_ee::system::{Ergs, EthereumLikeTypes, Resource, Resources, System, SystemTypes};
 
 use alloc::vec::Vec;
 use zk_ee::utils::*;
@@ -467,4 +468,25 @@ impl From<InternalError> for ExitCode {
     fn from(e: InternalError) -> Self {
         ExitCode::FatalError(e.into())
     }
+}
+
+///
+/// Charge native and ergs.
+pub fn charge_native_and_ergs<R: Resources>(
+    resources: &mut R,
+    native: u64,
+    ergs: Ergs,
+) -> Result<(), SystemError> {
+    use zk_ee::system::Computational;
+    let to_charge = R::from_ergs_and_native(ergs, R::Native::from_computational(native));
+    resources.charge(&to_charge)
+}
+
+///
+/// Ergs cost for keccak on a given input size.
+///
+pub fn keccak256_ergs_cost(len: usize) -> Ergs {
+    let words = len.div_ceil(32);
+    let gas_cost = SHA3.saturating_add(SHA3WORD.saturating_mul(words as u64));
+    Ergs(gas_cost.saturating_mul(ERGS_PER_GAS))
 }

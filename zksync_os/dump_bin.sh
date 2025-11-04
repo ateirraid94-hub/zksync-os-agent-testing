@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-USAGE="Usage: $0 --type {server|server-logging-enabled|debug-in-simulator|evm-replay|evm-replay-benchmarking|pectra|multiblock-batch|multiblock-batch-logging-enabled|evm-tester|for-tests}"
+USAGE="Usage: $0 --type {singleblock-batch|singleblock-batch-logging-enabled|debug-in-simulator|evm-replay|evm-replay-benchmarking|multiblock-batch|multiblock-batch-logging-enabled|evm-tester|for-tests}"
 TYPE=""
 
 # Parse --type argument
@@ -25,17 +25,29 @@ FEATURES="proving"
 
 # Adjust for server modes
 case "$TYPE" in
-  server)
-    FEATURES="$FEATURES,evm_compatibility"
-    BIN_NAME="server_app.bin"
-    ELF_NAME="server_app.elf"
-    TEXT_NAME="server_app.text"
+  singleblock-batch)
+    FEATURES="$FEATURES,production"
+    BIN_NAME="singleblock_batch.bin"
+    ELF_NAME="singleblock_batch.elf"
+    TEXT_NAME="singleblock_batch.text"
     ;;
-  server-logging-enabled)
-    FEATURES="$FEATURES,evm_compatibility,print_debug_info"
-    BIN_NAME="server_app_logging_enabled.bin"
-    ELF_NAME="server_app_logging_enabled.elf"
-    TEXT_NAME="server_app_logging_enabled.text"
+  singleblock-batch-logging-enabled)
+    FEATURES="$FEATURES,production,print_debug_info"
+    BIN_NAME="singleblock_batch_logging_enabled.bin"
+    ELF_NAME="singleblock_batch_logging_enabled.elf"
+    TEXT_NAME="singleblock_batch_logging_enabled.text"
+    ;;
+  multiblock-batch)
+    FEATURES="$FEATURES,production,multiblock-batch"
+    BIN_NAME="multiblock_batch.bin"
+    ELF_NAME="multiblock_batch.elf"
+    TEXT_NAME="multiblock_batch.text"
+    ;;
+  multiblock-batch-logging-enabled)
+    FEATURES="$FEATURES,production,multiblock-batch,print_debug_info"
+    BIN_NAME="multiblock_batch_logging_enabled.bin"
+    ELF_NAME="multiblock_batch_logging_enabled.elf"
+    TEXT_NAME="multiblock_batch_logging_enabled.text"
     ;;
   for-tests)
     FEATURES="$FEATURES,for_tests"
@@ -45,9 +57,9 @@ case "$TYPE" in
     ;;
   for-tests-logging-enabled)
     FEATURES="$FEATURES,for_tests,print_debug_info"
-    BIN_NAME="for_tests_logging_enabled.bin"
-    ELF_NAME="for_tests_logging_enabled.elf"
-    TEXT_NAME="for_tests_logging_enabled.text"
+    BIN_NAME="for_tests.bin"
+    ELF_NAME="for_tests.elf"
+    TEXT_NAME="for_tests.text"
     ;;
   evm-replay)
     FEATURES="$FEATURES,eth_runner"
@@ -60,24 +72,6 @@ case "$TYPE" in
     BIN_NAME="evm_replay.bin"
     ELF_NAME="evm_replay.elf"
     TEXT_NAME="evm_replay.text"
-    ;;
-  pectra)
-    FEATURES="$FEATURES,pectra"
-    BIN_NAME="pectra.bin"
-    ELF_NAME="pectra.elf"
-    TEXT_NAME="pectra.text"
-    ;;
-  multiblock-batch)
-    FEATURES="$FEATURES,evm_compatibility,multiblock-batch"
-    BIN_NAME="multiblock_batch.bin"
-    ELF_NAME="multiblock_batch.elf"
-    TEXT_NAME="multiblock_batch.text"
-    ;;
-  multiblock-batch-logging-enabled)
-    FEATURES="$FEATURES,evm_compatibility,multiblock-batch,print_debug_info"
-    BIN_NAME="multiblock_batch_logging_enabled.bin"
-    ELF_NAME="multiblock_batch_logging_enabled.elf"
-    TEXT_NAME="multiblock_batch_logging_enabled.text"
     ;;
   evm-tester)
     FEATURES="$FEATURES,evm_tester"

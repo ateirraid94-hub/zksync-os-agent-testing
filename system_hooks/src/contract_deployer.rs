@@ -8,9 +8,9 @@ use core::fmt::Write;
 use evm_interpreter::MAX_CODE_SIZE;
 use ruint::aliases::{B160, U256};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
-use zk_ee::internal_error;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
 use zk_ee::utils::Bytes32;
+use zk_ee::{internal_error, out_of_return_memory};
 
 pub fn contract_deployer_hook<'a, S: EthereumLikeTypes>(
     request: ExternalCallRequest<S>,
@@ -35,7 +35,7 @@ where
 
     debug_assert_eq!(callee, CONTRACT_DEPLOYER_ADDRESS);
 
-    // There is no "payable" methods
+    // There are no "payable" methods
     let mut error = nominal_token_value != U256::ZERO;
     let mut is_static = false;
     match modifier {
@@ -71,26 +71,33 @@ where
         is_static,
     );
 
-    Ok((
-        match result {
-            Ok(Ok(return_data)) => make_return_state_from_returndata_region(resources, return_data),
-            Ok(Err(e)) => {
-                let _ = system
-                    .get_logger()
-                    .write_fmt(format_args!("Revert: {e:?}\n"));
-                make_error_return_state(resources)
-            }
-            Err(SystemError::LeafRuntime(RuntimeError::OutOfErgs(_))) => {
-                let _ = system
-                    .get_logger()
-                    .write_fmt(format_args!("Out of gas during system hook\n"));
-                make_error_return_state(resources)
-            }
-            Err(e @ SystemError::LeafRuntime(RuntimeError::FatalRuntimeError(_))) => return Err(e),
-            Err(SystemError::LeafDefect(e)) => return Err(e.into()),
-        },
-        return_memory,
-    ))
+    match result {
+        Ok(Ok(return_data)) => {
+            let mut return_memory = SliceVec::new(return_memory);
+            return_memory
+                .try_extend(return_data.iter().copied())
+                .map_err(|_| out_of_return_memory!())?;
+            let (returndata, rest) = return_memory.destruct();
+            Ok((
+                make_return_state_from_returndata_region(resources, returndata),
+                rest,
+            ))
+        }
+        Ok(Err(e)) => {
+            let _ = system
+                .get_logger()
+                .write_fmt(format_args!("Revert: {e:?}\n"));
+            Ok((make_error_return_state(resources), return_memory))
+        }
+        Err(SystemError::LeafRuntime(RuntimeError::OutOfErgs(_))) => {
+            let _ = system
+                .get_logger()
+                .write_fmt(format_args!("Out of gas during system hook\n"));
+            Ok((make_error_return_state(resources), return_memory))
+        }
+        Err(e @ SystemError::LeafRuntime(RuntimeError::FatalRuntimeError(_))) => Err(e),
+        Err(SystemError::LeafDefect(e)) => Err(e.into()),
+    }
 }
 
 // setBytecodeDetailsEVM(address,bytes32,uint32,bytes32) - f6eca0b0
@@ -108,9 +115,11 @@ fn contract_deployer_hook_inner<S: EthereumLikeTypes>(
 where
     S::IO: IOSubsystemExt,
 {
-    // TODO: charge native
-    let step_cost: S::Resources = S::Resources::from_ergs(Ergs(10));
-    resources.charge(&step_cost)?;
+    evm_interpreter::charge_native_and_ergs::<S::Resources>(
+        resources,
+        HOOK_BASE_NATIVE_COST,
+        HOOK_BASE_ERGS_COST,
+    )?;
 
     if calldata.len() < 4 {
         return Ok(Err(
@@ -176,6 +185,10 @@ where
             }
             // Also EIP-3541(reject code starting with 0xEF) should be validated by governance.
 
+            // Charge extra ergs for `set_bytecode_details`
+            let ergs = set_bytecode_details_extra_ergs(bytecode_length);
+            resources.charge(&S::Resources::from_ergs(ergs))?;
+
             system.set_bytecode_details(
                 resources,
                 &address,
@@ -191,4 +204,22 @@ where
         }
         _ => Ok(Err("Contract deployer hook: unknown selector")),
     }
+}
+
+///
+/// We add some ergs cost to account for work charged in native only.
+/// This is:
+///  - Getting preimage of [bytecode_len] length.
+///  - Creating artifacts for code.
+///  - Hashing (Blake2s) bytecode+artifacts.
+///
+/// Note that the IO access gas cost is added by set_bytecode_details.
+/// Instead of doing a fine-grained calculation, we pick a constant
+/// (to be multiplied by the bytecode length) that should be big enough
+/// to cover for this.
+/// Note: the native resources still protect us from DoS in case this
+/// approximation is too low.
+///
+fn set_bytecode_details_extra_ergs(bytecode_len: u32) -> Ergs {
+    SET_BYTECODE_DETAILS_EXTRA_ERGS_PER_BYTE.times(bytecode_len as u64)
 }

@@ -41,6 +41,9 @@ pub struct Case {
     pub prestate: PreState,
     pub pre_blocks: Vec<PreBlock>,
     pub expected_state: HashMap<Address, AccountFillerStruct>,
+    /// We run some tests from different hardforks (p256, 7702),
+    /// which means that fee computation diverges.
+    pub skip_balance_check_for_sender_and_coinbase: bool,
 }
 
 fn parse_label(val: &LabelValue) -> Vec<String> {
@@ -234,6 +237,7 @@ impl Case {
                         prestate,
                         pre_blocks: vec![pre_block],
                         expected_state: expected_state.clone(),
+                        skip_balance_check_for_sender_and_coinbase: false,
                     });
 
                     case_counter += 1;
@@ -250,6 +254,8 @@ impl Case {
         hardfork_version: &str,
     ) -> Vec<Self> {
         let mut cases = vec![];
+
+        let mut skip_balance_check_for_sender_and_coinbase = hardfork_version != "Cancun";
 
         let mut indexes_for_expected_results = vec![];
         // The boolean represents if the expectException flag is set.
@@ -359,6 +365,11 @@ impl Case {
 
                     let prestate = test_definition.pre.clone();
 
+                    if test_definition.transaction.max_fee_per_blob_gas.is_some() {
+                        // We don't support blobs yet
+                        skip_balance_check_for_sender_and_coinbase = true;
+                    }
+
                     let transaction = transaction_from_tx_section(
                         &test_definition.transaction,
                         *value,
@@ -396,6 +407,7 @@ impl Case {
                         prestate,
                         pre_blocks: vec![pre_block],
                         expected_state: expected_state.clone(),
+                        skip_balance_check_for_sender_and_coinbase,
                     });
 
                     case_counter += 1;
@@ -418,6 +430,8 @@ impl Case {
             return vec![];
         }
 
+        let mut skip_balance_check_for_sender_and_coinbase = hardfork_version != "Cancun";
+
         // Apply hash-based filter
         if test_definition
             ._info
@@ -428,6 +442,7 @@ impl Case {
             return vec![];
         }
         let mut pre_blocks = vec![];
+        let mut any_4844 = false;
         for block in test_definition.blocks.clone() {
             let transactions = block
                 .transactions
@@ -440,6 +455,9 @@ impl Case {
                         .access_lists
                         .clone()
                         .map(|v| v.first().cloned().unwrap().unwrap());
+                    if tx.max_fee_per_blob_gas.is_some() {
+                        any_4844 = true;
+                    }
                     transaction_from_tx_section(&tx, value, data, gas_limit, access_list)
                 })
                 .collect_vec();
@@ -460,12 +478,16 @@ impl Case {
                 expect_exception,
             })
         }
+        if any_4844 {
+            skip_balance_check_for_sender_and_coinbase = true;
+        }
 
         vec![Case {
             label: "".to_string(),
             prestate,
             pre_blocks,
             expected_state,
+            skip_balance_check_for_sender_and_coinbase,
         }]
     }
 
@@ -533,6 +555,7 @@ impl Case {
                     );
                 });
         }
+
         // Collect coinbase and sender address to filter out in balance check
         let mut coinbase_and_sender_addresses = HashSet::new();
         self.pre_blocks.iter().for_each(|pre_block| {
@@ -560,8 +583,11 @@ impl Case {
         // TODO merge with prestate!
         for (address, filler_struct) in self.expected_state {
             if filler_struct.balance.is_some() {
-                // We do not have equivalent gas refunds, so balances will be different
-                if !coinbase_and_sender_addresses.contains(&address) {
+                // We skip balance check when [skip_balance_check_for_sender_and_coinbase] is set
+                // and the address is a coinbase or sender.
+                let skip_bal_check = self.skip_balance_check_for_sender_and_coinbase
+                    && coinbase_and_sender_addresses.contains(&address);
+                if !skip_bal_check {
                     let expected_balance = filler_struct.balance.as_ref().unwrap();
                     if let Some(expected_balance_value) = expected_balance.as_value() {
                         if vm.get_balance(address) != expected_balance_value {
@@ -688,9 +714,10 @@ impl Case {
         vm: &mut ZKsyncOS,
         proof_run: bool,
     ) -> Vec<Result<Vec<ZKsyncOSTxExecutionResult>, String>> {
+        let mut block_hashes = [ruint::aliases::U256::ZERO; 256];
         pre_blocks
             .into_iter()
-            .map(|pre_block| Self::run_zksync_os_block(vm, pre_block, proof_run))
+            .map(|pre_block| Self::run_zksync_os_block(vm, pre_block, proof_run, &mut block_hashes))
             .collect_vec()
     }
 
@@ -698,6 +725,7 @@ impl Case {
         vm: &mut ZKsyncOS,
         pre_block: PreBlock,
         proof_run: bool,
+        block_hashes: &mut [ruint::aliases::U256; 256],
     ) -> Result<Vec<ZKsyncOSTxExecutionResult>, String> {
         let mut system_context = ZKsyncOSEVMContext::default();
 
@@ -706,6 +734,18 @@ impl Case {
         system_context.block_timestamp = pre_block.env.current_timestamp.try_into().unwrap();
         system_context.coinbase = pre_block.env.current_coinbase;
         system_context.block_gas_limit = pre_block.env.current_gas_limit;
+        let parent_hash = pre_block
+            .env
+            .previous_hash
+            .map(|bytes| ruint::aliases::U256::from_be_bytes(bytes.0))
+            .unwrap_or_default();
+
+        // Shift block hashes to the left to make room for the new one
+        for i in 0..255 {
+            block_hashes[i] = block_hashes[i + 1];
+        }
+        block_hashes[255] = parent_hash;
+        vm.chain.set_block_hashes(block_hashes.clone());
 
         if let Some(base_fee) = pre_block.env.current_base_fee {
             system_context.base_fee = base_fee;

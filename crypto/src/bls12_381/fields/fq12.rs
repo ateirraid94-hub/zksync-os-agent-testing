@@ -1,7 +1,15 @@
 use super::{Fq, Fq2, Fq6, Fq6Config};
-#[cfg(any(all(target_arch = "riscv32", feature = "bigint_ops"), test))]
+#[cfg(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    test,
+    all(feature = "proving", fuzzing)
+))]
 use crate::ark_ff_delegation::MontFp;
-#[cfg(not(any(all(target_arch = "riscv32", feature = "bigint_ops"), test)))]
+#[cfg(not(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    test,
+    all(feature = "proving", fuzzing)
+)))]
 use ark_ff::MontFp;
 use ark_ff::{AdditiveGroup, Field, Fp12, Fp12Config};
 

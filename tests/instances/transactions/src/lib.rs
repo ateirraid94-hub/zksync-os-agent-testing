@@ -10,6 +10,7 @@ use rig::alloy::primitives::{address, b256};
 use rig::alloy::rpc::types::{AccessList, AccessListItem, TransactionRequest};
 use rig::ethers::types::Address;
 use rig::ruint::aliases::{B160, U256};
+use rig::zksync_os_interface::error::InvalidTransaction;
 use rig::{alloy, ethers, zksync_web3_rs, Chain};
 use rig::{utils::*, BlockContext};
 use std::str::FromStr;
@@ -418,7 +419,6 @@ fn test_tx_with_access_list() {
     assert!(result0.is_ok_and(|o| o.is_success()));
 }
 
-#[cfg(feature = "pectra")]
 #[test]
 fn test_tx_with_authorization_list() {
     use rig::alloy::eips::eip7702::*;
@@ -477,7 +477,7 @@ fn test_tx_with_authorization_list() {
     );
 
     let run_config = rig::chain::RunConfig {
-        app: Some("pectra".to_string()),
+        app: Some("for_tests".to_string()),
         only_forward: false,
         check_storage_diff_hashes: true,
         ..Default::default()
@@ -491,7 +491,6 @@ fn test_tx_with_authorization_list() {
 
 // Test that slots made warm in a tx are cold in the next tx
 #[test]
-
 fn test_cold_in_new_tx() {
     let mut chain = Chain::empty(None);
 
@@ -588,27 +587,31 @@ fn test_independent_txs_have_same_pubdata() {
     let to2 = address!("0000000000000000000000000000000000010003");
 
     let encoded_tx_1 = {
-        let tx = TxLegacy {
-            chain_id: 37u64.into(),
+        let tx = TxEip1559 {
+            chain_id: 37u64,
             nonce: 0,
-            gas_price: 1000,
+            max_fee_per_gas: 1500,
+            max_priority_fee_per_gas: 1500,
             gas_limit: 21_000,
             to: TxKind::Call(to1),
             value: U256::from(10),
             input: Default::default(),
+            ..Default::default()
         };
         rig::utils::sign_and_encode_alloy_tx(tx, &wallet1)
     };
 
     let encoded_tx_2 = {
-        let tx = TxLegacy {
-            chain_id: 37u64.into(),
+        let tx = TxEip1559 {
+            chain_id: 37u64,
             nonce: 0,
-            gas_price: 1000,
+            max_fee_per_gas: 1500,
+            max_priority_fee_per_gas: 1500,
             gas_limit: 21_000,
             to: TxKind::Call(to2),
             value: U256::from(10),
             input: Default::default(),
+            ..Default::default()
         };
         rig::utils::sign_and_encode_alloy_tx(tx, &wallet2)
     };
@@ -640,6 +643,153 @@ fn test_independent_txs_have_same_pubdata() {
     let pubdata_used_1 = result1.unwrap().pubdata_used;
     let pubdata_used_2 = result2.unwrap().pubdata_used;
     assert_eq!(pubdata_used_1, pubdata_used_2, "Pubdata used not equal")
+}
+
+#[test]
+fn test_invalid_tx_does_not_bump_tx_counter() {
+    let wallet = PrivateKeySigner::from_str(
+        "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7",
+    )
+    .unwrap();
+    let wallet_ethers = LocalWallet::from_bytes(wallet.to_bytes().as_slice()).unwrap();
+    let from = wallet_ethers.address();
+    let to = address!("0000000000000000000000000000000000010002");
+    let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
+
+    // Invalid tx first
+    let encoded_mint1_tx = {
+        let mint_tx = TxLegacy {
+            chain_id: 37u64.into(),
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 34_158_000_000_000,
+            to: TxKind::Call(to),
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+    };
+    let withdrawal_tx = {
+        let to = address!("000000000000000000000000000000000000800a");
+
+        let withdrawal_calldata =
+            hex::decode("51cff8d9000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                .unwrap();
+
+        let mint_tx = TxLegacy {
+            chain_id: 37u64.into(),
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 500_000,
+            to: TxKind::Call(to),
+            value: U256::from(10),
+            input: withdrawal_calldata.into(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+    };
+
+    let mut chain = Chain::empty(None);
+    let transactions = vec![encoded_mint1_tx, withdrawal_tx];
+    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_balance(
+        B160::from_be_bytes(from.0),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+    let output = chain.run_block(transactions, None, None);
+
+    // Assert tx succeeded/failed
+    let result0 = output.tx_results.first().unwrap().clone();
+    let result1 = output.tx_results.get(1).unwrap().clone();
+
+    assert!(result0.as_ref().is_err());
+    assert!(result1.as_ref().is_ok_and(|o| o.is_success()));
+    assert!(
+        result1
+            .unwrap()
+            .l2_to_l1_logs
+            .first()
+            .unwrap()
+            .log
+            .tx_number_in_block
+            == 0
+    );
+}
+
+#[test]
+fn test_invalid_tx_does_not_affect_native() {
+    let wallet = PrivateKeySigner::from_str(
+        "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7",
+    )
+    .unwrap();
+    let wallet_ethers = LocalWallet::from_bytes(wallet.to_bytes().as_slice()).unwrap();
+    let from = wallet_ethers.address();
+    let to = address!("0000000000000000000000000000000000010002");
+    let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
+
+    // First we run a single tx to get the "normal" amount of native used
+    let encoded_mint_tx = {
+        let mint_tx = TxLegacy {
+            chain_id: 37u64.into(),
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 500_000,
+            to: TxKind::Call(to),
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+    };
+
+    let mut chain = Chain::empty(None);
+    let transactions = vec![encoded_mint_tx.clone()];
+    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_balance(
+        B160::from_be_bytes(from.0),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+    let output = chain.run_block(transactions, None, None);
+
+    // Assert tx succeeded
+    let result = output.tx_results.first().unwrap().clone();
+    assert!(result.as_ref().is_ok_and(|o| o.is_success()));
+
+    let native_used_reference = result.unwrap().native_used;
+
+    // Same tx but with a huge gas limit, which makes it invalid
+    // We run this one first and then the valid one, and check that
+    // the valid one uses the same amount of native as in the reference case.
+    let encoded_mint1_tx = {
+        let mint_tx = TxLegacy {
+            chain_id: 37u64.into(),
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 34_158_000_000_000,
+            to: TxKind::Call(to),
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+    };
+
+    let mut chain = Chain::empty(None);
+    let transactions = vec![encoded_mint1_tx, encoded_mint_tx];
+    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_balance(
+        B160::from_be_bytes(from.0),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+    let output = chain.run_block(transactions, None, None);
+
+    // Assert tx succeeded
+    let result0 = output.tx_results.first().unwrap().clone();
+    let result1 = output.tx_results.get(1).unwrap().clone();
+    assert!(result0.as_ref().is_err());
+    assert!(result1.as_ref().is_ok_and(|o| o.is_success()));
+    assert_eq!(
+        result1.unwrap().native_used,
+        native_used_reference,
+        "Native used doesn't match"
+    );
 }
 
 // TODO: find better place for regression tests
@@ -1104,4 +1254,58 @@ fn test_selfdestruct_to_precompile_gas() {
     assert!(res0.as_ref().is_ok(), "Tx should succeed");
     let gas_used = res0.clone().unwrap().gas_used;
     assert_eq!(gas_used, 26003);
+}
+
+#[test]
+fn test_reject_caller_with_code_behavior() {
+    let mut chain = Chain::empty(None);
+    let wallet = chain.random_signer();
+
+    // Create a contract address with bytecode deployed
+    let contract_address = wallet.address();
+    let target_address = address!("4242000000000000000000000000000000000000");
+
+    // Deploy bytecode to the contract address to make it a "contract with code"
+    chain.set_evm_bytecode(
+        B160::from_be_bytes(contract_address.into_array()),
+        &hex::decode("60006000f3").unwrap(), // Simple contract: PUSH1 0, PUSH1 0, RETURN
+    );
+
+    // Set balance for the contract address
+    chain.set_balance(
+        B160::from_be_bytes(contract_address.into_array()),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+
+    let from_contract_tx = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 75_000,
+            to: TxKind::Call(target_address),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: Default::default(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+    };
+
+    let result_simulation = chain.simulate_block(vec![from_contract_tx.clone()], None);
+
+    // In simulation mode, the transaction should succeed
+    assert!(result_simulation.tx_results[0].is_ok(),);
+
+    let tx_result = result_simulation.tx_results[0].as_ref().unwrap();
+    assert!(
+        tx_result.is_success(),
+        "Transaction should be successful in simulation mode"
+    );
+
+    // But in normal mode it should fail
+    let result_normal = chain.run_block(vec![from_contract_tx], None, run_config());
+    assert!(matches!(
+        result_normal.tx_results[0],
+        Err(InvalidTransaction::RejectCallerWithCode)
+    ));
 }

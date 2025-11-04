@@ -206,8 +206,8 @@ where
                             let _ = system.get_logger().write_fmt(format_args!(
                                 "Tx execution result: Validation error = {err:?}\n",
                             ));
-                            // Finish the frame opened before processing the tx
-                            system.finish_global_frame(None)?;
+                            // Revert to state before transaction
+                            system.finish_global_frame(Some(&pre_tx_rollback_handle))?;
                             result_keeper.tx_processed(Err(err));
                         }
                         Ok(tx_processing_result) => {
@@ -285,11 +285,12 @@ where
                                 if tx_processing_result.is_upgrade_tx {
                                     upgrade_tx_hash = tx_processing_result.tx_hash;
                                 }
+
+                                // Only bump tx number when tx is successful
+                                system.finish_valid_tx()?;
                             }
                         }
                     }
-
-                    system.flush_tx()?;
 
                     let mut logger = system.get_logger();
                     let _ = logger.write_fmt(format_args!("TX execution ends\n"));

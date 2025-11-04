@@ -5,10 +5,10 @@
 pub(crate) mod mock_precompiles {
     use zk_ee::{
         common_traits::TryExtend,
-        internal_error,
+        interface_error,
         system::{
             base_system_functions::MissingSystemFunctionErrors, errors::subsystem::SubsystemError,
-            Resources, SystemFunction,
+            MockedSystemFunctionError, Resources, SystemFunction,
         },
     };
 
@@ -21,7 +21,7 @@ pub(crate) mod mock_precompiles {
             _allocator: A,
         ) -> Result<(), SubsystemError<MissingSystemFunctionErrors>> {
             if input.len() != 213 {
-                return Err(internal_error!("Invalid Blake input length").into());
+                return Err(interface_error!(MockedSystemFunctionError::InvalidInputLength).into());
             }
             Ok(())
         }
@@ -37,8 +37,8 @@ pub(crate) mod mock_precompiles {
             _resources: &mut R,
             _allocator: A,
         ) -> Result<(), SubsystemError<MissingSystemFunctionErrors>> {
-            if input.len() != 193 {
-                return Err(internal_error!("Invalid PointEval input length").into());
+            if input.len() != 192 {
+                return Err(interface_error!(MockedSystemFunctionError::InvalidInputLength).into());
             }
             Ok(())
         }

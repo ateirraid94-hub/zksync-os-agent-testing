@@ -1,13 +1,25 @@
-#[cfg(not(all(feature = "single_round_with_control", target_arch = "riscv32")))]
+#[cfg(not(any(
+    all(feature = "single_round_with_control", target_arch = "riscv32"),
+    all(feature = "proving", fuzzing)
+)))]
 mod naive;
 
-#[cfg(not(all(feature = "single_round_with_control", target_arch = "riscv32")))]
+#[cfg(not(any(
+    all(feature = "single_round_with_control", target_arch = "riscv32"),
+    all(feature = "proving", fuzzing)
+)))]
 pub use naive::Blake2s256;
 
-#[cfg(all(feature = "single_round_with_control", target_arch = "riscv32"))]
+#[cfg(any(
+    all(feature = "single_round_with_control", target_arch = "riscv32"),
+    all(feature = "proving", fuzzing)
+))]
 mod delegated_extended;
 
-#[cfg(all(feature = "single_round_with_control", target_arch = "riscv32"))]
+#[cfg(any(
+    all(feature = "single_round_with_control", target_arch = "riscv32"),
+    all(feature = "proving", fuzzing)
+))]
 pub use delegated_extended::{initialize_blake2s_delegation_context, Blake2s256};
 
 // Multiple tests to compare delegation blake with external implementation.

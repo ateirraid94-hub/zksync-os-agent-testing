@@ -262,22 +262,10 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
             ));
         }
 
-        // By default, code execution is disabled for calls in kernel space
-        // (< SPECIAL_ADDRESS_BOUND). These calls will either be handled by
-        // a system hook or behave like calls to an empty account otherwise.
+        // Only calls to addresses linked to a hook are considered special.
+        // Any other call can execute code following the normal flow.
         //
-        // If the [code_in_kernel_space] feature is enabled, only calls to
-        // addresses linked to a hook are considered special. Any other call
-        // can execute code following the normal flow.
-        //
-        // NB: if we decide to make the latter behaviour the default, we
-        // should refactor the logic to avoid the duplicated lookup into
-        // the hook storage.
-        #[cfg(not(feature = "code_in_kernel_space"))]
-        let is_call_to_special_address = external_call_launch_params.external_call.callee.as_uint()
-            < SPECIAL_ADDRESS_BOUND.as_uint();
-
-        #[cfg(feature = "code_in_kernel_space")]
+        // TODO(EVM-1181): We should refactor the logic to avoid the duplicated lookup into the hook storage.
         let is_call_to_special_address = external_call_launch_params.external_call.callee.as_uint()
             < SPECIAL_ADDRESS_BOUND.as_uint()
             && self.hooks.has_hook_for(
@@ -766,7 +754,7 @@ where
         )
         .and_then(|account_properties| {
             // Note: we ignore delegation in case if this is a constructor call. EE should revert due to collision.
-            let properties = if cfg!(feature = "pectra")
+            let properties = if cfg!(feature = "eip-7702")
                 && account_properties.is_delegated.0
                 && call_request.modifier != CallModifier::Constructor
             {
@@ -784,9 +772,7 @@ where
                         .with_unpadded_code_len()
                         .with_artifacts_len()
                         .with_bytecode()
-                        .with_code_version()
-                        .with_nonce()
-                        .with_nominal_token_balance(),
+                        .with_code_version(),
                 )?;
                 (account_properties, Some(delegate_properties))
             } else {

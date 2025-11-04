@@ -11,20 +11,13 @@ The bootloader is the component responsible for implementing the general blockch
 7. Repeat from 3 until there are no more transactions.
 8. Finalizing the block.
 
-This component is, as the name suggest, the entrypoint of the system. The function [`run_prepared`](../../basic_bootloader/src/bootloader/mod.rs) implements this top-level main loop.
+This component is, as the name suggests, the entrypoint of the system. The function [`run_prepared`](../../basic_bootloader/src/bootloader/mod.rs) implements this top-level main loop.
 
 ## Configuration
 
 The bootloader can be configured with the following parameters (found in the [`BasicBootloaderExecutionConfig`](../../basic_bootloader/src/bootloader/mod.rs) struct):
 
 - `ONLY_SIMULATE`: skips the [validation](./transaction_processing.md#validation) step when processing a transaction. Used for call simulation in the node.
-
-In addition, the `basic_bootloader` crate has the following compilation flags:
-
-- `code_in_kernel_space`: to enable normal contract execution for addresses in the range `[0, SPECIAL_ADDRESS_SPACE_BOUND]`.
-- `transfers_to_kernel_space`: to enable token transfers to addresses in the range `[0, SPECIAL_ADDRESS_SPACE_BOUND]`. Note: the bootloader itself has a special formal address (0x8001) that is always allowed to receive token transfers. This is used to collect fees.
-- `charge_priority_fee`: to enable charging for the EIP-1559 tip (priority fee) on top of the base fee.
-- `evm-compatibility`: enables all the previous flags, needed for the EVM test suite.
 
 ## Code execution
 
@@ -34,7 +27,7 @@ A contract call is executed through an interplay between the bootloader and (pot
 
 ## Block header
 
-At the end of the execution bootloader outputs block header to the system.
+At the end of the execution, the bootloader outputs block header to the system.
 
 For the block header, we use Ethereum block header format.
 However, some of the fields will be set differently in the first version for simplification (most likely it will change before the mainnet launch).

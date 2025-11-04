@@ -31,6 +31,7 @@ use zk_ee::oracle::query_ids::DA_COMMITMENT_SCHEME_QUERY_ID;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::out_of_ergs_error;
 use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
+use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::{
     common_structs::{EventsStorage, LogsStorage},
     memory::ArrayBuilder,
@@ -208,12 +209,11 @@ impl<
                 + keccak256_native_cost::<Self::Resources>(data.len()).as_u64();
 
         // We also charge some native resource for storing the log
-        let native = R::Native::from_computational(
-            hashing_native_cost
-                + EVENT_STORAGE_BASE_NATIVE_COST
-                + EVENT_DATA_PER_BYTE_COST * (data.len() as u64),
-        );
-        resources.charge(&R::from_native(native))?;
+        let native = hashing_native_cost
+            + EVENT_STORAGE_BASE_NATIVE_COST
+            + EVENT_DATA_PER_BYTE_COST * (data.len() as u64);
+
+        resources.charge(&R::from_native(R::Native::from_computational(native)))?;
 
         // TODO(EVM-1078): for Era backward compatibility we may need to add events for l2 to l1 log and l1 message
 
@@ -572,7 +572,7 @@ impl<
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
-            pubdata_hash: da_commitment_generator.da_commitment(&mut self.oracle),
+            pubdata_hash: da_commitment_generator.finalize(&mut self.oracle),
             priority_ops_hashes_hash: l1_to_l2_txs_hash,
             l2_to_l1_logs_hashes_hash: l2_to_l1_logs_hashes_hash.into(),
             upgrade_tx_hash,
@@ -701,7 +701,7 @@ impl<
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
             da_commitment_scheme: self.da_commitment_scheme.unwrap(),
-            pubdata_commitment: da_commitment_generator.da_commitment(&mut self.oracle),
+            pubdata_commitment: da_commitment_generator.finalize(&mut self.oracle),
             number_of_layer_1_txs: U256::try_from(l1_txs_commitment.0).unwrap(),
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),

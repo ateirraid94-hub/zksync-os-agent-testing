@@ -2,7 +2,6 @@ use crate::{
     ark_ff_delegation::BigInt,
     bigint_delegation::{u256, DelegatedModParams, DelegatedMontParams},
 };
-use core::mem::MaybeUninit;
 use core::ops::{AddAssign, MulAssign, SubAssign};
 
 #[derive(Clone, Copy, Default)]
@@ -19,42 +18,34 @@ impl core::fmt::Debug for FieldElement {
     }
 }
 
-static mut REDUCTION_CONST: MaybeUninit<BigInt<4>> = MaybeUninit::uninit();
-static mut MODULUS: MaybeUninit<BigInt<4>> = MaybeUninit::uninit();
-static mut R2: MaybeUninit<BigInt<4>> = MaybeUninit::uninit();
-
-pub fn init() {
-    unsafe {
-        REDUCTION_CONST.write(BigInt::<4>(super::REDUCTION_CONST));
-        MODULUS.write(BigInt::<4>(super::MODULUS));
-        R2.write(BigInt::<4>(super::R2));
-    }
-}
+static MODULUS: BigInt<4> = BigInt::<4>(super::MODULUS);
+static REDUCTION_CONST: BigInt<4> = BigInt::<4>(super::REDUCTION_CONST);
+static R2: BigInt<4> = BigInt::<4>(super::R2);
 
 #[derive(Default, Debug)]
 pub struct FieldParams;
 
 impl DelegatedModParams<4> for FieldParams {
     unsafe fn modulus() -> &'static BigInt<4> {
-        MODULUS.assume_init_ref()
+        &MODULUS
     }
 }
 
 impl DelegatedMontParams<4> for FieldParams {
     unsafe fn reduction_const() -> &'static BigInt<4> {
-        REDUCTION_CONST.assume_init_ref()
+        &REDUCTION_CONST
     }
 }
 
 impl FieldElement {
     pub(crate) const ZERO: Self = Self::from_words_unchecked([0; 4]);
-    // montgomerry form
+    // montgomery form
     pub(crate) const ONE: Self =
         Self::from_words_unchecked([1, 18446744069414584320, 18446744073709551615, 4294967294]);
 
     pub(super) fn to_representation(mut self) -> Self {
         unsafe {
-            u256::mul_assign_montgomery::<FieldParams>(&mut self.0, R2.assume_init_ref());
+            u256::mul_assign_montgomery::<FieldParams>(&mut self.0, &R2);
         }
         self
     }
@@ -87,8 +78,7 @@ impl FieldElement {
     }
 
     pub(crate) fn overflow(&self) -> bool {
-        let modulus = unsafe { MODULUS.assume_init_ref() };
-        !u256::lt(&self.0, modulus)
+        !u256::lt(&self.0, &MODULUS)
     }
 
     pub(crate) fn square_assign(&mut self) {

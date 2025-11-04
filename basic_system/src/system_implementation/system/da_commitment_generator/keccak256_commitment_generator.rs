@@ -24,7 +24,7 @@ impl WriteBytes for Keccak256CommitmentGenerator {
 }
 
 impl<O: IOOracle> DACommitmentGenerator<O> for Keccak256CommitmentGenerator {
-    fn da_commitment(&mut self, _oracle: &mut O) -> Bytes32 {
+    fn finalize(&mut self, _oracle: &mut O) -> Bytes32 {
         let mut da_commitment_hasher = crypto::sha3::Keccak256::new();
         da_commitment_hasher.update([0u8; 32]); // we don't have to validate state diffs hash
         da_commitment_hasher.update(self.pubdata_hasher.finalize_reset()); // full pubdata keccak

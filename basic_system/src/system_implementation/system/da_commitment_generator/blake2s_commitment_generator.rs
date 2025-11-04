@@ -24,7 +24,7 @@ impl WriteBytes for Blake2sCommitmentGenerator {
 }
 
 impl<O: IOOracle> DACommitmentGenerator<O> for Blake2sCommitmentGenerator {
-    fn da_commitment(&mut self, _oracle: &mut O) -> Bytes32 {
+    fn finalize(&mut self, _oracle: &mut O) -> Bytes32 {
         self.pubdata_hasher.finalize_reset().into()
     }
 }

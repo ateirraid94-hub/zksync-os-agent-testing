@@ -1,4 +1,15 @@
-// Reference implementation of call tracer.
+//! # Call Tracer - Reference Implementation
+//!
+//! **⚠️  WARNING: This module is NOT intended for production use! ⚠️**
+//!
+//! This is a reference implementation designed solely for:
+//! - Testing and validating tracing traits
+//! - Demonstrating the general design patterns for EVM tracers
+//! - Development and debugging purposes
+//!
+//! The implementation is incomplete and may have performance issues,
+//! missing edge cases, and other limitations that make it unsuitable
+//! for production environments.
 
 use evm_interpreter::ERGS_PER_GAS;
 use ruint::aliases::{B160, U256};
@@ -317,6 +328,11 @@ impl<S: EthereumLikeTypes> EvmTracer<S> for CallTracer {
 
     /// Opcode failed for some reason. Note: call frame ends immediately
     fn on_opcode_error(&mut self, error: &EvmError, _frame_state: &impl EvmFrameInterface<S>) {
+        if self.only_top_call && self.current_call_depth > 1 {
+            // Ignore errors in subcalls if only the top call should be traced
+            return;
+        }
+
         let current_call = self.unfinished_calls.last_mut().expect("Should exist");
         current_call.error = Some(CallError::EvmError(error.clone()));
         current_call.reverted = true;
@@ -330,6 +346,11 @@ impl<S: EthereumLikeTypes> EvmTracer<S> for CallTracer {
     /// Special cases, when error happens in frame before any opcode is executed (unfortunately we can't provide access to state)
     /// Note: call frame ends immediately
     fn on_call_error(&mut self, error: &EvmError) {
+        if self.only_top_call && self.current_call_depth > 1 {
+            // Ignore errors in subcalls if only the top call should be traced
+            return;
+        }
+
         let current_call = self.unfinished_calls.last_mut().expect("Should exist");
         current_call.error = Some(CallError::EvmError(error.clone()));
         current_call.reverted = true;

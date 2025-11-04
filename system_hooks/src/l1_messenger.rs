@@ -1,12 +1,17 @@
 //!
 //! L1 messenger system hook implementation.
-//! It implements a `sendToL1` method, works same way as in Era.
+//! It implements a `sendToL1` method, works the same way as in Era.
 //!
 use super::*;
 use arrayvec::ArrayVec;
 use core::fmt::Write;
+use evm_interpreter::{
+    gas_constants::{LOG, LOGDATA},
+    keccak256_ergs_cost,
+};
 use ruint::aliases::{B160, U256};
 use zk_ee::{
+    common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE,
     execution_environment_type::ExecutionEnvironmentType,
     internal_error, out_of_return_memory,
     storage_types::MAX_EVENT_TOPICS,
@@ -41,7 +46,7 @@ where
     debug_assert_eq!(callee, L1_MESSENGER_ADDRESS);
 
     let mut error = false;
-    // There is no "payable" methods
+    // There are no "payable" methods
     error |= nominal_token_value != U256::ZERO;
     let mut is_static = false;
     match modifier {
@@ -119,14 +124,16 @@ fn l1_messenger_hook_inner<S: EthereumLikeTypes>(
     resources: &mut S::Resources,
     system: &mut System<S>,
     caller: B160,
-    caller_ee: u8,
+    _caller_ee: u8,
     is_static: bool,
 ) -> Result<Result<Bytes32, &'static str>, SystemError>
 where
 {
-    // TODO: charge native
-    let step_cost: S::Resources = S::Resources::from_ergs(Ergs(10));
-    resources.charge(&step_cost)?;
+    evm_interpreter::charge_native_and_ergs::<S::Resources>(
+        resources,
+        HOOK_BASE_NATIVE_COST,
+        HOOK_BASE_ERGS_COST,
+    )?;
 
     if calldata.len() < 4 {
         return Ok(Err(
@@ -148,7 +155,7 @@ where
                 ));
             }
 
-            send_to_l1_inner(&calldata[4..], resources, system, caller, caller_ee)
+            send_to_l1_inner(&calldata[4..], resources, system, caller)
         }
         _ => Ok(Err("L1 messenger: unknown selector")),
     }
@@ -164,8 +171,9 @@ pub(crate) fn send_to_l1_inner<S: EthereumLikeTypes>(
     resources: &mut S::Resources,
     system: &mut System<S>,
     caller: B160,
-    caller_ee: u8,
 ) -> Result<Result<Bytes32, &'static str>, SystemError> {
+    // Note that we do not enforce fully strict ABI encoding here
+
     // abi_encoded_message length shouldn't be able to overflow u32, due to gas
     // limitations.
     let abi_encoded_message_len: u32 = abi_encoded_message
@@ -248,9 +256,12 @@ pub(crate) fn send_to_l1_inner<S: EthereumLikeTypes>(
     }
 
     let message = &abi_encoded_message[(length_encoding_end as usize)..message_end as usize];
+    // Charge gas for l1 message
+    let l1_message_cost_ergs = l1_message_ergs_cost(message.len());
+    resources.charge(&S::Resources::from_ergs(l1_message_cost_ergs))?;
     let message_hash = system.io.emit_l1_message(
-        ExecutionEnvironmentType::parse_ee_version_byte(caller_ee)
-            .map_err(SystemError::LeafDefect)?,
+        // We already charged gas for it
+        ExecutionEnvironmentType::NoEE,
         resources,
         &caller,
         message,
@@ -262,8 +273,8 @@ pub(crate) fn send_to_l1_inner<S: EthereumLikeTypes>(
     topics.push(message_hash);
 
     system.io.emit_event(
-        ExecutionEnvironmentType::parse_ee_version_byte(caller_ee)
-            .map_err(SystemError::LeafDefect)?,
+        // Use EVM to charge gas for this operation
+        ExecutionEnvironmentType::EVM,
         resources,
         &L1_MESSENGER_ADDRESS,
         &topics,
@@ -272,4 +283,24 @@ pub(crate) fn send_to_l1_inner<S: EthereumLikeTypes>(
     )?;
 
     Ok(Ok(message_hash))
+}
+
+///
+/// Ergs cost of emitting an L1 message.
+/// Computed as:
+///   keccak256_ergs_cost(L2_TO_L1_LOG_SERIALIZE_SIZE) +
+///   keccak256_ergs_cost(64) * 3 +
+///   keccak256_ergs_cost(message_len) +
+///   375 (same as LOG base) +
+///   8 * message_len (same as LOG for data)
+///
+/// See [io_subsystem::emit_l1_message] for more details
+/// about the 3 first components of this calculation.
+///
+fn l1_message_ergs_cost(message_len: usize) -> Ergs {
+    let hashing_cost = keccak256_ergs_cost(L2_TO_L1_LOG_SERIALIZE_SIZE)
+        + keccak256_ergs_cost(64).times(3)
+        + keccak256_ergs_cost(message_len);
+    let log_cost = Ergs(ERGS_PER_GAS * (LOG + LOGDATA * message_len as u64));
+    hashing_cost + log_cost
 }
