@@ -50,7 +50,7 @@ fn test_set_bytecode_details_evm() {
     };
     let transactions = vec![encdoed_tx];
 
-    let output = chain.run_block(transactions, None, None);
+    let output = chain.run_block(transactions, None, None, None);
 
     // Assert all txs succeeded
     assert!(output.tx_results.iter().cloned().enumerate().all(|(i, r)| {
@@ -107,7 +107,7 @@ fn test_set_deployed_bytecode_evm_unauthorized() {
     };
     let transactions = vec![encdoed_tx];
 
-    let output = chain.run_block(transactions, None, None);
+    let output = chain.run_block(transactions, None, None, None);
 
     if let ExecutionResult::Success(_) = output
         .tx_results

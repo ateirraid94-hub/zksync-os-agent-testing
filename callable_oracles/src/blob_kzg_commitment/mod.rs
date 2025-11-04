@@ -1,10 +1,10 @@
-use alloy_consensus::{SidecarBuilder, SimpleCoder};
-use risc_v_simulator::abstractions::memory::MemorySource;
+use crate::utils::evaluate::read_memory_as_u8;
+use crate::utils::usize_slice_iterator::UsizeSliceIteratorOwned;
+use alloy_consensus::private::alloy_eips::eip4844::kzg_to_versioned_hash;
 use basic_system::system_implementation::system::da_commitment_generator::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
 use crypto::MiniDigest;
 use oracle_provider::OracleQueryProcessor;
-use crate::utils::evaluate::read_memory_as_u8;
-use crate::utils::usize_slice_iterator::UsizeSliceIteratorOwned;
+use risc_v_simulator::abstractions::memory::MemorySource;
 
 ///
 /// Query processor, which returns blob kzg commitment and proof for a given data.
@@ -67,19 +67,23 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BlobCommitmentAndProofQuery<M>
 
 ///
 /// Calculate kzg commitment and proof at the point `blake2s(versioned_hash & data)` for blob created from passed data.
-/// We encode data into the blob following alloy default(`SimpleCoder`) approach.
 ///
-fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
-    let sidecar_builder: SidecarBuilder<SimpleCoder> = SidecarBuilder::from_slice(data);
-    // TODO: at this step we compute also kzg proof, which is not needed in fact
-    let sidecar = sidecar_builder.build().unwrap();
-    assert_eq!(sidecar.blobs.len(), 1);
+/// For encoding, we chunk `data` by 31 bytes and interpret each chunk as BE blob element.
+///
+pub fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
+    let mut blob = [0u8; 4096 * 32];
+    for (i, chunk) in data.chunks(31).enumerate() {
+        let fe = &mut blob[i * 32..(i + 1) * 32];
+        fe[1..1 + chunk.len()].copy_from_slice(chunk);
+    }
+    let c_kzg_blob = unsafe { core::mem::transmute::<&[u8; 131_072], &c_kzg::Blob>(&blob) };
 
-    let commitment = sidecar.commitments[0];
-    let versioned_hash = sidecar.versioned_hashes().next().unwrap();
+    let kzg_settings = c_kzg::ethereum_kzg_settings(8);
+
+    let commitment = kzg_settings.blob_to_kzg_commitment(c_kzg_blob).unwrap();
 
     let mut hasher = crypto::blake2s::Blake2s256::new();
-    hasher.update(versioned_hash.as_slice());
+    hasher.update(kzg_to_versioned_hash(commitment.as_slice()).as_slice());
     hasher.update(data);
     let mut challenge_point = hasher.finalize();
     // truncate hash to 128 bits
@@ -87,16 +91,13 @@ fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
     for byte in challenge_point[0..16].iter_mut() {
         *byte = 0;
     }
-    let blob = unsafe { core::mem::transmute::<&alloy_consensus::Blob, &c_kzg::Blob>(&sidecar.blobs[0]) };
-    let p = c_kzg::ethereum_kzg_settings(8).compute_kzg_proof(
-        blob,
-        &c_kzg::Bytes32::new(challenge_point)
-    ).unwrap();
+    let p = kzg_settings
+        .compute_kzg_proof(c_kzg_blob, &c_kzg::Bytes32::new(challenge_point))
+        .unwrap();
     let proof = p.0;
 
     let mut result = [0u8; 96];
-    result[..48].copy_from_slice(&commitment.0);
+    result[..48].copy_from_slice(commitment.as_slice());
     result[48..].copy_from_slice(proof.as_slice());
     result
 }
-

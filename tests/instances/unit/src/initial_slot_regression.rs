@@ -14,7 +14,7 @@ use rig::basic_system::system_implementation::flat_storage_model::{
 };
 use rig::chain::TestingOracleFactory;
 use rig::forward_system::run::query_processors::{
-    BlockMetadataResponder, GenericPreimageResponder, TxDataResponder, ProofDataResponder,
+    BlockMetadataResponder, GenericPreimageResponder, ProofDataResponder, TxDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::forward_system::run::ReadStorage;
@@ -207,5 +207,5 @@ fn test_initial_slot_value_assertion() {
     // This should panic with "initial value of empty slot must be trivial"
     // when the oracle returns invalid initial values for empty storage slots
     let _result =
-        chain.run_block_with_oracle_factory(vec![encoded_tx], None, None, &malicious_factory);
+        chain.run_block_with_oracle_factory(vec![encoded_tx], None, None, None, &malicious_factory);
 }

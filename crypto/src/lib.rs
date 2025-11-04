@@ -145,7 +145,7 @@ pub fn parse_u256_le<const N: usize>(input: &[u8; N]) -> BigInt<4> {
 pub fn u256_to_be(input: BigInt<4>) -> [u8; 32] {
     let mut output = [0u8; 32];
     for (index, limb) in input.0.iter().enumerate() {
-        output[32-(index+1)*8..32-index*8].copy_from_slice(&limb.to_be_bytes());
+        output[32 - (index + 1) * 8..32 - index * 8].copy_from_slice(&limb.to_be_bytes());
     }
     output
 }

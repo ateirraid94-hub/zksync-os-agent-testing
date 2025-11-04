@@ -2,7 +2,9 @@
 use super::*;
 use crate::system_functions::keccak256::keccak256_native_cost;
 use crate::system_functions::keccak256::Keccak256Impl;
-use crate::system_implementation::system::da_commitment_generator::{da_commitment_generator_from_scheme, DACommitmentGenerator, Keccak256CommitmentGenerator, NopCommitmentGenerator};
+use crate::system_implementation::system::da_commitment_generator::{
+    da_commitment_generator_from_scheme, NopCommitmentGenerator,
+};
 #[cfg(feature = "aggregation")]
 use crate::system_implementation::system::public_input::{BlocksOutput, BlocksPublicInput};
 use cost_constants::EVENT_DATA_PER_BYTE_COST;
@@ -20,10 +22,12 @@ use evm_interpreter::gas_constants::TSTORE;
 use storage_models::common_structs::generic_transient_storage::GenericTransientStorage;
 use storage_models::common_structs::snapshottable_io::SnapshottableIo;
 use storage_models::common_structs::StorageModel;
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::common_structs::ProofData;
 use zk_ee::common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE;
 use zk_ee::interface_error;
 use zk_ee::oracle::basic_queries::ProofDataQuery;
+use zk_ee::oracle::query_ids::DA_COMMITMENT_SCHEME_QUERY_ID;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::out_of_ergs_error;
 use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
@@ -37,8 +41,6 @@ use zk_ee::{
     types_config::{EthereumIOTypesConfig, SystemIOTypesConfig},
     utils::UsizeAlignedByteBox,
 };
-use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
-use zk_ee::oracle::query_ids::DA_COMMITMENT_SCHEME_QUERY_ID;
 
 pub struct FullIO<
     A: Allocator + Clone + Default,
@@ -56,7 +58,7 @@ pub struct FullIO<
     pub(crate) allocator: A,
     pub(crate) oracle: O,
     pub(crate) tx_number: u32,
-    pub(crate) da_commitment_scheme: Option<DACommitmentScheme>
+    pub(crate) da_commitment_scheme: Option<DACommitmentScheme>,
 }
 
 pub struct FullIOStateSnapshot {
@@ -636,7 +638,9 @@ impl<
         ));
 
         // finishing IO, applying changes
-        let mut da_commitment_generator = da_commitment_generator_from_scheme(self.da_commitment_scheme.unwrap(), A::default()).unwrap();
+        let mut da_commitment_generator =
+            da_commitment_generator_from_scheme(self.da_commitment_scheme.unwrap(), A::default())
+                .unwrap();
         da_commitment_generator.write(current_block_hash.as_u8_ref());
 
         let state_diffs_hash = if cfg!(feature = "state-diffs-pi") {
@@ -696,7 +700,7 @@ impl<
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
             last_block_timestamp: block_metadata.timestamp,
-            used_l2_da_validator_address: ruint::aliases::B160::ZERO,
+            da_commitment_scheme: self.da_commitment_scheme.unwrap(),
             pubdata_commitment: da_commitment_generator.da_commitment(&mut self.oracle),
             number_of_layer_1_txs: U256::try_from(l1_txs_commitment.0).unwrap(),
             priority_operations_hash: l1_txs_commitment.1,
@@ -781,7 +785,7 @@ where
         upgrade_tx_hash: Bytes32,
         builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder<
             A,
-            O
+            O,
         >,
     ) -> O {
         let (mut state_commitment, last_block_timestamp) = {
@@ -809,7 +813,9 @@ where
         if builder.da_commitment_generator.is_none() {
             debug_assert!(builder.da_commitment_scheme.is_none());
             builder.da_commitment_scheme = Some(da_commitment_scheme);
-            builder.da_commitment_generator = Some(da_commitment_generator_from_scheme(da_commitment_scheme, A::default()).unwrap());
+            builder.da_commitment_generator = Some(
+                da_commitment_generator_from_scheme(da_commitment_scheme, A::default()).unwrap(),
+            );
         } else {
             assert_eq!(builder.da_commitment_scheme.unwrap(), da_commitment_scheme);
         }
@@ -913,7 +919,7 @@ where
             allocator,
             oracle,
             tx_number: 0u32,
-            da_commitment_scheme
+            da_commitment_scheme,
         };
 
         Ok(new)

@@ -1,11 +1,9 @@
-use crate::system_implementation::system::da_commitment_generator::{
-    DACommitmentGenerator, Keccak256CommitmentGenerator,
-};
+use crate::system_implementation::system::da_commitment_generator::DACommitmentGenerator;
 use crate::system_implementation::system::public_input;
 use arrayvec::ArrayVec;
 use crypto::sha3::Keccak256;
 use crypto::MiniDigest;
-use ruint::aliases::{B160, U256};
+use ruint::aliases::U256;
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::oracle::IOOracle;
 use zk_ee::system::logger::Logger;
@@ -139,9 +137,8 @@ pub struct BatchOutput {
     pub first_block_timestamp: u64,
     /// Last block timestamp.
     pub last_block_timestamp: u64,
-    // TODO(EVM-1081): in future should be commitment scheme
-    // pub pubdata_commitment_scheme: DACommitmentScheme,
-    pub used_l2_da_validator_address: B160,
+    /// DA commitment scheme.
+    pub da_commitment_scheme: DACommitmentScheme,
     /// Pubdata commitment.
     pub pubdata_commitment: Bytes32,
     /// Number of l1 -> l2 processed txs in the batch.
@@ -168,7 +165,9 @@ impl BatchOutput {
         hasher.update(self.chain_id.to_be_bytes::<32>());
         hasher.update(&self.first_block_timestamp.to_be_bytes());
         hasher.update(&self.last_block_timestamp.to_be_bytes());
-        hasher.update(self.used_l2_da_validator_address.to_be_bytes::<20>());
+        // Encode DA commitment scheme as U256 BE
+        hasher.update([0u8; 31]);
+        hasher.update([self.da_commitment_scheme as u8]);
         hasher.update(self.pubdata_commitment.as_u8_ref());
         hasher.update(self.number_of_layer_1_txs.to_be_bytes::<32>());
         hasher.update(self.priority_operations_hash.as_u8_ref());
@@ -291,7 +290,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
             chain_id: self.chain_id.unwrap(),
             first_block_timestamp: self.first_block_timestamp.unwrap(),
             last_block_timestamp: self.current_block_timestamp.unwrap(),
-            used_l2_da_validator_address: ruint::aliases::B160::ZERO,
+            da_commitment_scheme: self.da_commitment_scheme.unwrap(),
             pubdata_commitment: self.da_commitment_generator.unwrap().da_commitment(oracle),
             number_of_layer_1_txs: self.number_of_layer_1_txs,
             priority_operations_hash: self.l1_txs_rolling_hash,

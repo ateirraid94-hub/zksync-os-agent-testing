@@ -8,23 +8,23 @@ use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable}
 // Each processor handles specific types of oracle queries.
 
 mod block_metadata;
+mod da_commitment_scheme;
 mod generic_preimage;
+mod proof_data;
 mod read_storage;
 mod read_tree;
 mod simple_storage_map;
 mod tx_data;
 mod uart_print;
-mod proof_data;
-mod da_commitment_scheme;
 
 pub use self::block_metadata::BlockMetadataResponder;
+pub use self::da_commitment_scheme::DACommitmentSchemeResponder;
 pub use self::generic_preimage::GenericPreimageResponder;
+pub use self::proof_data::ProofDataResponder;
 pub use self::read_storage::ReadStorageResponder;
 pub use self::read_tree::ReadTreeResponder;
 pub use self::tx_data::TxDataResponder;
 pub use self::uart_print::UARTPrintResponder;
-pub use self::proof_data::ProofDataResponder;
-pub use self::da_commitment_scheme::DACommitmentSchemeResponder;
 
 use crate::run::*;
 

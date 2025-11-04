@@ -1,4 +1,4 @@
-use crypto::ark_ff::{PrimeField, Zero, One};
+use crypto::ark_ff::{One, PrimeField, Zero};
 
 ///  The number of field elements in a blob.
 const FIELD_ELEMENTS_PER_BLOB: usize = 4096;
@@ -27,7 +27,10 @@ const FIELD_ELEMENTS_PER_EXT_BLOB: usize = 8192;
  * @endcode
 **/
 const ROOT_OF_UNITY: crypto::BigInt<4> = crypto::BigInt([
-    0x6fdd00bfc78c8967, 0x146b58bc434906ac, 0x2ccddea2972e89ed, 0x485d512737b1da3d
+    0x6fdd00bfc78c8967,
+    0x146b58bc434906ac,
+    0x2ccddea2972e89ed,
+    0x485d512737b1da3d,
 ]);
 
 // not really efficient, but it shouldn't be
@@ -40,7 +43,7 @@ pub fn generate_brp_roots_of_unity_const_to_std() {
     roots_of_unity[0] = crypto::bls12_381::Fr::one();
     roots_of_unity[1] = crypto::bls12_381::Fr::from_bigint(ROOT_OF_UNITY).unwrap();
     for i in 2..FIELD_ELEMENTS_PER_EXT_BLOB {
-        roots_of_unity[i] = roots_of_unity[i-1]*roots_of_unity[1];
+        roots_of_unity[i] = roots_of_unity[i - 1] * roots_of_unity[1];
         if roots_of_unity[i].is_one() {
             break;
         }
@@ -75,10 +78,10 @@ pub fn generate_brp_roots_of_unity_const_to_std() {
     for i in 0..FIELD_ELEMENTS_PER_BLOB {
         println!("    crypto::bls12_381::Fp(");
         println!("        crypto::BigInt([");
-        println!("            {},", roots_of_unity[i].0.0[0]);
-        println!("            {},", roots_of_unity[i].0.0[1]);
-        println!("            {},", roots_of_unity[i].0.0[2]);
-        println!("            {},", roots_of_unity[i].0.0[3]);
+        println!("            {},", roots_of_unity[i].0 .0[0]);
+        println!("            {},", roots_of_unity[i].0 .0[1]);
+        println!("            {},", roots_of_unity[i].0 .0[2]);
+        println!("            {},", roots_of_unity[i].0 .0[3]);
         println!("        ]),");
         println!("        core::marker::PhantomData,");
         println!("    ),");

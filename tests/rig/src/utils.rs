@@ -26,6 +26,7 @@ use zksync_web3_rs::zks_utils::EIP712_TX_TYPE;
 pub use basic_system::system_implementation::flat_storage_model::{
     address_into_special_storage_key, AccountProperties, ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
 };
+use zk_ee::common_structs::DACommitmentScheme;
 
 ///
 /// Load wasm contract bytecode from `tests/contracts_wasm/{contract_name}`.
@@ -315,7 +316,12 @@ pub fn run_block_of_erc20<const RANDOMIZED: bool>(
         chain.set_storage_slot(ruint::aliases::B160::from_be_bytes(to.0 .0), key, value)
     });
 
-    let output = chain.run_block(transactions, block_context, None);
+    let output = chain.run_block(
+        transactions,
+        block_context,
+        Some(DACommitmentScheme::BlobsAndPubdataKeccak256),
+        None,
+    );
     assert!(output.tx_results.iter().cloned().enumerate().all(|(i, r)| {
         let success = r.clone().is_ok_and(|o| o.is_success());
         if !success {

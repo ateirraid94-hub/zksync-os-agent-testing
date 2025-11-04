@@ -78,6 +78,7 @@ fn run_precompile(precompile_id: &str, gas: Option<u64>, input: &[u8]) -> BlockO
     chain.run_block(
         vec![direct_tx, forwarded_tx],
         Some(block_context),
+        None,
         Some(run_config),
     )
 }
@@ -6118,7 +6119,7 @@ fn test_precompile_parses_input_correctly() {
                 &wallet,
             );
 
-            let _block_output = chain.run_block(vec![tx], None, None);
+            let _block_output = chain.run_block(vec![tx], None, None, None);
         }
     }
 }

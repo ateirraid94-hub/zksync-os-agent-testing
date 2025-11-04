@@ -21,7 +21,7 @@ pub enum DACommitmentScheme {
     /// With ZKsync OS it always outputs 1 0-hash blob, as separate commitment used for blobs.
     BlobsAndPubdataKeccak256,
     /// Keccak of blob versioned hashes filled with pubdata.
-    BlobsZKsyncOS
+    BlobsZKsyncOS,
 }
 
 impl TryFrom<u8> for DACommitmentScheme {
@@ -34,7 +34,7 @@ impl TryFrom<u8> for DACommitmentScheme {
             2 => Ok(DACommitmentScheme::PubdataKeccak256),
             3 => Ok(DACommitmentScheme::BlobsAndPubdataKeccak256),
             4 => Ok(DACommitmentScheme::BlobsZKsyncOS),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -42,7 +42,7 @@ impl TryFrom<u8> for DACommitmentScheme {
 impl UsizeSerializable for DACommitmentScheme {
     const USIZE_LEN: usize = <u8 as UsizeSerializable>::USIZE_LEN;
 
-    fn iter(&self) -> impl ExactSizeIterator<Item=usize> {
+    fn iter(&self) -> impl ExactSizeIterator<Item = usize> {
         cfg_if::cfg_if!(
             if #[cfg(target_endian = "big")] {
                 compile_error!("unsupported architecture: big endian arch is not supported")
@@ -62,9 +62,8 @@ impl UsizeSerializable for DACommitmentScheme {
 impl UsizeDeserializable for DACommitmentScheme {
     const USIZE_LEN: usize = <Self as UsizeSerializable>::USIZE_LEN;
 
-    fn from_iter(src: &mut impl ExactSizeIterator<Item=usize>) -> Result<Self, InternalError> {
-        DACommitmentScheme::try_from(
-            u8::from_iter(src)?
-        ).map_err(|_| internal_error!("Failed to parse proof data: invalid da commitment value"))
+    fn from_iter(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
+        DACommitmentScheme::try_from(u8::from_iter(src)?)
+            .map_err(|_| internal_error!("Failed to parse proof data: invalid da commitment value"))
     }
 }

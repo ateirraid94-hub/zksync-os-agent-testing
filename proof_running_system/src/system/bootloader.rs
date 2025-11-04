@@ -234,7 +234,9 @@ pub fn run_proving_inner<
 
     unsafe {
         core::mem::transmute(zk_ee::utils::Bytes32::from_array(
-            batch_pi_builder.into_public_input(L::default(), &mut oracle).hash(),
+            batch_pi_builder
+                .into_public_input(L::default(), &mut oracle)
+                .hash(),
         ))
     }
 }

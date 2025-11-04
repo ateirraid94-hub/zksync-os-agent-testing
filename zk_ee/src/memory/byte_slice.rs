@@ -22,7 +22,7 @@ impl MinimalByteAddressableSlice for [u8] {
     }
 }
 
-pub struct ArrayBuilder<const N: usize>  {
+pub struct ArrayBuilder<const N: usize> {
     bytes: [u8; N],
     offset: usize,
 }
@@ -31,12 +31,12 @@ impl<const N: usize> Default for ArrayBuilder<N> {
     fn default() -> Self {
         Self {
             bytes: [0u8; N],
-            offset: Default::default()
+            offset: Default::default(),
         }
     }
 }
 
-impl<const N: usize>  ArrayBuilder<N> {
+impl<const N: usize> ArrayBuilder<N> {
     pub fn build(self) -> [u8; N] {
         assert!(self.offset == N);
         self.bytes

@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::common_structs::{derive_flat_storage_key, ProofData};
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::system::tracer::NopTracer;
@@ -33,7 +34,6 @@ use zksync_os_interface::traits::EncodedTx;
 use zksync_os_interface::traits::TxListSource;
 use zksync_os_interface::types::BlockOutput;
 use zksync_os_interface::types::StorageWrite;
-use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 
 /// Trait for creating oracles with custom configuration
 pub trait TestingOracleFactory<const RANDOMIZED_TREE: bool> {
@@ -296,11 +296,13 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
     ) -> BlockOutput {
         self.run_block_with_extra_stats(
             transactions,
             block_context,
+            da_commitment_scheme,
             run_config,
             &mut NopTracer::default(),
         )
@@ -318,12 +320,14 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
         oracle_factory: &OF,
     ) -> BlockOutput {
         self.run_block_with_extra_stats_with_oracle_factory(
             transactions,
             block_context,
+            da_commitment_scheme,
             run_config,
             &mut NopTracer::default(),
             oracle_factory,
@@ -337,12 +341,14 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
     ) -> Result<BlockOutput, BootloaderSubsystemError> {
         let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
         self.run_inner(
             transactions,
             block_context,
+            da_commitment_scheme,
             run_config.unwrap_or_default(),
             &factory,
             &mut NopTracer::default(),
@@ -355,6 +361,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
@@ -362,6 +369,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         self.run_inner(
             transactions,
             block_context,
+            da_commitment_scheme,
             run_config.unwrap_or_default(),
             &factory,
             tracer,
@@ -375,6 +383,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
         oracle_factory: &OF,
@@ -382,6 +391,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         self.run_inner(
             transactions,
             block_context,
+            da_commitment_scheme,
             run_config.unwrap_or_default(),
             oracle_factory,
             tracer,
@@ -393,6 +403,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: RunConfig,
         oracle_factory: &OF,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
@@ -430,7 +441,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             transactions: transactions.into(),
         };
 
-        let da_commitment_scheme = DACommitmentScheme::BlobsZKsyncOS;
+        let da_commitment_scheme =
+            da_commitment_scheme.unwrap_or(DACommitmentScheme::BlobsAndPubdataKeccak256);
         let oracle = oracle_factory.create_oracle(
             block_metadata,
             self.state_tree.clone(),
