@@ -10,8 +10,8 @@ mod keccak256_commitment_generator;
 
 #[cfg(feature = "aggregation")]
 pub use blake2s_commitment_generator::Blake2sCommitmentGenerator;
-pub use blob_commitment_generator::commitment_and_proof_advice::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
 pub use blob_commitment_generator::BlobCommitmentGenerator;
+pub use blob_commitment_generator::commitment_and_proof_advice::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
 pub use keccak256_commitment_generator::Keccak256CommitmentGenerator;
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::internal_error;

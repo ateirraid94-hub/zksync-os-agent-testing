@@ -340,7 +340,7 @@ pub fn run_block_with_oracle_dump_ext<
         let dump = ForwardRunningOracleDump {
             proof_data_responder: proof_data_responder.clone(),
             da_commitment_scheme_responder: da_commitment_scheme_responder.clone(),
-            block_metadata_reponsder,
+            block_metadata_responder,
             tree_responder: tree_responder.clone(),
             tx_data_responder: tx_data_responder.clone(),
             preimage_responder: preimage_responder.clone(),
@@ -380,7 +380,7 @@ pub fn run_block_from_oracle_dump<
     let ForwardRunningOracleDump {
         proof_data_responder,
         da_commitment_scheme_responder,
-        block_metadata_reponsder,
+        block_metadata_responder,
         tree_responder,
         tx_data_responder,
         preimage_responder,

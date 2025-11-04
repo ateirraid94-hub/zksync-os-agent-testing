@@ -291,7 +291,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
             first_block_timestamp: self.first_block_timestamp.unwrap(),
             last_block_timestamp: self.current_block_timestamp.unwrap(),
             da_commitment_scheme: self.da_commitment_scheme.unwrap(),
-            pubdata_commitment: self.da_commitment_generator.unwrap().da_commitment(oracle),
+            pubdata_commitment: self.da_commitment_generator.unwrap().finalize(oracle),
             number_of_layer_1_txs: self.number_of_layer_1_txs,
             priority_operations_hash: self.l1_txs_rolling_hash,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),

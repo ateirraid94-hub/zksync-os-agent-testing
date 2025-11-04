@@ -37,7 +37,7 @@ pub struct ForwardRunningOracleDump<
 > {
     pub proof_data_responder: ProofDataResponder,
     pub da_commitment_scheme_responder: DACommitmentSchemeResponder,
-    pub block_metadata_reponsder: BlockMetadataResponder,
+    pub block_metadata_responder: BlockMetadataResponder,
     /// Handles storage tree read operations and Merkle proofs
     pub tree_responder: ReadTreeResponder<T>,
     /// Handles transaction data queries (next tx size, tx content)

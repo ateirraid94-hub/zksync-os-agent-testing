@@ -88,7 +88,7 @@ impl WriteBytes for BlobCommitmentGenerator {
 }
 
 impl<O: IOOracle> DACommitmentGenerator<O> for BlobCommitmentGenerator {
-    fn da_commitment(&mut self, oracle: &mut O) -> Bytes32 {
+    fn finalize(&mut self, oracle: &mut O) -> Bytes32 {
         // len should be [0, len be, 23 zeroes] BE
         let length = self.buffer.len() - 31;
         self.buffer[0..8].copy_from_slice(&(length as u64).to_be_bytes());
