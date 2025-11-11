@@ -14,13 +14,16 @@ use rig::basic_system::system_implementation::flat_storage_model::{
 };
 use rig::chain::TestingOracleFactory;
 use rig::forward_system::run::query_processors::{
-    BlockMetadataResponder, GenericPreimageResponder, TxDataResponder, ZKProofDataResponder, DACommitmentSchemeResponder
+    BlockMetadataResponder, DACommitmentSchemeResponder, GenericPreimageResponder, TxDataResponder,
+    ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::forward_system::run::ReadStorage;
 use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
 use rig::ruint::aliases::B160;
-use rig::zk_ee::common_structs::{derive_flat_storage_key, ProofData, da_commitment_scheme::DACommitmentScheme};
+use rig::zk_ee::common_structs::{
+    da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key, ProofData,
+};
 use rig::zk_ee::oracle::basic_queries::InitialStorageSlotQuery;
 use rig::zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use rig::zk_ee::oracle::usize_serialization::dyn_usize_iterator::DynUsizeIterator;

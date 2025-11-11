@@ -924,7 +924,12 @@ fn test_balance_overflow_protection() {
         rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
     };
 
-    let output = chain.run_block(vec![overflow_fee_tx, overflow_total_tx], None, None, run_config());
+    let output = chain.run_block(
+        vec![overflow_fee_tx, overflow_total_tx],
+        None,
+        None,
+        run_config(),
+    );
 
     assert!(
         output.tx_results.get(0).unwrap().is_err(),
