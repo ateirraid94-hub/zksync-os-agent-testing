@@ -155,7 +155,7 @@ pub fn generate_batch_proof_input(
     da_commitment_scheme: DACommitmentScheme,
     blocks_pubdata: Vec<&[u8]>,
 ) -> Vec<u32> {
-    let blobs_advices = match da_commitment_scheme {
+    let blobs_advice = match da_commitment_scheme {
         DACommitmentScheme::BlobsZKsyncOS => {
             let total_pubdata_length: usize = blocks_pubdata
                 .iter()
@@ -170,19 +170,19 @@ pub fn generate_batch_proof_input(
                     - (block_pubdata.len() + 31).div_ceil(31 * 4096) * 25;
                 blocks_proof_inputs[i] = &blocks_proof_inputs[i][..length_without_advice];
             }
-            let mut advices = Vec::with_capacity(25 * blobs_data.len().div_ceil(31 * 4096));
+            let mut advice = Vec::with_capacity(25 * blobs_data.len().div_ceil(31 * 4096));
             for blob_data in blobs_data.chunks(31 * 4096) {
                 let advice =
                     callable_oracles::blob_kzg_commitment::blob_kzg_commitment_and_proof(blob_data);
-                advices.push(24);
-                advices.extend(
+                advice.push(24);
+                advice.extend(
                     advice
                         .into_iter()
                         .array_chunks::<4>()
                         .map(|x| u32::from_le_bytes(x)),
                 );
             }
-            advices
+            advice
         }
         _ => vec![],
     };
@@ -192,13 +192,13 @@ pub fn generate_batch_proof_input(
             .map(|block_proof_input| block_proof_input.len())
             .sum::<usize>()
             + 1
-            + blobs_advices.len(),
+            + blobs_advice.len(),
     );
     proof_input.push(blocks_proof_inputs.len() as u32);
     for block_proof_input in blocks_proof_inputs {
         proof_input.extend_from_slice(block_proof_input);
     }
-    proof_input.extend_from_slice(blobs_advices.as_slice());
+    proof_input.extend_from_slice(blobs_advice.as_slice());
     proof_input
 }
 
