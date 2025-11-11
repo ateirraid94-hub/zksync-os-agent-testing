@@ -112,7 +112,7 @@ fn test_blockhash() {
         check_storage_diff_hashes: true,
         ..Default::default()
     };
-    let result = chain.run_block(vec![tx], None, Some(run_config));
+    let result = chain.run_block(vec![tx], None, None, Some(run_config));
     assert!(result.tx_results[0].is_ok(),);
 
     let tx_result = result.tx_results[0].as_ref().unwrap();
@@ -406,7 +406,7 @@ fn bench_addmod() {
         check_storage_diff_hashes: true,
         ..Default::default()
     };
-    let _result = chain.run_block(txs, None, Some(run_config));
+    let _result = chain.run_block(txs, None, None, Some(run_config));
 }
 
 #[ignore = "benchmark for native constants"]
@@ -788,7 +788,7 @@ fn bench_mulmod() {
         check_storage_diff_hashes: true,
         ..Default::default()
     };
-    let _result = chain.run_block(txs, None, Some(run_config));
+    let _result = chain.run_block(txs, None, None, Some(run_config));
 }
 
 #[test]
@@ -920,5 +920,5 @@ fn bench_signextend() {
         check_storage_diff_hashes: true,
         ..Default::default()
     };
-    let _result = chain.run_block(txs, None, Some(run_config));
+    let _result = chain.run_block(txs, None, None, Some(run_config));
 }
