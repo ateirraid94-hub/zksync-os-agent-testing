@@ -76,11 +76,11 @@ pub fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
         let fe = &mut blob[i * 32..(i + 1) * 32];
         fe[1..1 + chunk.len()].copy_from_slice(chunk);
     }
-    let c_kzg_blob = unsafe { core::mem::transmute::<&[u8; 131_072], &c_kzg::Blob>(&blob) };
+    let blob = c_kzg::Blob::new(blob);
 
     let kzg_settings = c_kzg::ethereum_kzg_settings(8);
 
-    let commitment = kzg_settings.blob_to_kzg_commitment(c_kzg_blob).unwrap();
+    let commitment = kzg_settings.blob_to_kzg_commitment(&blob).unwrap();
 
     let mut hasher = crypto::blake2s::Blake2s256::new();
     hasher.update(kzg_to_versioned_hash(commitment.as_slice()).as_slice());
@@ -92,7 +92,7 @@ pub fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
         *byte = 0;
     }
     let p = kzg_settings
-        .compute_kzg_proof(c_kzg_blob, &c_kzg::Bytes32::new(challenge_point))
+        .compute_kzg_proof(&blob, &c_kzg::Bytes32::new(challenge_point))
         .unwrap();
     let proof = p.0;
 

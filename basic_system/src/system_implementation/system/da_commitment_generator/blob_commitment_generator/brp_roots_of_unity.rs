@@ -1,5 +1,5 @@
 use super::*;
-pub const BRP_ROOTS_OF_UNITY: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOCK] = [
+pub const BRP_ROOTS_OF_UNITY: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] = [
     crypto::bls12_381::Fp(
         crypto::BigInt([
             8589934590,

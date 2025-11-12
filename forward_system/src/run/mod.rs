@@ -97,7 +97,7 @@ pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxRes
     Ok(result_keeper.into())
 }
 
-// TODO: we should run it on native arch and it should return pubdata and other outputs via result keeper
+// TODO(EVM-1184): we should run it on native arch and it should return pubdata and other outputs via result keeper
 pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource>(
     zk_os_program_path: PathBuf,
     block_context: BlockContext,

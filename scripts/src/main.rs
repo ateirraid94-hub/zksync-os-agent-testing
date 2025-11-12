@@ -74,7 +74,7 @@ pub fn generate_brp_roots_of_unity_const_to_std() {
             roots_of_unity.swap(i, r);
         }
     }
-    println!("pub const BRP_ROOTS_OF_UNITY: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOCK] = [");
+    println!("pub const BRP_ROOTS_OF_UNITY: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] = [");
     for i in 0..FIELD_ELEMENTS_PER_BLOB {
         println!("    crypto::bls12_381::Fp(");
         println!("        crypto::BigInt([");

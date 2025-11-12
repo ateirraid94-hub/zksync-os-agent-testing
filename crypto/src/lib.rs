@@ -97,6 +97,10 @@ pub trait MiniDigest: Sized {
 }
 
 // few utility methods to work with 32-bytes BigInt
+///
+/// Parse a byte array as a BE 32-byte BigInt.
+/// If length is less than 32 bytes, it will be left-padded (most significant bytes) with zeroes.
+///
 pub fn parse_u256_be<const N: usize>(input: &[u8; N]) -> BigInt<4> {
     assert!(N <= 32);
     // Arkworks has strange format for integer serialization, so we do manually
@@ -106,35 +110,10 @@ pub fn parse_u256_be<const N: usize>(input: &[u8; N]) -> BigInt<4> {
     for chunk in chunks.iter().rev() {
         *repr_iter.next().unwrap() = u64::from_be_bytes(*chunk);
     }
-    if remainder.len() != 0 {
+    if !remainder.is_empty() {
         let mut buff = [0u8; 8];
         buff[8 - remainder.len()..].copy_from_slice(remainder);
         *repr_iter.next().unwrap() = u64::from_be_bytes(buff);
     }
     BigInt::new(repr)
-}
-
-pub fn parse_u256_le<const N: usize>(input: &[u8; N]) -> BigInt<4> {
-    assert!(N <= 32);
-    // Arkworks has strange format for integer serialization, so we do manually
-    let mut repr = [0u64; 4];
-    let mut repr_iter = repr.iter_mut();
-    let (chunks, remainder) = input.as_chunks::<8>();
-    for chunk in chunks.iter() {
-        *repr_iter.next().unwrap() = u64::from_le_bytes(*chunk);
-    }
-    if remainder.len() != 0 {
-        let mut buff = [0u8; 8];
-        buff[..remainder.len()].copy_from_slice(remainder);
-        *repr_iter.next().unwrap() = u64::from_le_bytes(buff);
-    }
-    BigInt::new(repr)
-}
-
-pub fn u256_to_be(input: BigInt<4>) -> [u8; 32] {
-    let mut output = [0u8; 32];
-    for (index, limb) in input.0.iter().enumerate() {
-        output[32 - (index + 1) * 8..32 - index * 8].copy_from_slice(&limb.to_be_bytes());
-    }
-    output
 }

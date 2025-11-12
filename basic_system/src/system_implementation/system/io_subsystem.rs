@@ -216,7 +216,7 @@ impl<
 
         // TODO(EVM-1078): for Era backward compatibility we may need to add events for l2 to l1 log and l1 message
 
-        let mut data_hash = ArrayBuilder::<32>::default();
+        let mut data_hash = ArrayBuilder::default();
         Keccak256Impl::execute(&data, &mut data_hash, resources, self.allocator.clone())
             .map_err(SystemError::from)?;
         let data_hash = Bytes32::from_array(data_hash.build());

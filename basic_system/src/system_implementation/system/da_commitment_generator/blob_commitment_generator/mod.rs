@@ -1,6 +1,4 @@
-use crate::system_functions::point_evaluation::{
-    point_evaluation_as_system_function_inner, POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE,
-};
+use crate::system_functions::point_evaluation::{parse_g1_compressed, versioned_hash_for_kzg};
 use crate::system_implementation::system::da_commitment_generator::DACommitmentGenerator;
 use arrayvec::ArrayVec;
 use crypto::ark_ff::Field;
@@ -8,11 +6,8 @@ use crypto::ark_ff::One;
 use crypto::ark_ff::PrimeField;
 use crypto::ark_ff::Zero;
 use crypto::sha3::Keccak256;
-use crypto::{parse_u256_be, u256_to_be, MiniDigest};
-use zk_ee::memory::ArrayBuilder;
+use crypto::{parse_u256_be, MiniDigest};
 use zk_ee::oracle::IOOracle;
-use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
-use zk_ee::system::Resource;
 use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::utils::Bytes32;
 
@@ -28,13 +23,16 @@ pub const BLOB_CHUNK_SIZE: usize = 31;
 ///
 /// Number of field elements per EIP-4844 blob
 ///
-pub const ELEMENTS_PER_4844_BLOCK: usize = 4096;
+pub const ELEMENTS_PER_4844_BLOB: usize = 4096;
 
 ///
 /// Number of bytes we can encode in one blob
 ///
-pub const ENCODABLE_BYTES_PER_BLOB: usize = BLOB_CHUNK_SIZE * ELEMENTS_PER_4844_BLOCK;
+pub const ENCODABLE_BYTES_PER_BLOB: usize = BLOB_CHUNK_SIZE * ELEMENTS_PER_4844_BLOB;
 
+///
+/// Maximal number of blobs that we support with blobs DA mode.
+///
 pub const MAX_NUMBER_OF_BLOBS: usize = 9;
 
 pub const BUFFER_CAPACITY: usize = ENCODABLE_BYTES_PER_BLOB * MAX_NUMBER_OF_BLOBS;
@@ -64,23 +62,6 @@ impl BlobCommitmentGenerator {
 }
 
 impl WriteBytes for BlobCommitmentGenerator {
-    // TODO: we can migrate to it, once we do input generation per batch
-    // fn write(&mut self, buf: &[u8]) {
-    //     if buf.len() < self.pubdata_buffer.capacity() - self.pubdata_buffer.len() {
-    //         self.pubdata_buffer.try_extend_from_slice(buf).unwrap();
-    //         return;
-    //     }
-    //     let (filling_part, remainder) = buf.split_at(self.pubdata_buffer.capacity() - self.pubdata_buffer.len());
-    //     self.pubdata_buffer.try_extend_from_slice(filling_part).unwrap();
-    //
-    //     cycle_marker::wrap!("blob_versioned_hash", {
-    //         self.versioned_hashes_hasher.update(&blob_versioned_hash(self.pubdata_buffer.as_slice()));
-    //     });
-    //     self.pubdata_buffer.clear();
-    //     // theoretically remainder can be still bigger than buffer_capacity,
-    //     // so we are making call to the `write` again to handle it recursively
-    //     self.write(remainder);
-    // }
     fn write(&mut self, buf: &[u8]) {
         // overflow shouldn't be reachable, operator validates pubdata limit during forward run
         self.buffer.try_extend_from_slice(buf).unwrap()
@@ -111,39 +92,23 @@ impl<O: IOOracle> DACommitmentGenerator<O> for BlobCommitmentGenerator {
 fn blob_versioned_hash(data: &[u8], oracle: &mut impl IOOracle) -> [u8; 32] {
     let commitment_and_proof =
         commitment_and_proof_advice::blob_commitment_and_proof_advice(data, oracle);
-    let versioned_hash = versioned_hash_for_kzg(&commitment_and_proof[..48]);
+    let commitment = parse_g1_compressed(&commitment_and_proof.commitment).expect("Invalid blob commitment point");
+    let proof = parse_g1_compressed(&commitment_and_proof.proof).expect("Invalid blob proof point");
+    let versioned_hash = versioned_hash_for_kzg(commitment_and_proof.commitment.as_slice());
     let evaluation_point = calculate_evaluation_point(data, &versioned_hash);
     let opening_value = polynomial_evaluation::evaluate_blob_polynomial(data, &evaluation_point);
 
-    let mut buffer = [0u8; 192];
-    buffer[0..32].copy_from_slice(&versioned_hash);
-    buffer[32..64].copy_from_slice(&u256_to_be(evaluation_point.into_bigint()));
-    buffer[64..96].copy_from_slice(&u256_to_be(opening_value.into_bigint()));
-    buffer[96..192].copy_from_slice(&commitment_and_proof);
-
-    let mut point_evaluation_output = ArrayBuilder::<64>::default();
-    // TODO: it will also verify versioned hash against commitment, what we don't need in fact
-    let mut inf_resources = <BaseResources<DecreasingNative> as Resource>::FORMAL_INFINITE;
-    point_evaluation_as_system_function_inner(
-        &buffer,
-        &mut point_evaluation_output,
-        &mut inf_resources,
-    )
-    .unwrap();
-    assert_eq!(
-        point_evaluation_output.build(),
-        POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE
+    assert!(
+        crypto::bls12_381::verify_kzg_proof(
+            commitment,
+            proof,
+            evaluation_point.into_bigint(),
+            opening_value.into_bigint(),
+        ),
+        "Failed to verify blob proof"
     );
 
     versioned_hash
-}
-
-fn versioned_hash_for_kzg(data: &[u8]) -> [u8; 32] {
-    use crypto::sha256::Digest;
-    let mut hash: [u8; 32] = crypto::sha256::Sha256::digest(data).into();
-    hash[0] = 1; // KZG_VERSIONED_HASH_VERSION_BYTE
-
-    hash
 }
 
 fn calculate_evaluation_point(data: &[u8], versioned_hash: &[u8]) -> crypto::bls12_381::Fr {

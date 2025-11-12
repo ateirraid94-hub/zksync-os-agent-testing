@@ -834,6 +834,7 @@ fn get_zksync_os_sym_path(app_name: &Option<String>) -> PathBuf {
     get_zksync_os_path(app_name, "elf")
 }
 
+// TODO: utils?
 pub fn is_account_properties_address(address: &B160) -> bool {
     address == &ACCOUNT_PROPERTIES_STORAGE_ADDRESS
 }
@@ -865,6 +866,7 @@ fn run_prover(csr_reads: &[u32]) {
     let delegation_precomputations =
         setups::all_delegation_circuits_precomputations::<Global, Global>(&worker);
 
+    // TODO: fix
     let mut non_determinism_source = QuasiUARTSource::default();
     for word in csr_reads {
         non_determinism_source.oracle.push_back(*word);

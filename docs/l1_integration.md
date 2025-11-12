@@ -85,8 +85,8 @@ And `batch_output_hash` is `keccak256` of the following fields(concatenated):
 - `used_chain_id`
 - `first_block_timestamp`
 - `last_block_timestamp`
-- `pubdata_commitment_scheme`
-- `pubdata_commitment`
+- `da_commitment_scheme`
+- `da_commitment`
 - `number_of_layer_1_txs`
 - `rolling_l1_txs_keccak256`
 - `l2_logs_tree_root`
@@ -94,7 +94,7 @@ And `batch_output_hash` is `keccak256` of the following fields(concatenated):
 
 This includes almost the same data as block(s) output, with 2 main differences:
 - `l2_logs_tree_root` instead `l2_to_l1_logs_hashes_blake2s_hash`, we'll build tree during aggregation.
-- `pubdata_commitment_scheme` and `pubdata_commitment` instead of `blake2s`. We can generate different pubdata commitment during aggregation. Useful for different DA layers(`keccak256` for calldata, nothing for validiums, chunk + KZG commiments for Ethereum blobs).
+- `da_commitment_scheme` and `da_commitment` instead of `blake2s`. We can generate different pubdata commitment during aggregation. Useful for different DA layers(`keccak256` for calldata, nothing for validiums, chunk + KZG commiments for Ethereum blobs).
 
 For more details about public inputs check implementation: [public_input.rs](../basic_system/src/system_implementation/system/public_input.rs)
 

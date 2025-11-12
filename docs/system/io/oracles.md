@@ -65,7 +65,7 @@ The core query ID definitions can be found in [`query_ids.rs`](../../../zk_ee/sr
 
 #### Computational Advice Queries (0x40050000)
 - **MODEXP_ADVICE_QUERY_ID** (`0x40050010`): Provides computational advice for modular exponentiation operations
-- TODO: blob
+- **BLOB_COMMITMENT_AND_PROOF_QUERY_ID** (`0x40050020`): Provides computational advice for blob kzg commitment calculation
 
 ### STF-specific Oracle Queries
 
