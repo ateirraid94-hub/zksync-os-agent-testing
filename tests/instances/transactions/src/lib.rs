@@ -14,6 +14,7 @@ use rig::zksync_os_interface::error::InvalidTransaction;
 use rig::{alloy, ethers, zksync_web3_rs, Chain};
 use rig::{utils::*, BlockContext};
 use std::str::FromStr;
+use std::u64;
 use zksync_web3_rs::eip712::Eip712Meta;
 use zksync_web3_rs::signers::{LocalWallet, Signer};
 mod native_charging;
@@ -695,7 +696,7 @@ fn test_invalid_tx_does_not_bump_tx_counter() {
         B160::from_be_bytes(from.0),
         U256::from(1_000_000_000_000_000_u64),
     );
-    let output = chain.run_block(transactions, None, None);
+    let output = chain.run_block(transactions, None, None, None);
 
     // Assert tx succeeded/failed
     let result0 = output.tx_results.first().unwrap().clone();
@@ -747,7 +748,7 @@ fn test_invalid_tx_does_not_affect_native() {
         B160::from_be_bytes(from.0),
         U256::from(1_000_000_000_000_000_u64),
     );
-    let output = chain.run_block(transactions, None, None);
+    let output = chain.run_block(transactions, None, None, None);
 
     // Assert tx succeeded
     let result = output.tx_results.first().unwrap().clone();
@@ -778,7 +779,7 @@ fn test_invalid_tx_does_not_affect_native() {
         B160::from_be_bytes(from.0),
         U256::from(1_000_000_000_000_000_u64),
     );
-    let output = chain.run_block(transactions, None, None);
+    let output = chain.run_block(transactions, None, None, None);
 
     // Assert tx succeeded
     let result0 = output.tx_results.first().unwrap().clone();
@@ -923,7 +924,12 @@ fn test_balance_overflow_protection() {
         rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
     };
 
-    let output = chain.run_block(vec![overflow_fee_tx, overflow_total_tx], None, run_config());
+    let output = chain.run_block(
+        vec![overflow_fee_tx, overflow_total_tx],
+        None,
+        None,
+        run_config(),
+    );
 
     assert!(
         output.tx_results.get(0).unwrap().is_err(),
@@ -1249,7 +1255,7 @@ fn test_selfdestruct_to_precompile_gas() {
         rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
     };
 
-    let result = chain.run_block(vec![encoded_tx], None, None);
+    let result = chain.run_block(vec![encoded_tx], None, None, None);
     let res0 = result.tx_results.first().expect("Must have a tx result");
     assert!(res0.as_ref().is_ok(), "Tx should succeed");
     let gas_used = res0.clone().unwrap().gas_used;
@@ -1303,9 +1309,55 @@ fn test_reject_caller_with_code_behavior() {
     );
 
     // But in normal mode it should fail
-    let result_normal = chain.run_block(vec![from_contract_tx], None, run_config());
+    let result_normal = chain.run_block(vec![from_contract_tx], None, None, run_config());
     assert!(matches!(
         result_normal.tx_results[0],
         Err(InvalidTransaction::RejectCallerWithCode)
     ));
+}
+
+#[test]
+fn test_expensive_pubdata() {
+    // Test if a transaction can be executed even if the pubdata price is such that
+    // validation pubdata requires to use withheld resources.
+    let mut chain = Chain::empty(None);
+    let wallet = chain.random_signer();
+    let from = wallet.address();
+    let target_address = address!("4242000000000000000000000000000000000000");
+
+    // Set balance for the contract address
+    chain.set_balance(B160::from_be_bytes(from.into_array()), U256::from(u64::MAX));
+
+    let tx = {
+        let tx = TxEip1559 {
+            chain_id: 37u64,
+            nonce: 0,
+            max_fee_per_gas: 134217728,
+            max_priority_fee_per_gas: 134217728,
+            gas_limit: 75_000,
+            to: TxKind::Call(target_address),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: Default::default(),
+        };
+        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+    };
+
+    // Validation uses 40 bytes of pubdata, we want the validation
+    // pubdata charge to be > MAX_NATIVE_COMPUTATIONAL (2^35), to
+    // ensure we use withheld resources for it.
+    let native_price = U256::from(100);
+    // Value s.t. (pubdata_price / native_price) * 40 > MAX_NATIVE_COMPUTATIONAL
+    let pubdata_price = U256::from(85899346000u64);
+
+    let block_context = BlockContext {
+        native_price,
+        pubdata_price,
+        eip1559_basefee: U256::from(1),
+        ..Default::default()
+    };
+    // Check tx succeeds
+    let result = chain.run_block(vec![tx], Some(block_context), None, run_config());
+    let res0 = result.tx_results.first().expect("Must have a tx result");
+    assert!(res0.as_ref().is_ok(), "Tx should succeed");
 }
