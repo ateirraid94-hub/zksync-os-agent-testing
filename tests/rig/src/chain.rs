@@ -37,6 +37,7 @@ use zksync_os_interface::types::StorageWrite;
 
 /// Trait for creating oracles with custom configuration
 pub trait TestingOracleFactory<const RANDOMIZED_TREE: bool> {
+    #[allow(clippy::too_many_arguments)]
     fn create_oracle<M: MemorySource + 'static>(
         &self,
         block_metadata: BlockMetadataFromOracle,
