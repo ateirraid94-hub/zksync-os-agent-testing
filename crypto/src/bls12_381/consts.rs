@@ -1,6 +1,7 @@
 #[cfg(not(any(
-    all(target_arch = "riscv32", feature = "proving"),
-    all(feature = "proving", fuzzing)
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    all(feature = "proving", fuzzing),
+    test
 )))]
 pub const G2_BY_TAU_POINT:
     <crate::bls12_381::curves::Bls12_381 as crate::ark_ec::pairing::Pairing>::G2Affine =
@@ -56,7 +57,11 @@ pub const G2_BY_TAU_POINT:
         infinity: false,
     };
 
-#[cfg(all(feature = "proving", any(target_arch = "riscv32", fuzzing)))]
+#[cfg(any(
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    all(feature = "proving", fuzzing),
+    test
+))]
 pub const G2_BY_TAU_POINT:
     <crate::bls12_381::curves::Bls12_381 as crate::ark_ec::pairing::Pairing>::G2Affine =
     crate::bls12_381::curves::g2::G2Affine {
@@ -159,8 +164,9 @@ pub const G2_BY_TAU_POINT:
 // }
 // println!("    ],");
 #[cfg(not(any(
-    all(target_arch = "riscv32", feature = "proving"),
-    all(feature = "proving", fuzzing)
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    all(feature = "proving", fuzzing),
+    test
 )))]
 pub const PREPARED_G2_GENERATOR:
     <crate::bls12_381::curves::Bls12_381 as crate::ark_ec::pairing::Pairing>::G2Prepared =
@@ -5244,8 +5250,9 @@ pub const PREPARED_G2_GENERATOR:
 // QuasiUART::new().write_fmt(format_args!("    infinity: {:?},\n", prepared_g2_generator.infinity)).unwrap();
 // QuasiUART::new().write_fmt(format_args!("}};\n")).unwrap();
 #[cfg(any(
-    all(target_arch = "riscv32", feature = "proving"),
-    all(feature = "proving", fuzzing)
+    all(target_arch = "riscv32", feature = "bigint_ops"),
+    all(feature = "proving", fuzzing),
+    test
 ))]
 pub const PREPARED_G2_GENERATOR:
     <crate::bls12_381::curves::Bls12_381 as crate::ark_ec::pairing::Pairing>::G2Prepared =
