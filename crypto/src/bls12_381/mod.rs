@@ -1,22 +1,22 @@
+pub mod consts;
 pub mod curves;
 pub mod fields;
-pub mod consts;
 
 pub use self::curves::{g1, g2, G1Affine, G1Projective, G2Affine, G2Projective};
 pub use self::fields::{Fp, Fq, Fq12, Fq2, Fq6, Fr};
 
 pub(crate) use self::curves::util;
 
-use consts::{G2_BY_TAU_POINT, PREPARED_G2_GENERATOR};
 use crate::ark_ec::pairing::Pairing;
 use crate::ark_ec::AffineRepr;
 use crate::ark_ff::{Field, PrimeField};
+use consts::{G2_BY_TAU_POINT, PREPARED_G2_GENERATOR};
 
 pub fn verify_kzg_proof(
     commitment: G1Affine,
     proof: G1Affine,
     z: <Fr as PrimeField>::BigInt,
-    y: <Fr as PrimeField>::BigInt
+    y: <Fr as PrimeField>::BigInt,
 ) -> bool {
     // e(y - P, G₂) * e(proof, X - z) == 1
     let mut y_minus_p = G1Affine::generator().mul_bigint(&y);

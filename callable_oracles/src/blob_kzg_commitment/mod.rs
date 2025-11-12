@@ -1,8 +1,8 @@
 use crate::utils::evaluate::read_memory_as_u8;
 use crate::utils::usize_slice_iterator::UsizeSliceIteratorOwned;
 use alloy_consensus::private::alloy_eips::eip4844::kzg_to_versioned_hash;
-use basic_system::system_implementation::system::da_commitment_generator::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
 use basic_system::system_implementation::system::da_commitment_generator::KZGCommitmentAndProof;
+use basic_system::system_implementation::system::da_commitment_generator::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
 use crypto::MiniDigest;
 use oracle_provider::OracleQueryProcessor;
 use risc_v_simulator::abstractions::memory::MemorySource;
@@ -56,9 +56,7 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BlobCommitmentAndProofQuery<M>
         let data = read_memory_as_u8(memory, data_ptr, data_len).unwrap();
         let result = blob_kzg_commitment_and_proof(&data);
 
-        let r = result
-            .iter()
-            .collect::<Vec<_>>();
+        let r = result.iter().collect::<Vec<_>>();
         let r = Vec::into_boxed_slice(r);
         let n = UsizeSliceIteratorOwned::new(r);
         Box::new(n)

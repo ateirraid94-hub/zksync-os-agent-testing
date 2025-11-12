@@ -42,12 +42,11 @@ pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypt
     // batch inverse
 
     let mut accumulator = crypto::bls12_381::Fr::one();
-    let mut inverses: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] =
-        core::array::from_fn(|i| {
-            let inverse = accumulator.clone();
-            accumulator *= inverses_in[i];
-            inverse
-        });
+    let mut inverses: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] = core::array::from_fn(|i| {
+        let inverse = accumulator.clone();
+        accumulator *= inverses_in[i];
+        inverse
+    });
 
     match accumulator.inverse_in_place() {
         None => {

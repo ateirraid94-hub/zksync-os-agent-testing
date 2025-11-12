@@ -92,7 +92,8 @@ impl<O: IOOracle> DACommitmentGenerator<O> for BlobCommitmentGenerator {
 fn blob_versioned_hash(data: &[u8], oracle: &mut impl IOOracle) -> [u8; 32] {
     let commitment_and_proof =
         commitment_and_proof_advice::blob_commitment_and_proof_advice(data, oracle);
-    let commitment = parse_g1_compressed(&commitment_and_proof.commitment).expect("Invalid blob commitment point");
+    let commitment = parse_g1_compressed(&commitment_and_proof.commitment)
+        .expect("Invalid blob commitment point");
     let proof = parse_g1_compressed(&commitment_and_proof.proof).expect("Invalid blob proof point");
     let versioned_hash = versioned_hash_for_kzg(commitment_and_proof.commitment.as_slice());
     let evaluation_point = calculate_evaluation_point(data, &versioned_hash);

@@ -122,18 +122,14 @@ fn point_evaluation_as_system_function_inner<D: ?Sized + TryExtend<u8>, R: Resou
         ));
     };
 
-    if crypto::bls12_381::verify_kzg_proof(
-        commitment_point,
-        proof,
-        z,
-        y
-    ) {
-        dst.try_extend(POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE).map_err(|_| out_of_return_memory!())?;
+    if crypto::bls12_381::verify_kzg_proof(commitment_point, proof, z, y) {
+        dst.try_extend(POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE)
+            .map_err(|_| out_of_return_memory!())?;
         Ok(())
     } else {
-        Err(
-            interface_error!(PointEvaluationInterfaceError::PairingMismatch),
-        )
+        Err(interface_error!(
+            PointEvaluationInterfaceError::PairingMismatch
+        ))
     }
 }
 
@@ -270,7 +266,7 @@ mod tests {
             0xd8, 0x05, 0x53, 0xbd, 0xa4, 0x02, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0xff, 0xff, 0xff,
             0x00, 0x00, 0x00, 0x01,
         ]
-            .to_vec();
+        .to_vec();
         let y = hex!("1522a4a7f34e1ea350ae07c29c96c7e79655aa926122e95fe69fcbd932ca49e9").to_vec();
         let proof = hex!("a62ad71d14c5719385c0686f1871430475bf3a00f0aa3f7b8dd99a9abc2160744faf0070725e00b60ad9a026a15b1a8c").to_vec();
 
@@ -311,7 +307,7 @@ mod tests {
             0xd8, 0x05, 0x53, 0xbd, 0xa4, 0x02, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0xff, 0xff, 0xff,
             0x00, 0x00, 0x00, 0x01,
         ]
-            .to_vec();
+        .to_vec();
         let proof = hex!("a62ad71d14c5719385c0686f1871430475bf3a00f0aa3f7b8dd99a9abc2160744faf0070725e00b60ad9a026a15b1a8c").to_vec();
 
         let input = [versioned_hash, z, invalid_y, commitment, proof].concat();

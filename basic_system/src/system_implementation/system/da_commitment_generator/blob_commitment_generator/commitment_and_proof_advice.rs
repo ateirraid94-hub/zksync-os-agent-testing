@@ -8,7 +8,7 @@ pub const BLOB_COMMITMENT_AND_PROOF_QUERY_ID: u32 =
 
 pub struct KZGCommitmentAndProof {
     pub commitment: [u8; 48],
-    pub proof: [u8; 48]
+    pub proof: [u8; 48],
 }
 
 impl UsizeSerializable for KZGCommitmentAndProof {
@@ -31,24 +31,33 @@ impl UsizeSerializable for KZGCommitmentAndProof {
 impl UsizeDeserializable for KZGCommitmentAndProof {
     const USIZE_LEN: usize = <Self as UsizeSerializable>::USIZE_LEN;
 
-    fn from_iter(src: &mut impl ExactSizeIterator<Item=usize>) -> Result<Self, InternalError> {
+    fn from_iter(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
         let mut commitment = [0u8; 48];
         let mut proof = [0u8; 48];
         const FIELD_USIZE_LEN: usize = 48 / core::mem::size_of::<usize>();
         unsafe {
-            let commitment_usize_ptr: *mut usize = commitment.as_mut_ptr().cast::<[usize; FIELD_USIZE_LEN]>().cast();
+            let commitment_usize_ptr: *mut usize = commitment
+                .as_mut_ptr()
+                .cast::<[usize; FIELD_USIZE_LEN]>()
+                .cast();
             for i in 0..FIELD_USIZE_LEN {
-                commitment_usize_ptr.add(i).write(src.next().ok_or(internal_error!("KZGCommitmentAndProof deserialization failed"))?);
+                commitment_usize_ptr
+                    .add(i)
+                    .write(src.next().ok_or(internal_error!(
+                        "KZGCommitmentAndProof deserialization failed"
+                    ))?);
             }
-            let proof_usize_ptr: *mut usize = proof.as_mut_ptr().cast::<[usize; FIELD_USIZE_LEN]>().cast();
+            let proof_usize_ptr: *mut usize =
+                proof.as_mut_ptr().cast::<[usize; FIELD_USIZE_LEN]>().cast();
             for i in 0..FIELD_USIZE_LEN {
-                proof_usize_ptr.add(i).write(src.next().ok_or(internal_error!("KZGCommitmentAndProof deserialization failed"))?);
+                proof_usize_ptr
+                    .add(i)
+                    .write(src.next().ok_or(internal_error!(
+                        "KZGCommitmentAndProof deserialization failed"
+                    ))?);
             }
         }
-        Ok(Self {
-            commitment,
-            proof
-        })
+        Ok(Self { commitment, proof })
     }
 }
 
