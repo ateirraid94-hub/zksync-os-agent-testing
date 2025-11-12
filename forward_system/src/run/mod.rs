@@ -62,6 +62,7 @@ use basic_system::system_implementation::flat_storage_model::*;
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 pub use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle as BlockContext;
 use zksync_os_interface::traits::TxListSource;
+use zk_ee::oracle::usize_serialization::UsizeSerializable;
 
 pub type StorageCommitment = FlatStorageCommitment<{ TREE_HEIGHT }>;
 
@@ -175,12 +176,17 @@ pub fn generate_batch_proof_input(
                 let advice =
                     callable_oracles::blob_kzg_commitment::blob_kzg_commitment_and_proof(blob_data);
                 blobs_advice.push(24);
-                blobs_advice.extend(
-                    advice
-                        .into_iter()
-                        .array_chunks::<4>()
-                        .map(|x| u32::from_le_bytes(x)),
-                );
+                for word in advice.iter() {
+                    #[cfg(target_pointer_width = "32")]
+                    blobs_advice.push(word as u32);
+                    #[cfg(target_pointer_width = "64")]
+                    {
+                        let low = word as u32;
+                        let high = (word >> 32) as u32;
+                        blobs_advice.push(low);
+                        blobs_advice.push(high);
+                    }
+                }
             }
             blobs_advice
         }

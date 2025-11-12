@@ -2,9 +2,11 @@ use crate::utils::evaluate::read_memory_as_u8;
 use crate::utils::usize_slice_iterator::UsizeSliceIteratorOwned;
 use alloy_consensus::private::alloy_eips::eip4844::kzg_to_versioned_hash;
 use basic_system::system_implementation::system::da_commitment_generator::BLOB_COMMITMENT_AND_PROOF_QUERY_ID;
+use basic_system::system_implementation::system::da_commitment_generator::KZGCommitmentAndProof;
 use crypto::MiniDigest;
 use oracle_provider::OracleQueryProcessor;
 use risc_v_simulator::abstractions::memory::MemorySource;
+use zk_ee::oracle::usize_serialization::UsizeSerializable;
 
 ///
 /// Query processor, which returns blob kzg commitment and proof for a given data.
@@ -55,9 +57,7 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BlobCommitmentAndProofQuery<M>
         let result = blob_kzg_commitment_and_proof(&data);
 
         let r = result
-            .into_iter()
-            .array_chunks::<8>()
-            .map(|x| u64::from_le_bytes(x) as usize)
+            .iter()
             .collect::<Vec<_>>();
         let r = Vec::into_boxed_slice(r);
         let n = UsizeSliceIteratorOwned::new(r);
@@ -70,7 +70,7 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BlobCommitmentAndProofQuery<M>
 ///
 /// For encoding, we chunk `data` by 31 bytes and interpret each chunk as BE blob element.
 ///
-pub fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
+pub fn blob_kzg_commitment_and_proof(data: &[u8]) -> KZGCommitmentAndProof {
     let mut blob = [0u8; 4096 * 32];
     for (i, chunk) in data.chunks(31).enumerate() {
         let fe = &mut blob[i * 32..(i + 1) * 32];
@@ -96,8 +96,8 @@ pub fn blob_kzg_commitment_and_proof(data: &[u8]) -> [u8; 96] {
         .unwrap();
     let proof = p.0;
 
-    let mut result = [0u8; 96];
-    result[..48].copy_from_slice(commitment.as_slice());
-    result[48..].copy_from_slice(proof.as_slice());
-    result
+    KZGCommitmentAndProof {
+        commitment: commitment.to_bytes().into_inner(),
+        proof: proof.to_bytes().into_inner(),
+    }
 }

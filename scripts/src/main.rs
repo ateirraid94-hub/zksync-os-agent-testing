@@ -62,7 +62,7 @@ pub fn generate_brp_roots_of_unity_const_to_std() {
         let mut result = 0;
         for _ in 0..64 {
             result <<= 1;
-            result |= (n & 1);
+            result |= n & 1;
             n >>= 1;
         }
         result

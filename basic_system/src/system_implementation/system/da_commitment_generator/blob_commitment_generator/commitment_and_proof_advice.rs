@@ -52,6 +52,7 @@ impl UsizeDeserializable for KZGCommitmentAndProof {
     }
 }
 
+// Right now, we run it only on RISC-V, but in theory, it should be possible to make it runnable on native arch as well
 pub fn blob_commitment_and_proof_advice(
     data: &[u8],
     oracle: &mut impl zk_ee::oracle::IOOracle,
