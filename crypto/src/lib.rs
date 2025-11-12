@@ -96,9 +96,8 @@ pub trait MiniDigest: Sized {
     fn finalize_reset(&mut self) -> Self::HashOutput;
 }
 
-// few utility methods to work with 32-bytes BigInt
 ///
-/// Parse a byte array as a BE 32-byte BigInt.
+/// Parse the byte array as a BE 32-byte BigInt.
 /// If length is less than 32 bytes, it will be left-padded (most significant bytes) with zeroes.
 ///
 pub fn parse_u256_be<const N: usize>(input: &[u8; N]) -> BigInt<4> {
