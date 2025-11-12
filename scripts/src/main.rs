@@ -75,13 +75,13 @@ pub fn generate_brp_roots_of_unity_const_to_std() {
         }
     }
     println!("pub const BRP_ROOTS_OF_UNITY: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] = [");
-    for i in 0..FIELD_ELEMENTS_PER_BLOB {
+    for el in roots_of_unity.iter().take(FIELD_ELEMENTS_PER_BLOB) {
         println!("    crypto::bls12_381::Fp(");
         println!("        crypto::BigInt([");
-        println!("            {},", roots_of_unity[i].0 .0[0]);
-        println!("            {},", roots_of_unity[i].0 .0[1]);
-        println!("            {},", roots_of_unity[i].0 .0[2]);
-        println!("            {},", roots_of_unity[i].0 .0[3]);
+        println!("            {},", el.0 .0[0]);
+        println!("            {},", el.0 .0[1]);
+        println!("            {},", el.0 .0[2]);
+        println!("            {},", el.0 .0[3]);
         println!("        ]),");
         println!("        core::marker::PhantomData,");
         println!("    ),");
