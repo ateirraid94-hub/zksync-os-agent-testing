@@ -1,4 +1,5 @@
 use super::*;
+#[allow(clippy::large_const_arrays)]
 pub const BRP_ROOTS_OF_UNITY: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] = [
     crypto::Fp(
         crypto::BigInt([

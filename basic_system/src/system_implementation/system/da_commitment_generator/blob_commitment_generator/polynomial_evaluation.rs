@@ -29,7 +29,7 @@ pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypt
         last_chunk[..remainder.len()].copy_from_slice(remainder);
         el.write(crypto::bls12_381::Fr::from_bigint(parse_u256_be(&last_chunk)).unwrap());
     }
-    while let Some(el) = poly_iter.next() {
+    for el in poly_iter {
         el.write(crypto::bls12_381::Fr::zero());
     }
     let poly = unsafe { MaybeUninit::array_assume_init(poly) };
@@ -43,24 +43,21 @@ pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypt
 
     let mut accumulator = crypto::bls12_381::Fr::one();
     let mut inverses: [crypto::bls12_381::Fr; ELEMENTS_PER_4844_BLOB] = core::array::from_fn(|i| {
-        let inverse = accumulator.clone();
+        let inverse = accumulator;
         accumulator *= inverses_in[i];
         inverse
     });
 
-    match accumulator.inverse_in_place() {
-        None => {
-            // It's `None` when accumulator equals to zero, it means that point to evaluate at is
-            // one of the evaluation points by which the polynomial is given, we can just return
-            // the result directly.
-            for i in 0..ELEMENTS_PER_4844_BLOB {
-                if *x == BRP_ROOTS_OF_UNITY[i] {
-                    return poly[i];
-                }
+    if accumulator.inverse_in_place().is_none() {
+        // It's `None` when accumulator equals to zero, it means that point to evaluate at is
+        // one of the evaluation points by which the polynomial is given, we can just return
+        // the result directly.
+        for i in 0..ELEMENTS_PER_4844_BLOB {
+            if *x == BRP_ROOTS_OF_UNITY[i] {
+                return poly[i];
             }
-            unreachable!()
         }
-        Some(_) => {}
+        unreachable!()
     }
 
     for i in (0..ELEMENTS_PER_4844_BLOB).rev() {

@@ -19,6 +19,7 @@ impl UsizeSerializable for KZGCommitmentAndProof {
             if #[cfg(target_endian = "big")] {
                 compile_error!("unsupported architecture: big endian arch is not supported")
             } else {
+                #[allow(clippy::needless_return)]
                 return ExactSizeChain::new(
                     self.commitment.array_chunks::<{ core::mem::size_of::<usize>() }>().map(|chunk| usize::from_le_bytes(*chunk)),
                     self.proof.array_chunks::<{ core::mem::size_of::<usize>() }>().map(|chunk| usize::from_le_bytes(*chunk)),
