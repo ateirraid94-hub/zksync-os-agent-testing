@@ -56,3 +56,5 @@ And then run the eth_runner
 ```shell
 RUST_MIN_STACK=267108864 RUSTFLAGS="-Awarnings" cargo run -p eth_runner --release --features rig/no_print,rig/unlimited_native,with_gpu_prover -- ethproofs-with-proofs  --reth-endpoint RETH_ENDPOINT --bin-path zksync_os/app.bin --staging --auth-token AUTH_TOKEN --cluster-id CLUSTER_ID
 ```
+
+You can also specify `--block_mod` and `--prover_id` to control which blocks are picked up (the system will pickup blocks where block_number % block_mod == prover_id).

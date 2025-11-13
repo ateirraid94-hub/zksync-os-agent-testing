@@ -104,6 +104,12 @@ enum Command {
         auth_token: String,
         #[arg(long)]
         cluster_id: u64,
+        #[arg(long)]
+        /// If set, will select blocks where (block_number % block_mod) == prover_id
+        /// If not set, will pick 100th block in production and 10th block in staging.
+        block_mod: Option<u64>,
+        #[arg(long)]
+        prover_id: Option<u64>,
     },
 }
 
@@ -158,9 +164,13 @@ fn main() -> anyhow::Result<()> {
             staging,
             auth_token,
             cluster_id,
+            block_mod,
+            prover_id,
         } => {
             let connector = EthProofsConnector::new(staging, auth_token, cluster_id);
-            ethproofs::ethproofs_with_proofs(&reth_endpoint, connector)
+            let block_mod = block_mod.unwrap_or_else(|| if staging { 10 } else { 100 });
+            let prover_id = prover_id.unwrap_or_else(|| 0);
+            ethproofs::ethproofs_with_proofs(&reth_endpoint, connector, (prover_id, block_mod))
         }
     }
 }

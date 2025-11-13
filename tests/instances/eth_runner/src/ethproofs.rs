@@ -142,6 +142,7 @@ pub fn ethproofs_live_run(reth_endpoint: &str) -> anyhow::Result<()> {
 pub fn ethproofs_with_proofs(
     _reth_endpoint: &str,
     _connector: EthProofsConnector,
+    _block_selector: (u64, u64),
 ) -> anyhow::Result<()> {
     panic!("Ethproofs with proofs requires the 'with_gpu_prover' feature to be enabled");
 }
@@ -150,6 +151,7 @@ pub fn ethproofs_with_proofs(
 pub fn ethproofs_with_proofs(
     reth_endpoint: &str,
     connector: EthProofsConnector,
+    block_selector: (u64, u64),
 ) -> anyhow::Result<()> {
     use base64::Engine;
     use bincode::config::standard;
@@ -177,7 +179,7 @@ pub fn ethproofs_with_proofs(
 
     loop {
         let head = rpc::get_block_number(reth_endpoint)?;
-        let head = connector.select_block(head);
+        let head = connector.select_block(head, block_selector);
         if head > next {
             println!("Generating proof for block {}", head);
             let (witness, duration) = ethproofs_run(
@@ -256,13 +258,17 @@ impl EthProofsConnector {
         }
     }
 
-    pub fn select_block(&self, candidate_block: u64) -> u64 {
-        if self.staging {
-            candidate_block - (candidate_block % 10)
-        } else {
-            // In production we pick every 100th block.
-            candidate_block - (candidate_block % 100)
+    pub fn select_block(&self, candidate_block: u64, (prover_id, block_mod): (u64, u64)) -> u64 {
+        // This is the block that we should pick.
+        let selected_block = candidate_block - (candidate_block % block_mod) + prover_id;
+
+        // But if it turns out to be larger than candidate_block, we need to wait for the next round.
+        // And we'll return the previous round's block number to indicate that.
+        if selected_block > candidate_block {
+            // Return block from the previous round.
+            return selected_block - block_mod;
         }
+        return selected_block;
     }
     pub fn send_proof(
         &self,
@@ -290,5 +296,20 @@ impl EthProofsConnector {
         )?;
         println!("Response from server: {}", response);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_block_selection() {
+        let connector = EthProofsConnector::new(true, "token".to_string(), 1);
+        assert_eq!(connector.select_block(100, (0, 10)), 100);
+        assert_eq!(connector.select_block(100, (5, 10)), 95);
+        assert_eq!(connector.select_block(100, (9, 10)), 99);
+        assert_eq!(connector.select_block(105, (0, 10)), 100);
+        assert_eq!(connector.select_block(105, (5, 10)), 105);
+        assert_eq!(connector.select_block(105, (9, 10)), 99);
     }
 }
