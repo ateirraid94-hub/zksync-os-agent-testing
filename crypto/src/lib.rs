@@ -55,20 +55,6 @@ pub use self::ark_ff::{BigInt, BigInteger};
 #[cfg(any(
     all(target_arch = "riscv32", feature = "bigint_ops"),
     feature = "proving",
-    test
-))]
-pub use crate::ark_ff_delegation::Fp;
-
-#[cfg(not(any(
-    all(target_arch = "riscv32", feature = "bigint_ops"),
-    feature = "proving",
-    test
-)))]
-pub use ark_ff::Fp;
-
-#[cfg(any(
-    all(target_arch = "riscv32", feature = "bigint_ops"),
-    feature = "proving",
     feature = "testing",
     test
 ))]

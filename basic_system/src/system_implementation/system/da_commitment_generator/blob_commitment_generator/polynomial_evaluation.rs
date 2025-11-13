@@ -9,7 +9,7 @@ use core::mem::MaybeUninit;
 /// For encoding, we chunk `data` by 31 bytes and interpret each chunk as BE blob element.
 ///
 pub fn evaluate_blob_polynomial(data: &[u8], x: &crypto::bls12_381::Fr) -> crypto::bls12_381::Fr {
-    debug_assert!(data.len() <= ENCODABLE_BYTES_PER_BLOB);
+    debug_assert!(data.len() < ENCODABLE_BYTES_PER_BLOB);
 
     // encode data into polynomial (in evaluated form)
     let mut poly: [MaybeUninit<crypto::bls12_381::Fr>; ELEMENTS_PER_4844_BLOB] =
