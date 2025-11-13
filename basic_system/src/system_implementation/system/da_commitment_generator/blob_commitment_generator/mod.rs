@@ -62,6 +62,7 @@ impl BlobCommitmentGenerator {
     }
 }
 
+
 impl WriteBytes for BlobCommitmentGenerator {
     fn write(&mut self, buf: &[u8]) {
         // overflow shouldn't be reachable, operator validates pubdata limit during forward run
