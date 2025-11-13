@@ -54,11 +54,15 @@ pub fn versioned_hash_for_kzg(data: &[u8]) -> [u8; 32] {
 // We do not need internal representation, just canonical scalar
 fn parse_scalar(input: &[u8; 32]) -> Result<<crypto::bls12_381::Fr as PrimeField>::BigInt, ()> {
     // Arkworks has strange format for integer serialization, so we do manually
-    let result = crypto::parse_u256_be(input);
-    if result >= crypto::bls12_381::Fr::MODULUS {
+    let mut repr = [0u64; 4];
+    for (dst, src) in repr.iter_mut().zip(input.as_rchunks::<8>().1.iter().rev()) {
+        *dst = u64::from_be_bytes(*src);
+    }
+    let repr = crypto::BigInt::new(repr);
+    if repr >= crypto::bls12_381::Fr::MODULUS {
         Err(())
     } else {
-        Ok(result)
+        Ok(repr)
     }
 }
 
