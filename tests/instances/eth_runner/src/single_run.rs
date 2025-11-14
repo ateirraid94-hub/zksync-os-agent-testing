@@ -114,8 +114,6 @@ fn eth_run<const PROOF_ENV: bool>(
         None,
     );
 
-    return Ok(());
-
     if PROOF_ENV {
         for el in account_diffs.into_iter() {
             use basic_system::system_implementation::cache_structs::BitsOrd160;
@@ -332,8 +330,12 @@ pub fn single_eth_run<const PROOF_ENV: bool>(
     // assert!(block.result.header.gas_used <= 11_000_000);
     let miner = block.result.header.beneficiary;
 
-    let account_diffs_file = File::open(dir.join("account_diffs.json"))?;
-    let account_diffs: Vec<AccountStateDiffs> = serde_json::from_reader(account_diffs_file)?;
+    let account_diffs: Vec<AccountStateDiffs> =
+        if let Ok(account_diffs_file) = File::open(dir.join("account_diffs.json")) {
+            serde_json::from_reader(account_diffs_file)?
+        } else {
+            vec![]
+        };
 
     // let blobs_file = File::open(dir.join("blobs.json"))?;
     // let blobs: Vec<BlobTransactionQuasiSidecarItem> = serde_json::from_reader(blobs_file)?;

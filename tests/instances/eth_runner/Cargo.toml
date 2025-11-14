@@ -14,7 +14,8 @@ rig = { path = "../../rig" }
 zk_ee = { path = "../../../zk_ee" }
 basic_system = { path = "../../../basic_system" }
 forward_system = { path = "../../../forward_system" }
-system_hooks = {path = "../../../system_hooks" }
+system_hooks = { path = "../../../system_hooks" }
+zksync_os_runner = { path = "../../../zksync_os_runner" }
 
 serde = { workspace = true, features = ["derive"] }
 ruint = { workspace = true, default-features = false }
@@ -36,6 +37,7 @@ serde_with = "3.13.0"
 csv = "1.3"
 
 [dev-dependencies]
+# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover", "verifier_80"] }
 execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover"] }
 risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", features = ["delegation"] }
 

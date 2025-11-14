@@ -636,29 +636,33 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             result_keeper
         };
 
-        if let Some(path) = witness_output_file {
-            let mut oracle = ZkEENonDeterminismSource::default();
-            oracle.add_external_processor(target_header_reponsder);
-            oracle.add_external_processor(tx_data_responder);
-            oracle.add_external_processor(preimage_responder);
-            oracle.add_external_processor(initial_account_state_responder);
-            oracle.add_external_processor(initial_values_responder);
-            oracle.add_external_processor(cl_responder);
-            oracle.add_external_processor(UARTPrintReponsder);
-            oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
-            oracle.add_external_processor(callable_oracles::field_hints::FieldOpsQuery::default());
-            use riscv_transpiler::common_constants::rom::ROM_SECOND_WORD_BITS;
-            let copy_source = ReadWitnessSource::new(oracle);
-            let items = copy_source.get_read_items();
-            let _ = Self::run_batch_via_transpiler::<false, ROM_SECOND_WORD_BITS>(copy_source, &app, 1 << 31);
-            let result = items.borrow().clone();
-            // let result = Self::run_batch_generate_witness::<true>(oracle, &app);
-            let mut file = File::create(&path).expect("should create file");
-            let witness: Vec<u8> = result.iter().flat_map(|x| x.to_be_bytes()).collect();
-            let hex = hex::encode(witness);
-            file.write_all(hex.as_bytes())
-                .expect("should write to file");
-        }
+        // if let Some(path) = witness_output_file {
+        //     let mut oracle = ZkEENonDeterminismSource::default();
+        //     oracle.add_external_processor(target_header_reponsder);
+        //     oracle.add_external_processor(tx_data_responder);
+        //     oracle.add_external_processor(preimage_responder);
+        //     oracle.add_external_processor(initial_account_state_responder);
+        //     oracle.add_external_processor(initial_values_responder);
+        //     oracle.add_external_processor(cl_responder);
+        //     oracle.add_external_processor(UARTPrintReponsder);
+        //     oracle.add_external_processor(callable_oracles::arithmetic::ArithmeticQuery::default());
+        //     oracle.add_external_processor(callable_oracles::field_hints::FieldOpsQuery::default());
+        //     use riscv_transpiler::common_constants::rom::ROM_SECOND_WORD_BITS;
+        //     let copy_source = ReadWitnessSource::new(oracle);
+        //     let items = copy_source.get_read_items();
+        //     let _ = Self::run_batch_via_transpiler::<false, ROM_SECOND_WORD_BITS>(
+        //         copy_source,
+        //         &app,
+        //         1 << 31,
+        //     );
+        //     let result = items.borrow().clone();
+        //     // let result = Self::run_batch_generate_witness::<true>(oracle, &app);
+        //     let mut file = File::create(&path).expect("should create file");
+        //     let witness: Vec<u8> = result.iter().flat_map(|x| x.to_be_bytes()).collect();
+        //     let hex = hex::encode(witness);
+        //     file.write_all(hex.as_bytes())
+        //         .expect("should write to file");
+        // }
 
         result_keeper
     }
