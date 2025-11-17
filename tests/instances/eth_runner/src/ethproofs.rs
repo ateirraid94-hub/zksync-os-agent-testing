@@ -180,16 +180,17 @@ pub fn ethproofs_with_proofs(
             )?;
             let mut total_proof_time = Some(duration);
 
-            pp.prove(witness);
-
-            let fake_proof = vec![0u8; 64]; // Placeholder for actual proof data.
+            let start_time = std::time::SystemTime::now();
+            let proof = pp.prove(witness);
+            total_proof_time =
+                total_proof_time.map(|t| t + start_time.elapsed().unwrap().as_secs_f64()); // Placeholder for actual proof data.
 
             // Bincode serialize and then base64 encode the proof.
-            let serialized_proof = bincode::serde::encode_to_vec(&fake_proof, standard())
+            let serialized_proof = bincode::serde::encode_to_vec(&proof, standard())
                 .context("Failed to serialize the program proof")?;
             let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
 
-            let cycles = 123;
+            let cycles = proof.final_pc;
 
             connector.send_proof(
                 head,
