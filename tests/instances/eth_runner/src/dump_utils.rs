@@ -37,8 +37,6 @@ pub fn dump_eth_block(
         .context(format!("Failed to fetch block receipts for {block_number}"))?;
     let call = rpc::get_calltrace(endpoint, block_number)
         .context(format!("Failed to fetch call trace for {block_number}"))?;
-    let witness = rpc::get_witness(endpoint, block_number)
-        .context(format!("Failed to fetch witness for {block_number}"))?;
     let block_hashes = rpc::fetch_block_hashes_array(endpoint, block_number)
         .context(format!("Failed to fetch block hashes for {block_number}"))?
         .to_vec();
@@ -53,15 +51,32 @@ pub fn dump_eth_block(
     serde_json::to_writer(fs::File::create(dir.join("receipts.json"))?, &receipts)?;
     serde_json::to_writer(fs::File::create(dir.join("prestatetrace.json"))?, &prestate)?;
     serde_json::to_writer(fs::File::create(dir.join("difftrace.json"))?, &diff)?;
-    serde_json::to_writer(fs::File::create(dir.join("witness.json"))?, &witness)?;
     serde_json::to_writer(
         fs::File::create(dir.join("block_hashes.json"))?,
         &block_hashes,
     )?;
 
+    let witness: rpc::JsonResponse<alloy_rpc_types_debug::ExecutionWitness> = if let Ok(witness) =
+        rpc::get_witness(endpoint, block_number)
+            .context(format!("Failed to fetch witness for {block_number}"))
+    {
+        serde_json::to_writer(fs::File::create(dir.join("witness.json"))?, &witness)?;
+
+        witness
+    } else {
+        let witness = fs::File::open(dir.join("witness.json"))?;
+
+        let rpc_result: rpc::JsonResponse<alloy_rpc_types_debug::ExecutionWitness> =
+            serde_json::from_reader(witness)?;
+
+        rpc_result
+    };
+
+    let execution_witness = witness.result;
+
     let mut account_diffs = vec![];
     if let Some(endpoint) = account_diffs_endpoint {
-        for el in witness.result.keys.iter() {
+        for el in execution_witness.keys.iter() {
             if el.len() == 20 {
                 // potentially interesting account
                 let address = Address::try_from(&*el.0).unwrap();

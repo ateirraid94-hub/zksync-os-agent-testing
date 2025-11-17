@@ -354,8 +354,21 @@ impl<'external, S: EthereumLikeTypes + 'external> Run<'_, 'external, S> {
     where
         S::IO: IOSubsystemExt,
     {
+        let _ = self.system.get_logger().write_fmt(
+            format_args!(
+                "Will check if call from 0x{:040x} to 0x{:040x} with {:?} resources, with {} native tokens and {} bytes of calldata can return early\n",
+                external_call_params.external_call.caller.as_uint(),
+                external_call_params.external_call.callee.as_uint(),
+                external_call_params.external_call.available_resources,
+                external_call_params.external_call.nominal_token_value,
+                external_call_params.external_call.calldata.len(),
+            )
+        );
+
         // Now, perform transfer with infinite ergs
         if let Some(TransferInfo { value, target }) = transfer_to_perform {
+            debug_assert_eq!(&external_call_params.external_call.callee, target);
+
             match external_call_params
                 .external_call
                 .available_resources
@@ -883,7 +896,8 @@ where
     S::IO: IOSubsystemExt,
 {
     let mut resources_in_caller_frame = call_request.available_resources.take();
-    let is_potential_transfer_to_callee = call_request.nominal_token_value != U256::ZERO && call_request.is_delegate() == false;
+    let is_potential_transfer_to_callee =
+        call_request.nominal_token_value != U256::ZERO && call_request.is_delegate() == false;
 
     let r = if IS_ENTRY_FRAME {
         // For entry frame we don't charge ergs for call preparation,

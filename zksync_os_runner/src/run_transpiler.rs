@@ -117,6 +117,17 @@ pub fn run_and_get_effective_cycles<const ROM_BOUND_SECOND_WORD_BITS: usize>(
         .into_iter()
         .map(|el| decode::<FullUnsignedMachineDecoderConfig>(el))
         .collect();
+
+    // let instructions: Vec<Instruction> = text
+    //     .into_iter()
+    //     .map(|el| decode::<ReducedMachineDecoderConfig>(el))
+    //     .collect();
+
+    // let instructions: Vec<Instruction> = text
+    //     .into_iter()
+    //     .map(|el| decode::<DebugReducedMachineDecoderConfig>(el))
+    //     .collect();
+
     let tape = SimpleTape::new(&instructions);
     let mut ram =
         RamWithRomRegion::<ROM_BOUND_SECOND_WORD_BITS>::from_rom_content(&binary, 1 << 30);

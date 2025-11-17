@@ -1,3 +1,5 @@
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 #![feature(slice_as_array)]
 #![recursion_limit = "1024"]
 
@@ -177,6 +179,12 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod test {
+    use execution_utils::{
+        setups::prover::{common_constants, worker::Worker},
+        unrolled::{UnrolledProgramProof, UnrolledProgramSetup},
+    };
+    use risc_v_simulator::cycle::IMStandardIsaConfigWithUnsignedMulDiv;
+
     #[test]
     fn invoke_single_block() {
         crate::single_run::single_run("blocks/19299001".to_string(), None, false, None, Some(1))
@@ -189,13 +197,13 @@ mod test {
 
     #[test]
     fn run_dump() {
-        let block_number = 23292836;
+        let block_number = 23690300;
         let _ = std::fs::create_dir(&format!("blocks/{}", block_number));
         crate::dump_utils::dump_eth_block(
             block_number,
             NODE_URL,
-            None,
-            // Some(ACCOUNT_DIFFS_URL),
+            // None,
+            Some(ACCOUNT_DIFFS_URL),
             BEACON_CHAIN_URL,
             format!("blocks/{}", block_number),
         )
@@ -204,8 +212,480 @@ mod test {
 
     #[test]
     fn invoke_single_eth_block() {
-        let block_number = 23292836;
+        // 23619282
+        // 23620012
+        let block_number = 23690300;
         crate::single_run::single_eth_run::<true>(format!("blocks/{}", block_number), Some(1))
             .expect("must succeed");
     }
+
+    #[test]
+    fn prove_single_block() {
+        use execution_utils::setups::read_and_pad_binary;
+        use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+        use std::fs::File;
+        use std::{io::Read, path::Path};
+
+        let block_number = 23620012;
+
+        let mut file = File::open(&format!("{}_witness", block_number)).expect("should open file");
+        let mut witness = vec![];
+        file.read_to_end(&mut witness)
+            .expect("must read witness from file");
+        let witness = hex::decode(core::str::from_utf8(&witness).unwrap()).unwrap();
+        assert_eq!(witness.len() % 4, 0);
+        let witness: Vec<_> = witness
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|el| u32::from_be_bytes(*el))
+            .collect();
+        let source = QuasiUARTSource::new_with_reads(witness);
+        let (binary, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
+        let (text, text_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.text"));
+        println!("Computing setup");
+        let setup = execution_utils::unrolled::compute_setup_for_machine_configuration::<
+            IMStandardIsaConfigWithUnsignedMulDiv,
+        >(&binary, &text);
+        serde_json::to_writer_pretty(File::create("setup.json").unwrap(), &setup).unwrap();
+        let compiled_layouts =
+            execution_utils::setups::get_unrolled_circuits_artifacts_for_machine_type::<
+                IMStandardIsaConfigWithUnsignedMulDiv,
+            >(&binary_u32);
+        serde_json::to_writer_pretty(File::create("layouts.json").unwrap(), &compiled_layouts)
+            .unwrap();
+        let worker = Worker::new_with_num_threads(8);
+        println!("Computing proof");
+        let proof =
+            execution_utils::unrolled::prove_unrolled_for_machine_configuration_into_program_proof::<
+                IMStandardIsaConfigWithUnsignedMulDiv,
+            >(&binary_u32, &text_u32, 1 << 31, source, 1 << 30, &worker);
+        serde_json::to_writer_pretty(File::create("proof.json").unwrap(), &proof).unwrap();
+        // println!("Verifying...");
+        // let result = execution_utils::unrolled::verify_unrolled_base_layer_for_machine_configuration::<IMStandardIsaConfigWithUnsignedMulDiv>(&proof, &setup).expect("is valid proof");
+        // assert!(result.iter().all(|el| *el == 0) == false);
+        // dbg!(result);
+    }
+
+    // #[test]
+    // fn verify_single_block() {
+    //     use std::fs::File;
+
+    //     let setup: UnrolledProgramSetup = serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
+    //     let proof: UnrolledProgramProof = serde_json::from_reader(&File::open("proof.json").unwrap()).unwrap();
+
+    //     println!("Verifying...");
+    //     let result = execution_utils::unrolled::verify_unrolled_base_layer_via_full_statement_verifier(&proof, &setup).expect("is valid proof");
+    //     assert!(result.iter().all(|el| *el == 0) == false);
+    //     dbg!(result);
+    // }
+
+    // #[test]
+    // fn run_recursion_over_base_in_simulator() {
+    //     use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+    //     use std::fs::File;
+    //     use std::{io::Read, path::Path};
+
+    //     let setup: UnrolledProgramSetup =
+    //         serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
+    //     let proof: UnrolledProgramProof =
+    //         serde_json::from_reader(&File::open("proof.json").unwrap()).unwrap();
+
+    //     assert_eq!(setup.circuit_families_setups.len(), 6);
+
+    //     for (family, proofs) in proof.circuit_families_proofs.iter() {
+    //         println!("{} proofs for family {}", proofs.len(), family);
+    //         let setup_cap = &setup.circuit_families_setups[family];
+    //         for proof in proofs.iter() {
+    //             assert_eq!(proof.setup_tree_caps.len(), setup_cap.len());
+    //             for (a, b) in proof.setup_tree_caps.iter().zip(setup_cap.iter()) {
+    //                 assert_eq!(&a.cap[..], &b.cap[..]);
+    //             }
+    //         }
+    //     }
+
+    //     let mut witness = setup.flatten_for_recursion();
+    //     witness.extend(proof.flatten_into_responses(&[1984, 1991, 1994, 1995]));
+    //     let source = QuasiUARTSource::new_with_reads(witness);
+
+    //     let (result, _) = zksync_os_runner::run_transpiler::run_and_get_effective_cycles::<{ common_constants::rom::ROM_SECOND_WORD_BITS }>(
+    //         Path::new("../../../../zksync-airbender/tools/verifier/unrolled_base_layer.bin").to_path_buf(),
+    //         Path::new("../../../../zksync-airbender/tools/verifier/unrolled_base_layer.text").to_path_buf(),
+    //         None,
+    //         1 << 32,
+    //         source,
+    //     );
+
+    //     dbg!(result);
+    // }
+
+    #[test]
+    fn check_base_layer_recursion_chain_params() {
+        use std::fs::File;
+        use std::{io::Read, path::Path};
+
+        let setup: UnrolledProgramSetup =
+            serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
+        dbg!(setup.end_params);
+        let (hash_chain, preimage) = UnrolledProgramSetup::begin_recursion_chain(&setup.end_params);
+        dbg!(hash_chain);
+        dbg!(preimage);
+    }
+
+    #[test]
+    fn prove_recursion_over_base() {
+        use execution_utils::setups::read_and_pad_binary;
+        use execution_utils::setups::CompiledCircuitsSet;
+        use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+        use risc_v_simulator::cycle::IWithoutByteAccessIsaConfigWithDelegation;
+        use std::fs::File;
+        use std::{io::Read, path::Path};
+
+        let base_layer_setup: UnrolledProgramSetup =
+            serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
+        let proof: UnrolledProgramProof =
+            serde_json::from_reader(&File::open("proof.json").unwrap()).unwrap();
+        let layout: CompiledCircuitsSet =
+            serde_json::from_reader(&File::open("layouts.json").unwrap()).unwrap();
+
+        for (family, proofs) in proof.circuit_families_proofs.iter() {
+            println!("{} proofs for family {}", proofs.len(), family);
+        }
+        for (delegation_type, proofs) in proof.delegation_proofs.iter() {
+            println!("{} proofs for delegation {}", proofs.len(), delegation_type);
+        }
+
+        // println!("Verifying out of circuit ...");
+        // let result = execution_utils::unrolled::verify_unrolled_base_layer_for_machine_configuration::<IWithoutByteAccessIsaConfigWithDelegation>(&proof, &setup).expect("is valid proof");
+        // assert!(result.iter().all(|el| *el == 0) == false);
+
+        let mut witness = base_layer_setup.flatten_for_recursion();
+        witness.extend(proof.flatten_into_responses(&[1984, 1991, 1994, 1995], &layout));
+        let source = QuasiUARTSource::new_with_reads(witness);
+
+        let (binary, binary_u32) = read_and_pad_binary(Path::new(
+            "../../../../zksync-airbender/tools/verifier/unrolled_base_layer.bin",
+        ));
+        let (text, text_u32) = read_and_pad_binary(Path::new(
+            "../../../../zksync-airbender/tools/verifier/unrolled_base_layer.text",
+        ));
+        println!("Computing setup");
+        let setup = execution_utils::unrolled::compute_setup_for_machine_configuration::<
+            IWithoutByteAccessIsaConfigWithDelegation,
+        >(&binary, &text);
+        serde_json::to_writer_pretty(
+            File::create("setup_recursion_over_base.json").unwrap(),
+            &setup,
+        )
+        .unwrap();
+        let compiled_layouts =
+            execution_utils::setups::get_unrolled_circuits_artifacts_for_machine_type::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary_u32);
+        serde_json::to_writer_pretty(
+            File::create("layouts_recursion_over_base.json").unwrap(),
+            &compiled_layouts,
+        )
+        .unwrap();
+        let worker = Worker::new_with_num_threads(8);
+        println!("Computing proof");
+        let mut proof =
+            execution_utils::unrolled::prove_unrolled_for_machine_configuration_into_program_proof::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary_u32, &text_u32, 1 << 31, source, 1 << 30, &worker);
+
+        // make a hash chain
+        let (hash_chain, preimage) =
+            UnrolledProgramSetup::begin_recursion_chain(&base_layer_setup.end_params);
+        proof.recursion_chain_hash = Some(hash_chain);
+        proof.recursion_chain_preimage = Some(preimage);
+        dbg!(proof.recursion_chain_hash);
+        dbg!(proof.recursion_chain_preimage);
+        serde_json::to_writer_pretty(
+            File::create("proof_recursion_over_base.json").unwrap(),
+            &proof,
+        )
+        .unwrap();
+    }
+
+    // #[test]
+    // fn verify_recursion_proof() {
+    //     use std::fs::File;
+
+    //     let setup: UnrolledProgramSetup = serde_json::from_reader(&File::open("setup_recursion_over_base.json").unwrap()).unwrap();
+    //     let proof: UnrolledProgramProof = serde_json::from_reader(&File::open("proof_recursion_over_base.json").unwrap()).unwrap();
+
+    // assert_eq!(setup.circuit_families_setups.len(), 4);
+    //     println!("Verifying...");
+    //     let result = execution_utils::unrolled::verify_unrolled_recursion_layer_via_full_statement_verifier(&proof, &setup).expect("is valid proof");
+    //     assert!(result.iter().all(|el| *el == 0) == false);
+    //     dbg!(result);
+    // }
+
+    // #[test]
+    // fn run_recursion_over_recursion_in_simulator() {
+    //     use execution_utils::setups::CompiledCircuitsSet;
+    //     use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+    //     use std::fs::File;
+    //     use std::{io::Read, path::Path};
+
+    //     let setup: UnrolledProgramSetup =
+    //         serde_json::from_reader(&File::open("setup_recursion_over_base.json").unwrap()).unwrap();
+    //     let proof: UnrolledProgramProof =
+    //         serde_json::from_reader(&File::open("proof_recursion_over_base.json").unwrap()).unwrap();
+    //     let layout: CompiledCircuitsSet =
+    //         serde_json::from_reader(&File::open("layouts_recursion_over_base.json").unwrap()).unwrap();
+
+    //     assert_eq!(setup.circuit_families_setups.len(), 4);
+
+    //     for (family, proofs) in proof.circuit_families_proofs.iter() {
+    //         println!("{} proofs for family {}", proofs.len(), family);
+    //         let setup_cap = &setup.circuit_families_setups[family];
+    //         for proof in proofs.iter() {
+    //             assert_eq!(proof.setup_tree_caps.len(), setup_cap.len());
+    //             for (a, b) in proof.setup_tree_caps.iter().zip(setup_cap.iter()) {
+    //                 assert_eq!(&a.cap[..], &b.cap[..]);
+    //             }
+    //         }
+    //     }
+
+    //     let mut witness = setup.flatten_for_recursion();
+    //     witness.extend(proof.flatten_into_responses(&[1984, 1991]));
+    //     let source = QuasiUARTSource::new_with_reads(witness);
+
+    //     let (result, _) = zksync_os_runner::run_transpiler::run_and_get_effective_cycles::<{ common_constants::rom::ROM_SECOND_WORD_BITS }>(
+    //         Path::new("../../../../zksync-airbender/tools/verifier/unrolled_recursion_layer.bin").to_path_buf(),
+    //         Path::new("../../../../zksync-airbender/tools/verifier/unrolled_recursion_layer.text").to_path_buf(),
+    //         None,
+    //         1 << 32,
+    //         source,
+    //     );
+
+    //     dbg!(result);
+    // }
+
+    #[test]
+    fn prove_recursion_over_recursion() {
+        use execution_utils::setups::read_and_pad_binary;
+        use execution_utils::setups::CompiledCircuitsSet;
+        use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+        use risc_v_simulator::cycle::IWithoutByteAccessIsaConfigWithDelegation;
+        use std::fs::File;
+        use std::{io::Read, path::Path};
+
+        let recursion_over_base_setup: UnrolledProgramSetup =
+            serde_json::from_reader(&File::open("setup_recursion_over_base.json").unwrap())
+                .unwrap();
+        let recursion_over_base_proof: UnrolledProgramProof =
+            serde_json::from_reader(&File::open("proof_recursion_over_base.json").unwrap())
+                .unwrap();
+        let recursion_over_base_layout: CompiledCircuitsSet =
+            serde_json::from_reader(&File::open("layouts_recursion_over_base.json").unwrap())
+                .unwrap();
+
+        for (family, proofs) in recursion_over_base_proof.circuit_families_proofs.iter() {
+            println!("{} proofs for family {}", proofs.len(), family);
+        }
+        for (delegation_type, proofs) in recursion_over_base_proof.delegation_proofs.iter() {
+            println!("{} proofs for delegation {}", proofs.len(), delegation_type);
+        }
+
+        let mut witness = recursion_over_base_setup.flatten_for_recursion();
+        witness.extend(
+            recursion_over_base_proof
+                .flatten_into_responses(&[1984, 1991], &recursion_over_base_layout),
+        );
+        let source = QuasiUARTSource::new_with_reads(witness);
+
+        let (binary, binary_u32) = read_and_pad_binary(Path::new(
+            "../../../../zksync-airbender/tools/verifier/unrolled_recursion_layer.bin",
+        ));
+        let (text, text_u32) = read_and_pad_binary(Path::new(
+            "../../../../zksync-airbender/tools/verifier/unrolled_recursion_layer.text",
+        ));
+        println!("Computing setup");
+        let setup = execution_utils::unrolled::compute_setup_for_machine_configuration::<
+            IWithoutByteAccessIsaConfigWithDelegation,
+        >(&binary, &text);
+        serde_json::to_writer_pretty(
+            File::create("setup_recursion_over_recursion.json").unwrap(),
+            &setup,
+        )
+        .unwrap();
+        let compiled_layouts =
+            execution_utils::setups::get_unrolled_circuits_artifacts_for_machine_type::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary_u32);
+        serde_json::to_writer_pretty(
+            File::create("layouts_recursion_over_recursion.json").unwrap(),
+            &compiled_layouts,
+        )
+        .unwrap();
+        let worker = Worker::new_with_num_threads(8);
+        println!("Computing proof");
+        let mut proof =
+            execution_utils::unrolled::prove_unrolled_for_machine_configuration_into_program_proof::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary_u32, &text_u32, 1 << 31, source, 1 << 30, &worker);
+
+        let existing_hash_chain = recursion_over_base_proof.recursion_chain_hash.unwrap();
+        let existing_preimage = recursion_over_base_proof.recursion_chain_preimage.unwrap();
+        // extend a hash chain
+        let (hash_chain, preimage) = UnrolledProgramSetup::continue_recursion_chain(
+            &recursion_over_base_setup.end_params,
+            &existing_hash_chain,
+            &existing_preimage,
+        );
+        proof.recursion_chain_hash = Some(hash_chain);
+        proof.recursion_chain_preimage = Some(preimage);
+        dbg!(proof.recursion_chain_hash);
+        dbg!(proof.recursion_chain_preimage);
+        serde_json::to_writer_pretty(
+            File::create("proof_recursion_over_recursion.json").unwrap(),
+            &proof,
+        )
+        .unwrap();
+
+        bincode::serde::encode_into_std_write(
+            &(
+                proof.circuit_families_proofs.clone(),
+                proof.delegation_proofs.clone(),
+                proof.inits_and_teardowns_proofs.clone(),
+            ),
+            &mut File::create("proof_recursion_over_recursion.bin").unwrap(),
+            bincode::config::standard(),
+        )
+        .unwrap();
+
+        for (family, proofs) in proof.circuit_families_proofs.iter() {
+            println!("{} proofs for family {}", proofs.len(), family);
+        }
+        for (delegation_type, proofs) in proof.delegation_proofs.iter() {
+            println!("{} proofs for delegation {}", proofs.len(), delegation_type);
+        }
+    }
+
+    #[test]
+    fn prove_unified_recursion() {
+        use execution_utils::setups::read_and_pad_binary;
+        use execution_utils::setups::CompiledCircuitsSet;
+        use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+        use risc_v_simulator::cycle::IWithoutByteAccessIsaConfigWithDelegation;
+        use std::fs::File;
+        use std::{io::Read, path::Path};
+
+        let recursion_over_recursion_setup: UnrolledProgramSetup =
+            serde_json::from_reader(&File::open("setup_recursion_over_recursion.json").unwrap())
+                .unwrap();
+        let recursion_over_recursion_proof: UnrolledProgramProof =
+            serde_json::from_reader(&File::open("proof_recursion_over_recursion.json").unwrap())
+                .unwrap();
+        let recursion_over_recursion_layout: CompiledCircuitsSet =
+            serde_json::from_reader(&File::open("layouts_recursion_over_recursion.json").unwrap())
+                .unwrap();
+
+        for (family, proofs) in recursion_over_recursion_proof
+            .circuit_families_proofs
+            .iter()
+        {
+            println!("{} proofs for family {}", proofs.len(), family);
+        }
+        for (delegation_type, proofs) in recursion_over_recursion_proof.delegation_proofs.iter() {
+            println!("{} proofs for delegation {}", proofs.len(), delegation_type);
+        }
+
+        let mut witness = recursion_over_recursion_setup.flatten_for_recursion();
+        witness.extend(
+            recursion_over_recursion_proof
+                .flatten_into_responses(&[1984, 1991], &recursion_over_recursion_layout),
+        );
+        let source = QuasiUARTSource::new_with_reads(witness);
+
+        let (binary, binary_u32) = read_and_pad_binary(Path::new(
+            "../../../../zksync-airbender/tools/verifier/unrolled_recursion_layer.bin",
+        ));
+        let (text, text_u32) = read_and_pad_binary(Path::new(
+            "../../../../zksync-airbender/tools/verifier/unrolled_recursion_layer.text",
+        ));
+
+        println!("Computing setup");
+        let setup =
+            execution_utils::unified_circuit::compute_unified_setup_for_machine_configuration::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary, &text);
+        serde_json::to_writer_pretty(
+            File::create("unified_setup_over_recursion.json").unwrap(),
+            &setup,
+        )
+        .unwrap();
+        let compiled_layouts =
+            execution_utils::setups::get_unified_circuit_artifact_for_machine_type::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary_u32);
+        serde_json::to_writer_pretty(
+            File::create("unified_layout_over_recursion.json").unwrap(),
+            &compiled_layouts,
+        )
+        .unwrap();
+        let worker = Worker::new_with_num_threads(8);
+        println!("Computing proof");
+        let mut proof =
+            execution_utils::unified_circuit::prove_unified_for_machine_configuration_into_program_proof::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary_u32, &text_u32, 1 << 31, source, 1 << 30, &worker);
+
+        let existing_hash_chain = recursion_over_recursion_proof.recursion_chain_hash.unwrap();
+        let existing_preimage = recursion_over_recursion_proof
+            .recursion_chain_preimage
+            .unwrap();
+        // extend a hash chain
+        let (hash_chain, preimage) = UnrolledProgramSetup::continue_recursion_chain(
+            &recursion_over_recursion_setup.end_params,
+            &existing_hash_chain,
+            &existing_preimage,
+        );
+        proof.recursion_chain_hash = Some(hash_chain);
+        proof.recursion_chain_preimage = Some(preimage);
+        dbg!(proof.recursion_chain_hash);
+        dbg!(proof.recursion_chain_preimage);
+        serde_json::to_writer_pretty(
+            File::create("unified_proof_over_recursion.json").unwrap(),
+            &proof,
+        )
+        .unwrap();
+
+        bincode::serde::encode_into_std_write(
+            &(
+                proof.circuit_families_proofs.clone(),
+                proof.delegation_proofs.clone(),
+            ),
+            &mut File::create("unified_proof_over_recursion.bin").unwrap(),
+            bincode::config::standard(),
+        )
+        .unwrap();
+
+        for (family, proofs) in proof.circuit_families_proofs.iter() {
+            println!("{} proofs for family {}", proofs.len(), family);
+        }
+        for (delegation_type, proofs) in proof.delegation_proofs.iter() {
+            println!("{} proofs for delegation {}", proofs.len(), delegation_type);
+        }
+    }
+
+    // #[test]
+    // fn verify_unified_proof() {
+    //     use std::fs::File;
+    //     use execution_utils::setups::CompiledCircuitsSet;
+
+    //     let setup: UnrolledProgramSetup = serde_json::from_reader(&File::open("unified_setup_over_recursion.json").unwrap()).unwrap();
+    //     let proof: UnrolledProgramProof = serde_json::from_reader(&File::open("unified_proof_over_recursion.json").unwrap()).unwrap();
+    //     let layout: CompiledCircuitsSet =
+    //         serde_json::from_reader(&File::open("unified_layout_over_recursion.json").unwrap()).unwrap();
+
+    //     assert_eq!(setup.circuit_families_setups.len(), 1);
+    //     println!("Verifying...");
+    //     let result = execution_utils::unified_circuit::verify_unrolled_recursion_layer_via_full_statement_verifier(&proof, &setup, &layout).expect("is valid proof");
+    //     assert!(result.iter().all(|el| *el == 0) == false);
+    //     dbg!(result);
+    // }
 }
