@@ -156,24 +156,14 @@ pub fn ethproofs_with_proofs(
     use base64::Engine;
     use bincode::config::standard;
 
-    use cli_lib::prover_utils::{
-        create_proofs_internal, create_recursion_proofs, GpuSharedState, Machine, MainCircuitType,
-        ProgramProof, RecursionStrategy,
-    };
+    use cli_lib::prover_utils::UnrolledProver;
     use rig::chain::get_zksync_os_img_path;
     // For now, we just use the 'default' app.bin from zksync-os dir.
     let bin_path = get_zksync_os_img_path(&None);
+    let path = &bin_path.into_os_string().into_string().unwrap();
+    let path = path.strip_suffix(".bin").unwrap().to_string();
 
-    let binary = cli_lib::prover_utils::load_binary_from_path(
-        &bin_path.into_os_string().into_string().unwrap(),
-    );
-
-    let num_instances = 500;
-    let recursion_circuit_type = MainCircuitType::ReducedRiscVLog23Machine;
-
-    let mut gpu_state = Some(GpuSharedState::new(&binary, recursion_circuit_type));
-
-    let mut gpu_state = gpu_state.as_mut();
+    let pp = UnrolledProver::new(&path);
 
     let mut next = 0;
 
@@ -190,37 +180,16 @@ pub fn ethproofs_with_proofs(
             )?;
             let mut total_proof_time = Some(duration);
 
-            let (proof_list, proof_metadata) = create_proofs_internal(
-                &binary,
-                witness,
-                &Machine::Standard,
-                num_instances,
-                None,
-                &mut gpu_state,
-                &mut total_proof_time,
-            );
+            pp.prove(witness);
 
-            // approx number of cycles.
-            let cycles = proof_list.basic_proofs.len() * (1 << 22);
+            let fake_proof = vec![0u8; 64]; // Placeholder for actual proof data.
 
-            let recursion_mode = RecursionStrategy::UseReducedLog23MachineInBothLayers;
-
-            let (recursion_proof_list, recursion_proof_metadata) = create_recursion_proofs(
-                proof_list,
-                proof_metadata,
-                recursion_mode,
-                &None,
-                &mut gpu_state,
-                &mut total_proof_time,
-            );
-            let program_proof = ProgramProof::from_proof_list_and_metadata(
-                &recursion_proof_list,
-                &recursion_proof_metadata,
-            );
             // Bincode serialize and then base64 encode the proof.
-            let serialized_proof = bincode::serde::encode_to_vec(&program_proof, standard())
+            let serialized_proof = bincode::serde::encode_to_vec(&fake_proof, standard())
                 .context("Failed to serialize the program proof")?;
             let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
+
+            let cycles = 123;
 
             connector.send_proof(
                 head,

@@ -1,6 +1,6 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-#![feature(slice_as_array)]
+//#![feature(slice_as_array)]
 #![recursion_limit = "1024"]
 
 use clap::{Parser, Subcommand};
