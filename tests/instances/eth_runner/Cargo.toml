@@ -38,7 +38,7 @@ csv = "1.3"
 base64 = "0.21.7"
 
 
-cli = {git = "https://github.com/matter-labs/zksync-airbender", rev = "06c00eafb909cc13f757cff293f5d541b39e8626", optional = true }
+cli = {git = "https://github.com/matter-labs/zksync-airbender", rev = "131267b168e746f6f6e0aefb103bece8e959412b", optional = true }
 
 [dev-dependencies]
 # execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover", "verifier_80"] }
