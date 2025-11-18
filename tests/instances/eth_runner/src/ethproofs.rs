@@ -190,7 +190,8 @@ pub fn ethproofs_with_proofs(
                 .context("Failed to serialize the program proof")?;
             let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
 
-            let cycles = proof.final_pc;
+            // 4 -- execution_utils::eth_runner::ethproofs::TIMESTAMP_STEP
+            let cycles = proof.final_timestamp / 4;
 
             connector.send_proof(
                 head,
