@@ -181,7 +181,7 @@ pub fn ethproofs_with_proofs(
             let mut total_proof_time = Some(duration);
 
             let start_time = std::time::SystemTime::now();
-            let proof = pp.prove(witness);
+            let (proof, cycles) = pp.prove(witness);
             total_proof_time =
                 total_proof_time.map(|t| t + start_time.elapsed().unwrap().as_secs_f64()); // Placeholder for actual proof data.
 
@@ -190,15 +190,7 @@ pub fn ethproofs_with_proofs(
                 .context("Failed to serialize the program proof")?;
             let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
 
-            // 4 -- execution_utils::eth_runner::ethproofs::TIMESTAMP_STEP
-            let cycles = proof.final_timestamp / 4;
-
-            connector.send_proof(
-                head,
-                &encoded_proof,
-                total_proof_time.unwrap(),
-                cycles as u64,
-            )?;
+            connector.send_proof(head, &encoded_proof, total_proof_time.unwrap(), cycles)?;
 
             next = head;
         } else {
