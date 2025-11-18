@@ -7,6 +7,8 @@ use anyhow::Ok;
 
 use rig::log::info;
 use rig::*;
+use serde::Deserialize;
+use serde::Serialize;
 
 use std::thread::sleep;
 use std::time::Duration;
@@ -147,6 +149,83 @@ pub fn ethproofs_with_proofs(
     panic!("Ethproofs with proofs requires the 'with_gpu_prover' feature to be enabled");
 }
 
+#[derive(Serialize, Deserialize)]
+struct Wrapper(Vec<u32>);
+
+pub fn ethproofs_fetch_witness(
+    reth_endpoint: &str,
+    block_number: u64,
+    witness_output_dir: &str,
+) -> anyhow::Result<()> {
+    let (witness, duration) = ethproofs_run(
+        block_number,
+        reth_endpoint,
+        true,
+        None, /*Some(bin_path_without_bin.clone())*/
+    )?;
+
+    println!(
+        "Fetched witness for block {} in {}s, writing to {}/{}_witness.bincode",
+        block_number, duration, witness_output_dir, block_number
+    );
+
+    let wrapper = Wrapper(witness);
+    let serialized_witness = bincode::serde::encode_to_vec(&wrapper, bincode::config::standard())
+        .context("Failed to serialize the execution witness")?;
+
+    std::fs::create_dir_all(witness_output_dir)
+        .context("Failed to create witness output directory")?;
+    let witness_path = format!("{}/{}_witness.bincode", witness_output_dir, block_number);
+    std::fs::write(&witness_path, &serialized_witness)
+        .context("Failed to write the serialized witness to file")?;
+
+    Ok(())
+}
+
+pub fn ethproofs_prove_with_witness(
+    witness_input: &str,
+    worker_threads: usize,
+) -> anyhow::Result<()> {
+    use base64::Engine;
+    use bincode::config::standard;
+
+    use cli_lib::prover_utils::UnrolledProver;
+    use rig::chain::get_zksync_os_img_path;
+    // For now, we just use the 'default' app.bin from zksync-os dir.
+    let bin_path = get_zksync_os_img_path(&None);
+    let path = &bin_path.into_os_string().into_string().unwrap();
+    let path = path.strip_suffix(".bin").unwrap().to_string();
+
+    let pp = UnrolledProver::new(&path, worker_threads);
+
+    // Read witness from file
+    let serialized_witness =
+        std::fs::read(witness_input).context("Failed to read the witness input file")?;
+    let wrapper: Wrapper = bincode::serde::decode_from_slice(&serialized_witness, standard())
+        .context("Failed to deserialize the execution witness")?
+        .0;
+    let witness = wrapper.0;
+
+    println!("Generating proof for witness from file: {}", witness_input);
+
+    let start_time = std::time::SystemTime::now();
+    let (proof, _) = pp.prove(witness);
+    let total_proof_time = start_time.elapsed().unwrap().as_secs_f64();
+
+    // Bincode serialize and then base64 encode the proof.
+    let serialized_proof = bincode::serde::encode_to_vec(&proof, standard())
+        .context("Failed to serialize the program proof")?;
+    let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
+
+    println!(
+        "Generated proof in {}s, proof size: {} bytes",
+        total_proof_time,
+        encoded_proof.len()
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "with_gpu_prover")]
 pub fn ethproofs_with_proofs(
     reth_endpoint: &str,
@@ -178,6 +257,9 @@ pub fn ethproofs_with_proofs(
                 false,
                 None, //Some(bin_path_without_bin.clone()),
             )?;
+
+            // Write witness to file, bincode serialized.
+
             let mut total_proof_time = Some(duration);
 
             let start_time = std::time::SystemTime::now();

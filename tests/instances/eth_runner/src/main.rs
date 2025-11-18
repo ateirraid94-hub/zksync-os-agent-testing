@@ -113,6 +113,20 @@ enum Command {
         #[arg(long)]
         prover_id: Option<u64>,
     },
+    FetchWitness {
+        #[arg(long)]
+        reth_endpoint: String,
+        #[arg(long)]
+        block_number: u64,
+        #[arg(long)]
+        witness_output_dir: String,
+    },
+    ProveWithWitness {
+        #[arg(long)]
+        witness_input: String,
+        #[arg(long)]
+        worker_threads: Option<usize>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -174,6 +188,15 @@ fn main() -> anyhow::Result<()> {
             let prover_id = prover_id.unwrap_or_else(|| 0);
             ethproofs::ethproofs_with_proofs(&reth_endpoint, connector, (prover_id, block_mod))
         }
+        Command::FetchWitness {
+            reth_endpoint,
+            block_number,
+            witness_output_dir,
+        } => ethproofs::ethproofs_fetch_witness(&reth_endpoint, block_number, &witness_output_dir),
+        Command::ProveWithWitness {
+            witness_input,
+            worker_threads,
+        } => ethproofs::ethproofs_prove_with_witness(&witness_input, worker_threads.unwrap_or(16)),
     }
 }
 
