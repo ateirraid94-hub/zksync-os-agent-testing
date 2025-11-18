@@ -163,7 +163,7 @@ pub fn ethproofs_with_proofs(
     let path = &bin_path.into_os_string().into_string().unwrap();
     let path = path.strip_suffix(".bin").unwrap().to_string();
 
-    let pp = UnrolledProver::new(&path);
+    let pp = UnrolledProver::new(&path, 16);
 
     let mut next = 0;
 
