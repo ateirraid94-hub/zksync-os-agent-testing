@@ -38,9 +38,7 @@ csv = "1.3"
 base64 = "0.21.7"
 
 risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", features = ["delegation"], optional = true }
-
-cli = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", optional = true }
-# cli = {git = "https://github.com/matter-labs/zksync-airbender", rev = "7579fadb52a15f14737d2144251daaf88a075350", optional = true }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", default-features = false, optional = true }
 
 [dev-dependencies]
 # execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", default-features = false, features = ["prover", "verifier_80"] }
@@ -51,14 +49,14 @@ risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", br
 simulate_witness_gen = ["rig/simulate_witness_gen"]
 # default = []
 # default = ["evm_replay"]
-default = ["evm_replay", "pectra"]
-# default = ["evm_replay", "pectra", "with_gpu_prover"]
+# default = ["evm_replay", "pectra"]
+default = ["evm_replay", "pectra", "with_gpu_prover"]
 # default = ["evm_replay", "pectra", "debug_satisfiable", "precheck_satisfied"]
 risc_v_logs = []
 evm_replay = ["rig/prevrandao", "rig/unlimited_native", "rig/disable_system_contracts", "rig/evm_refunds", "rig/evm-compatibility"]
 pectra = ["rig/pectra"]
 # Enables create proofs using GPU.
-with_gpu_prover = ["cli/gpu", "risc_v_simulator"]
+with_gpu_prover = ["execution_utils", "execution_utils/prover", "execution_utils/gpu_prover", "risc_v_simulator"]
 
 debug_satisfiable = ["execution_utils/debug_satisfiable"]
 # Will perform satisfiability tests on witness

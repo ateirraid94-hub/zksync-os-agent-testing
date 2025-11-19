@@ -264,7 +264,7 @@ pub fn ethproofs_with_proofs(
     use base64::Engine;
     use bincode::config::standard;
 
-    use cli_lib::prover_utils::UnrolledProver;
+    use execution_utils::gpu_prover::UnrolledProver;
     use rig::chain::get_zksync_os_img_path;
     // For now, we just use the 'default' app.bin from zksync-os dir.
     let bin_path = get_zksync_os_img_path(&None);
