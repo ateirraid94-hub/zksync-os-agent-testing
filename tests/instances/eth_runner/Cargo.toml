@@ -37,15 +37,15 @@ serde_with = "3.13.0"
 csv = "1.3"
 base64 = "0.21.7"
 
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", features = ["delegation"], optional = true }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", features = ["delegation"], optional = true }
 
-cli = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", optional = true }
+cli = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", optional = true }
 # cli = {git = "https://github.com/matter-labs/zksync-airbender", rev = "7579fadb52a15f14737d2144251daaf88a075350", optional = true }
 
 [dev-dependencies]
-# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false, features = ["prover", "verifier_80"] }
-execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false, features = ["prover"] }
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", features = ["delegation"] }
+# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", default-features = false, features = ["prover", "verifier_80"] }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", default-features = false, features = ["prover"] }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", features = ["delegation"] }
 
 [features]
 simulate_witness_gen = ["rig/simulate_witness_gen"]

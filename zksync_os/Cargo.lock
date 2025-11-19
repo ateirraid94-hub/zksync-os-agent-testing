@@ -231,7 +231,7 @@ dependencies = [
 [[package]]
 name = "blake2s_u32"
 version = "0.1.0"
-source = "git+https://github.com/matter-labs/zksync-airbender?branch=av_jit#de9117d947e944e95dcba81c8e96ceee136c7dbe"
+source = "git+https://github.com/matter-labs/zksync-airbender?branch=av_ethproofs_gpu#de9117d947e944e95dcba81c8e96ceee136c7dbe"
 dependencies = [
  "common_constants",
  "unroll",
@@ -265,7 +265,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "common_constants"
 version = "0.1.0"
-source = "git+https://github.com/matter-labs/zksync-airbender?branch=av_jit#de9117d947e944e95dcba81c8e96ceee136c7dbe"
+source = "git+https://github.com/matter-labs/zksync-airbender?branch=av_ethproofs_gpu#de9117d947e944e95dcba81c8e96ceee136c7dbe"
 
 [[package]]
 name = "const-hex"
@@ -829,7 +829,7 @@ dependencies = [
 [[package]]
 name = "riscv_common"
 version = "0.1.0"
-source = "git+https://github.com/matter-labs/zksync-airbender?branch=av_jit#de9117d947e944e95dcba81c8e96ceee136c7dbe"
+source = "git+https://github.com/matter-labs/zksync-airbender?branch=av_ethproofs_gpu#de9117d947e944e95dcba81c8e96ceee136c7dbe"
 dependencies = [
  "common_constants",
 ]

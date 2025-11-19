@@ -23,11 +23,11 @@ crypto = { path = "../../crypto" }
 cycle_marker = { path = "../../cycle_marker", optional = true }
 zksync_os_api = { path = "../../api" }
 
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", features = ["delegation"] }
-riscv_transpiler = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit" }
-prover_examples = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", optional = true }
-trace_and_split = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", optional = true }
-execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", optional = true }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", features = ["delegation"] }
+riscv_transpiler = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu" }
+prover_examples = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", optional = true }
+trace_and_split = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", optional = true }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_ethproofs_gpu", optional = true }
 
 alloy = { version = "1", features = ["rlp", "full"] }
 alloy-primitives = { version = "1", features = ["arbitrary"] }
