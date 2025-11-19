@@ -277,7 +277,11 @@ pub fn ethproofs_with_proofs(
 
     loop {
         let head = rpc::get_block_number(reth_endpoint)?;
-        let head = connector.select_block(head, block_selector);
+        let head = if let Some(connector) = connector.as_ref() {
+            connector.as_ref().select_block(head, block_selector)
+        } else {
+            head
+        };
         if head > next {
             println!("Generating proof for block {}", head);
             let (block, reth_witness, duration) =
