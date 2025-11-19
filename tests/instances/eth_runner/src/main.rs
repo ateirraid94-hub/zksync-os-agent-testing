@@ -114,6 +114,15 @@ enum Command {
         #[arg(long)]
         prover_id: Option<u64>,
     },
+    EthproofsWithProofsNoSubmission {
+        #[arg(long)]
+        reth_endpoint: String,
+        /// If set, will select blocks where (block_number % block_mod) == prover_id
+        /// If not set, will pick 100th block in production and 10th block in staging.
+        block_mod: Option<u64>,
+        #[arg(long)]
+        prover_id: Option<u64>,
+    },
     FetchWitness {
         #[arg(long)]
         reth_endpoint: String,
@@ -187,7 +196,16 @@ fn main() -> anyhow::Result<()> {
             let connector = EthProofsConnector::new(staging, auth_token, cluster_id);
             let block_mod = block_mod.unwrap_or_else(|| if staging { 10 } else { 100 });
             let prover_id = prover_id.unwrap_or_else(|| 0);
-            ethproofs::ethproofs_with_proofs(&reth_endpoint, connector, (prover_id, block_mod))
+            ethproofs::ethproofs_with_proofs(&reth_endpoint, Some(connector), (prover_id, block_mod))
+        }
+        Command::EthproofsWithProofsNoSubmission {
+            reth_endpoint,
+            block_mod,
+            prover_id,
+        } => {
+            let block_mod = block_mod.unwrap_or_else(|| 10);
+            let prover_id = prover_id.unwrap_or_else(|| 0);
+            ethproofs::ethproofs_with_proofs(&reth_endpoint, None, (prover_id, block_mod))
         }
         Command::FetchWitness {
             reth_endpoint,

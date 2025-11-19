@@ -170,7 +170,7 @@ pub fn ethproofs_live_run(reth_endpoint: &str) -> anyhow::Result<()> {
 #[cfg(not(feature = "with_gpu_prover"))]
 pub fn ethproofs_with_proofs(
     _reth_endpoint: &str,
-    _connector: EthProofsConnector,
+    _connector: Option<EthProofsConnector>,
     _block_selector: (u64, u64),
 ) -> anyhow::Result<()> {
     panic!("Ethproofs with proofs requires the 'with_gpu_prover' feature to be enabled");
@@ -258,7 +258,7 @@ pub fn ethproofs_fetch_witness(
 #[cfg(feature = "with_gpu_prover")]
 pub fn ethproofs_with_proofs(
     reth_endpoint: &str,
-    connector: EthProofsConnector,
+    connector: Option<EthProofsConnector>,
     block_selector: (u64, u64),
 ) -> anyhow::Result<()> {
     use base64::Engine;
@@ -315,7 +315,9 @@ pub fn ethproofs_with_proofs(
                 .context("Failed to serialize the program proof")?;
             let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
 
-            connector.send_proof(head, &encoded_proof, total_proof_time.unwrap(), cycles)?;
+            if let Some(connector) = connector.as_ref() {
+                connector.send_proof(head, &encoded_proof, total_proof_time.unwrap(), cycles)?;
+            }
 
             next = head;
         } else {
