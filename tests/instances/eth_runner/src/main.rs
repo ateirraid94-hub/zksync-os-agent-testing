@@ -192,7 +192,8 @@ mod test {
             use std::io::Read;
 
             let block_number = 23620012;
-            let mut file = File::open(&format!("{}_witness", block_number)).expect("should open file");
+            let mut file =
+                File::open(&format!("{}_witness", block_number)).expect("should open file");
             let mut witness = vec![];
             file.read_to_end(&mut witness)
                 .expect("must read witness from file");
@@ -210,7 +211,7 @@ mod test {
         };
 
         // let oracle = {
-                // use crate::read_eth_run_oracle;
+        // use crate::read_eth_run_oracle;
         //     let block_number = 23832885;
         //     let oracle = read_eth_run_oracle(format!("blocks/{}", block_number)).expect("must create proof oracle");
 
@@ -248,7 +249,6 @@ mod test {
     //     use execution_utils::setups::read_and_pad_binary;
     //     use std::fs::File;
     //     use std::path::Path;
-
 
     //     let (binary, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
 

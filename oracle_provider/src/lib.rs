@@ -335,8 +335,7 @@ impl<'a, R: riscv_transpiler::vm::RamPeek + ?Sized> U32Memory for RamPeekProxy<'
     }
 }
 
-impl riscv_transpiler::vm::NonDeterminismCSRSource
-    for ZkEENonDeterminismSource {
+impl riscv_transpiler::vm::NonDeterminismCSRSource for ZkEENonDeterminismSource {
     #[allow(clippy::let_and_return)]
     fn read(&mut self) -> u32 {
         let value = self.read_impl();
@@ -344,21 +343,25 @@ impl riscv_transpiler::vm::NonDeterminismCSRSource
         value
     }
 
-    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(&mut self, memory: &R, value: u32) {
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(
+        &mut self,
+        memory: &R,
+        value: u32,
+    ) {
         // println!("`NonDeterminismCSRSource` received 0x{:08x}", value);
-        let proxy = RamPeekProxy {inner: memory};
+        let proxy = RamPeekProxy { inner: memory };
         self.write_impl(&proxy, value);
     }
 }
 
 /// Wraps the original source and remembers all the read accesses.
-pub struct ReadWitnessSource {
-    original_source: ZkEENonDeterminismSource,
+pub struct ReadWitnessSource<T: 'static + Send + Sync> {
+    original_source: T,
     read_items: Rc<RefCell<Vec<u32>>>,
 }
 
-impl ReadWitnessSource {
-    pub fn new(original_source: ZkEENonDeterminismSource) -> Self {
+impl<T: 'static + Send + Sync> ReadWitnessSource<T> {
+    pub fn new(original_source: T) -> Self {
         Self {
             original_source,
             read_items: Rc::new(RefCell::new(vec![])),
@@ -370,7 +373,8 @@ impl ReadWitnessSource {
     }
 }
 
-impl<M: MemorySource> NonDeterminismCSRSource<M> for ReadWitnessSource
+impl<M: MemorySource, T: 'static + Send + Sync + NonDeterminismCSRSource<M>>
+    NonDeterminismCSRSource<M> for ReadWitnessSource<T>
 where
     M: U32Memory,
 {
@@ -386,8 +390,8 @@ where
     }
 }
 
-impl riscv_transpiler::vm::NonDeterminismCSRSource
-    for ReadWitnessSource
+impl<T: 'static + Send + Sync + riscv_transpiler::vm::NonDeterminismCSRSource>
+    riscv_transpiler::vm::NonDeterminismCSRSource for ReadWitnessSource<T>
 {
     fn read(&mut self) -> u32 {
         let item = riscv_transpiler::vm::NonDeterminismCSRSource::read(&mut self.original_source);
@@ -396,7 +400,15 @@ impl riscv_transpiler::vm::NonDeterminismCSRSource
         item
     }
 
-    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(&mut self, memory: &R, value: u32) {
-        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access(&mut self.original_source, memory, value);
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(
+        &mut self,
+        memory: &R,
+        value: u32,
+    ) {
+        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access(
+            &mut self.original_source,
+            memory,
+            value,
+        );
     }
 }

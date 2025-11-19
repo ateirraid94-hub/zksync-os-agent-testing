@@ -21,9 +21,7 @@ impl<S: ReadStorage + Send + Sync> ReadStorageResponder<S> {
         &[InitialStorageSlotQuery::<EthereumIOTypesConfig>::QUERY_ID];
 }
 
-impl<S: ReadStorage + Send + Sync> OracleQueryProcessor
-    for ReadStorageResponder<S>
-{
+impl<S: ReadStorage + Send + Sync> OracleQueryProcessor for ReadStorageResponder<S> {
     fn supported_query_ids(&self) -> Vec<u32> {
         Self::SUPPORTED_QUERY_IDS.to_vec()
     }

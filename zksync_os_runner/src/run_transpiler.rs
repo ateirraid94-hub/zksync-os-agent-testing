@@ -110,7 +110,8 @@ pub fn run_and_get_effective_cycles<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     let (_, binary) = read_binary(&img_path);
     let (_, text) = read_binary(&text_section_path);
 
-    let instructions: Vec<Instruction> = preprocess_bytecode::<FullUnsignedMachineDecoderConfig>(&text);
+    let instructions: Vec<Instruction> =
+        preprocess_bytecode::<FullUnsignedMachineDecoderConfig>(&text);
 
     // let instructions: Vec<Instruction> = text
     //     .into_iter()
