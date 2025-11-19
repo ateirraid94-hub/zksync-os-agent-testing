@@ -1,7 +1,9 @@
+use crate::block::Block;
 use crate::live_run::rpc::{self, EthProofPayload};
 use alloy::consensus::Header;
 use alloy_primitives::U256;
 use alloy_rlp::Encodable;
+use alloy_rpc_types_debug::ExecutionWitness;
 use anyhow::Context;
 use anyhow::Ok;
 
@@ -119,6 +121,31 @@ pub fn ethproofs_run(
     Ok((witness, duration.as_secs_f64()))
 }
 
+/// Queries Reth node for block and witness structures
+pub fn ethproofs_get_proving_witness_from_rpc(
+    block_number: u64,
+    reth_endpoint: &str,
+) -> anyhow::Result<(Block, ExecutionWitness, f64)> {
+    // get current time
+    let current_time = std::time::SystemTime::now();
+
+    // Fetch data from RPC endpoints
+    let block = rpc::get_block(reth_endpoint, block_number)
+        .context(format!("Failed to fetch block for {block_number}"))?;
+    let witness = rpc::get_witness(reth_endpoint, block_number)
+        .context(format!("Failed to fetch witness for {block_number}"))?
+        .result;
+
+    info!("Fetched block: {block_number}");
+    info!("Block gas used: {}", block.result.header.gas_used);
+
+    // compute time taken
+    let duration = current_time.elapsed().unwrap();
+    println!("RPC time taken: {:?}", duration);
+
+    Ok((block, witness, duration.as_secs_f64()))
+}
+
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const CONFIRMATIONS: u64 = 2;
 
@@ -182,49 +209,51 @@ pub fn ethproofs_fetch_witness(
     Ok(())
 }
 
-pub fn ethproofs_prove_with_witness(
-    witness_input: &str,
-    worker_threads: usize,
-) -> anyhow::Result<()> {
-    use base64::Engine;
-    use bincode::config::standard;
+// pub fn ethproofs_prove_with_witness(
+//     witness_input: &str,
+//     worker_threads: usize,
+// ) -> anyhow::Result<()> {
+//     use base64::Engine;
+//     use bincode::config::standard;
 
-    use cli_lib::prover_utils::UnrolledProver;
-    use rig::chain::get_zksync_os_img_path;
-    // For now, we just use the 'default' app.bin from zksync-os dir.
-    let bin_path = get_zksync_os_img_path(&None);
-    let path = &bin_path.into_os_string().into_string().unwrap();
-    let path = path.strip_suffix(".bin").unwrap().to_string();
+//     use cli_lib::prover_utils::UnrolledProver;
+//     use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+//     use rig::chain::get_zksync_os_img_path;
+//     // For now, we just use the 'default' app.bin from zksync-os dir.
+//     let bin_path = get_zksync_os_img_path(&None);
+//     let path = &bin_path.into_os_string().into_string().unwrap();
+//     let path = path.strip_suffix(".bin").unwrap().to_string();
 
-    let pp = UnrolledProver::new(&path, worker_threads);
+//     let pp = UnrolledProver::new(&path, worker_threads);
 
-    // Read witness from file
-    let serialized_witness =
-        std::fs::read(witness_input).context("Failed to read the witness input file")?;
-    let wrapper: Wrapper = bincode::serde::decode_from_slice(&serialized_witness, standard())
-        .context("Failed to deserialize the execution witness")?
-        .0;
-    let witness = wrapper.0;
+//     // Read witness from file
+//     let serialized_witness =
+//         std::fs::read(witness_input).context("Failed to read the witness input file")?;
+//     let wrapper: Wrapper = bincode::serde::decode_from_slice(&serialized_witness, standard())
+//         .context("Failed to deserialize the execution witness")?
+//         .0;
+//     let witness = wrapper.0;
 
-    println!("Generating proof for witness from file: {}", witness_input);
+//     println!("Generating proof for witness from file: {}", witness_input);
 
-    let start_time = std::time::SystemTime::now();
-    let (proof, _) = pp.prove(witness);
-    let total_proof_time = start_time.elapsed().unwrap().as_secs_f64();
+//     let start_time = std::time::SystemTime::now();
+//     let oracle = QuasiUARTSource::new_with_reads(witness);
+//     let (proof, _) = pp.prove(oracle);
+//     let total_proof_time = start_time.elapsed().unwrap().as_secs_f64();
 
-    // Bincode serialize and then base64 encode the proof.
-    let serialized_proof = bincode::serde::encode_to_vec(&proof, standard())
-        .context("Failed to serialize the program proof")?;
-    let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
+//     // Bincode serialize and then base64 encode the proof.
+//     let serialized_proof = bincode::serde::encode_to_vec(&proof, standard())
+//         .context("Failed to serialize the program proof")?;
+//     let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
 
-    println!(
-        "Generated proof in {}s, proof size: {} bytes",
-        total_proof_time,
-        encoded_proof.len()
-    );
+//     println!(
+//         "Generated proof in {}s, proof size: {} bytes",
+//         total_proof_time,
+//         encoded_proof.len()
+//     );
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 #[cfg(feature = "with_gpu_prover")]
 pub fn ethproofs_with_proofs(
@@ -251,19 +280,33 @@ pub fn ethproofs_with_proofs(
         let head = connector.select_block(head, block_selector);
         if head > next {
             println!("Generating proof for block {}", head);
-            let (witness, duration) = ethproofs_run(
-                head,
-                reth_endpoint,
-                false,
-                None, //Some(bin_path_without_bin.clone()),
-            )?;
-
-            // Write witness to file, bincode serialized.
+            let (block, reth_witness, duration) =
+                ethproofs_get_proving_witness_from_rpc(head, reth_endpoint)?;
 
             let mut total_proof_time = Some(duration);
 
             let start_time = std::time::SystemTime::now();
-            let (proof, cycles) = pp.prove(witness);
+            // prepare an "oracle"
+
+            let block_header = block.result.header.clone().into();
+            let withdrawals_encoding = if let Some(withdrawals) = block.result.withdrawals.clone() {
+                let mut buff = vec![];
+                withdrawals.encode(&mut buff);
+
+                buff
+            } else {
+                Vec::new()
+            };
+            let transactions = block.get_all_raw_transactions();
+
+            let oracle = rig::Chain::<false>::make_eth_block_oracle(
+                transactions,
+                reth_witness,
+                block_header,
+                withdrawals_encoding,
+            );
+
+            let (proof, cycles) = pp.prove(oracle);
             total_proof_time =
                 total_proof_time.map(|t| t + start_time.elapsed().unwrap().as_secs_f64()); // Placeholder for actual proof data.
 

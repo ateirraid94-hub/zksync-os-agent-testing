@@ -791,7 +791,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         };
 
         if witness_output_file.is_none() && !compute_witness {
-            return (result_keeper, None);
+            return (Some(result_keeper), None);
         }
         // if let Some(path) = witness_output_file {
         //     let mut oracle = ZkEENonDeterminismSource::default();
@@ -841,7 +841,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
                 .expect("should write to file");
         }
 
-        (result_keeper, Some(result))
+        (Some(result_keeper), Some(result))
     }
 
     ///

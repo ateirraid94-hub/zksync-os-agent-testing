@@ -197,7 +197,10 @@ fn main() -> anyhow::Result<()> {
         Command::ProveWithWitness {
             witness_input,
             worker_threads,
-        } => ethproofs::ethproofs_prove_with_witness(&witness_input, worker_threads.unwrap_or(16)),
+        } => {
+            panic!("disabled due to CLI need");
+            // ethproofs::ethproofs_prove_with_witness(&witness_input, worker_threads.unwrap_or(16))
+        }
     }
 }
 
