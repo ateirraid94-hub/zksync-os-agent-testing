@@ -1,6 +1,5 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-#![feature(slice_as_array)]
 #![recursion_limit = "1024"]
 
 use clap::{Parser, Subcommand};
@@ -16,6 +15,8 @@ mod post_check;
 mod prestate;
 mod receipts;
 mod single_run;
+
+pub use single_run::{create_eth_run_oracle, read_eth_run_oracle};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -160,13 +161,13 @@ mod test {
 
     #[test]
     fn run_dump() {
-        let block_number = 23690300;
+        let block_number = 23832885;
         let _ = std::fs::create_dir(&format!("blocks/{}", block_number));
         crate::dump_utils::dump_eth_block(
             block_number,
             NODE_URL,
-            // None,
-            Some(ACCOUNT_DIFFS_URL),
+            None,
+            // Some(ACCOUNT_DIFFS_URL),
             BEACON_CHAIN_URL,
             format!("blocks/{}", block_number),
         )
@@ -175,9 +176,7 @@ mod test {
 
     #[test]
     fn invoke_single_eth_block() {
-        // 23619282
-        // 23620012
-        let block_number = 23690300;
+        let block_number = 23832885;
         crate::single_run::single_eth_run::<true>(format!("blocks/{}", block_number), Some(1))
             .expect("must succeed");
     }
@@ -185,25 +184,39 @@ mod test {
     #[test]
     fn prove_single_block() {
         use execution_utils::setups::read_and_pad_binary;
-        use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
         use std::fs::File;
-        use std::{io::Read, path::Path};
+        use std::path::Path;
 
-        let block_number = 23620012;
+        let oracle = {
+            use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
+            use std::io::Read;
 
-        let mut file = File::open(&format!("{}_witness", block_number)).expect("should open file");
-        let mut witness = vec![];
-        file.read_to_end(&mut witness)
-            .expect("must read witness from file");
-        let witness = hex::decode(core::str::from_utf8(&witness).unwrap()).unwrap();
-        assert_eq!(witness.len() % 4, 0);
-        let witness: Vec<_> = witness
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|el| u32::from_be_bytes(*el))
-            .collect();
-        let source = QuasiUARTSource::new_with_reads(witness);
+            let block_number = 23620012;
+            let mut file = File::open(&format!("{}_witness", block_number)).expect("should open file");
+            let mut witness = vec![];
+            file.read_to_end(&mut witness)
+                .expect("must read witness from file");
+            let witness = hex::decode(core::str::from_utf8(&witness).unwrap()).unwrap();
+            assert_eq!(witness.len() % 4, 0);
+            let witness: Vec<_> = witness
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|el| u32::from_be_bytes(*el))
+                .collect();
+            let source = QuasiUARTSource::new_with_reads(witness);
+
+            source
+        };
+
+        // let oracle = {
+                // use crate::read_eth_run_oracle;
+        //     let block_number = 23832885;
+        //     let oracle = read_eth_run_oracle(format!("blocks/{}", block_number)).expect("must create proof oracle");
+
+        //     oracle
+        // };
+
         let (binary, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
         let (text, text_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.text"));
         println!("Computing setup");
@@ -222,7 +235,7 @@ mod test {
         let proof =
             execution_utils::unrolled::prove_unrolled_for_machine_configuration_into_program_proof::<
                 IMStandardIsaConfigWithUnsignedMulDiv,
-            >(&binary_u32, &text_u32, 1 << 31, source, 1 << 30, &worker);
+            >(&binary_u32, &text_u32, 1 << 31, oracle, 1 << 30, &worker);
         serde_json::to_writer_pretty(File::create("proof.json").unwrap(), &proof).unwrap();
         // println!("Verifying...");
         // let result = execution_utils::unrolled::verify_unrolled_base_layer_for_machine_configuration::<IMStandardIsaConfigWithUnsignedMulDiv>(&proof, &setup).expect("is valid proof");
@@ -232,13 +245,19 @@ mod test {
 
     // #[test]
     // fn verify_single_block() {
+    //     use execution_utils::setups::read_and_pad_binary;
     //     use std::fs::File;
+    //     use std::path::Path;
+
+
+    //     let (binary, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
 
     //     let setup: UnrolledProgramSetup = serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
     //     let proof: UnrolledProgramProof = serde_json::from_reader(&File::open("proof.json").unwrap()).unwrap();
 
     //     println!("Verifying...");
-    //     let result = execution_utils::unrolled::verify_unrolled_base_layer_via_full_statement_verifier(&proof, &setup).expect("is valid proof");
+    //     let cicuit_set = execution_utils::unrolled::get_unrolled_circuits_artifacts_for_machine_type::<IMStandardIsaConfigWithUnsignedMulDiv>(&binary_u32);
+    //     let result = execution_utils::unrolled::verify_unrolled_layer_proof(&proof, &setup, &cicuit_set, true).expect("is valid proof");
     //     assert!(result.iter().all(|el| *el == 0) == false);
     //     dbg!(result);
     // }

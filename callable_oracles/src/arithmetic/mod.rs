@@ -7,19 +7,10 @@ use crate::utils::{
     usize_slice_iterator::UsizeSliceIteratorOwned,
 };
 
-pub struct ArithmeticQuery<M: U32Memory> {
-    _marker: std::marker::PhantomData<M>,
-}
+#[derive(Default)]
+pub struct ArithmeticQuery;
 
-impl<M: U32Memory> Default for ArithmeticQuery<M> {
-    fn default() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<M: U32Memory> OracleQueryProcessor<M> for ArithmeticQuery<M> {
+impl OracleQueryProcessor for ArithmeticQuery {
     fn supported_query_ids(&self) -> Vec<u32> {
         vec![MODEXP_ADVISE_QUERY_ID]
     }
@@ -28,7 +19,7 @@ impl<M: U32Memory> OracleQueryProcessor<M> for ArithmeticQuery<M> {
         &mut self,
         query_id: u32,
         query: Vec<usize>,
-        memory: &M,
+        memory: &dyn U32Memory,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         debug_assert!(self.supports_query_id(query_id));
 
@@ -45,7 +36,7 @@ impl<M: U32Memory> OracleQueryProcessor<M> for ArithmeticQuery<M> {
         const { assert!(core::mem::align_of::<ModExpAdviseParams>() == 4) }
         const { assert!(core::mem::size_of::<ModExpAdviseParams>() % 4 == 0) }
 
-        let arg = unsafe { read_struct::<ModExpAdviseParams, _>(memory, arg_ptr as u32) }.unwrap();
+        let arg = unsafe { read_struct::<ModExpAdviseParams>(memory, arg_ptr as u32) }.unwrap();
 
         const { assert!(8 == core::mem::size_of::<usize>()) };
         assert!(arg.a_ptr > 0);

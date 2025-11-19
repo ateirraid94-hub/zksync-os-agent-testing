@@ -37,16 +37,16 @@ serde_with = "3.13.0"
 csv = "1.3"
 
 [dev-dependencies]
-# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover", "verifier_80"] }
-execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover"] }
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", features = ["delegation"] }
+# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false, features = ["prover", "verifier_80"] }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false, features = ["prover"] }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", features = ["delegation"] }
 
 [features]
 simulate_witness_gen = ["rig/simulate_witness_gen"]
 # default = []
 # default = ["evm_replay"]
-default = ["evm_replay", "pectra"]
-# default = ["evm_replay", "pectra", "debug_satisfiable", "precheck_satisfied"]
+# default = ["evm_replay", "pectra"]
+default = ["evm_replay", "pectra", "debug_satisfiable", "precheck_satisfied"]
 risc_v_logs = []
 evm_replay = ["rig/prevrandao", "rig/unlimited_native", "rig/disable_system_contracts", "rig/evm_refunds", "rig/evm-compatibility"]
 pectra = ["rig/pectra"]

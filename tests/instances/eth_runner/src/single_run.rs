@@ -293,6 +293,50 @@ struct BlobTransactionQuasiSidecarItem {
     pub kzg_proof: alloy_primitives::FixedBytes<48>,
 }
 
+pub fn read_eth_run_oracle(
+    block_dir: String,
+) -> anyhow::Result<rig::chain::ZkEENonDeterminismSource> {
+    use crate::live_run::rpc::JsonResponse;
+
+    use std::path::Path;
+    let dir = Path::new(&block_dir);
+    let block = fs::read_to_string(dir.join("block.json"))?;
+    let witness = fs::File::open(dir.join("witness.json"))?;
+
+    let rpc_result: JsonResponse<alloy_rpc_types_debug::ExecutionWitness> =
+        serde_json::from_reader(witness)?;
+    let witness = rpc_result.result;
+
+    let block: Block = serde_json::from_str(&block)?;
+
+    let oracle = create_eth_run_oracle(block, witness);
+
+    Ok(oracle)
+}
+
+pub fn create_eth_run_oracle(
+    block: Block,
+    witness: alloy_rpc_types_debug::ExecutionWitness,
+) -> rig::chain::ZkEENonDeterminismSource {
+    let block_number = block.result.header.number;
+    info!("Running block: {block_number}");
+    info!("Block gas used: {}", block.result.header.gas_used);
+
+    let block_header = block.result.header.clone().into();
+
+    let withdrawals_encoding = if let Some(withdrawals) = block.result.withdrawals.clone() {
+        let mut buff = vec![];
+        withdrawals.encode(&mut buff);
+
+        buff
+    } else {
+        Vec::new()
+    };
+    let transactions = block.get_all_raw_transactions();
+
+    Chain::<false>::make_eth_block_oracle(transactions, witness, block_header, withdrawals_encoding)
+}
+
 pub fn single_eth_run<const PROOF_ENV: bool>(
     block_dir: String,
     chain_id: Option<u64>,

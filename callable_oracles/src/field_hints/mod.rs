@@ -9,19 +9,10 @@ mod impls;
 
 use crate::utils::evaluate::{read_memory_as_u64, read_struct};
 
-pub struct FieldOpsQuery<M: U32Memory> {
-    _marker: std::marker::PhantomData<M>,
-}
+#[derive(Default)]
+pub struct FieldOpsQuery;
 
-impl<M: U32Memory> Default for FieldOpsQuery<M> {
-    fn default() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<M: U32Memory> OracleQueryProcessor<M> for FieldOpsQuery<M> {
+impl OracleQueryProcessor for FieldOpsQuery {
     fn supported_query_ids(&self) -> Vec<u32> {
         vec![FIELD_OPS_ADVISE_QUERY_ID]
     }
@@ -30,7 +21,7 @@ impl<M: U32Memory> OracleQueryProcessor<M> for FieldOpsQuery<M> {
         &mut self,
         query_id: u32,
         query: Vec<usize>,
-        memory: &M,
+        memory: &dyn U32Memory,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         debug_assert!(self.supports_query_id(query_id));
 
@@ -47,7 +38,7 @@ impl<M: U32Memory> OracleQueryProcessor<M> for FieldOpsQuery<M> {
         const { assert!(core::mem::align_of::<FieldOpsHint>() == 4) }
         const { assert!(core::mem::size_of::<FieldOpsHint>() % 4 == 0) }
 
-        let arg = unsafe { read_struct::<FieldOpsHint, _>(memory, arg_ptr as u32) }.unwrap();
+        let arg = unsafe { read_struct::<FieldOpsHint>(memory, arg_ptr as u32) }.unwrap();
 
         let Some(op) = FieldHintOp::parse_u32(arg.op) else {
             panic!("Unknown field hint op {}", arg.op);

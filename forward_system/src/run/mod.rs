@@ -18,7 +18,6 @@ use basic_bootloader::bootloader::config::{
     BasicBootloaderForwardSimulationConfig,
 };
 use errors::ForwardSubsystemError;
-use oracle_provider::U32Memory;
 use zk_ee::common_structs::ProofData;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::utils::Bytes32;
@@ -137,7 +136,6 @@ pub fn make_oracle_for_proofs_and_dumps<
     T: ReadStorageTree + Send + Sync,
     PS: PreimageSource + Send + Sync,
     TS: TxSource + Send + Sync,
-    M: U32Memory + 'static + Send + Sync,
 >(
     batch_context: BatchContext,
     tree: T,
@@ -145,7 +143,7 @@ pub fn make_oracle_for_proofs_and_dumps<
     tx_source: TS,
     proof_data: Option<ProofData<StorageCommitment>>,
     add_uart: bool,
-) -> ZkEENonDeterminismSource<M> {
+) -> ZkEENonDeterminismSource {
     make_oracle_for_proofs_and_dumps_for_init_data(
         batch_context,
         tree,
@@ -160,7 +158,6 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     T: ReadStorageTree + Send + Sync,
     PS: PreimageSource + Send + Sync,
     TS: TxSource + Send + Sync,
-    M: U32Memory + 'static + Send + Sync,
 >(
     batch_context: BatchContext,
     tree: T,
@@ -168,7 +165,7 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     tx_source: TS,
     proof_data: Option<ProofData<StorageCommitment>>,
     add_uart: bool,
-) -> ZkEENonDeterminismSource<M> {
+) -> ZkEENonDeterminismSource {
     let block_metadata_reponsder = BlockMetadataResponder {
         block_metadata: batch_context,
     };

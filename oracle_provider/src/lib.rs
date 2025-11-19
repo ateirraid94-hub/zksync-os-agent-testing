@@ -40,7 +40,7 @@ impl<const ROM_BOUND_SECOND_WORD_BITS: usize> U32Memory
     for riscv_transpiler::vm::RamWithRomRegion<ROM_BOUND_SECOND_WORD_BITS>
 {
     fn read_word(&self, address: u32) -> u32 {
-        use riscv_transpiler::vm::RAM;
+        use riscv_transpiler::vm::RamPeek;
         self.peek_word(address)
     }
 }
@@ -57,7 +57,7 @@ impl U32Memory for DummyMemorySource {
 /// Structure that is responsible to buffer incoming queries till the end,
 /// and then dispatch it to various responders. When constructed it checks
 /// that responders do not try to serve the same query ID.
-pub struct ZkEENonDeterminismSource<M: U32Memory> {
+pub struct ZkEENonDeterminismSource {
     query_buffer: Option<QueryBuffer>,
     current_query_id: Option<u32>,
     current_iterator: Option<Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync>>,
@@ -65,12 +65,12 @@ pub struct ZkEENonDeterminismSource<M: U32Memory> {
     high_half: Option<u32>,
     is_connected_to_external_oracle: bool,
     /// Vector of different processors that are responsible for handling queries.
-    processors: Vec<Box<dyn OracleQueryProcessor<M> + 'static + Send + Sync>>,
+    processors: Vec<Box<dyn OracleQueryProcessor + 'static + Send + Sync>>,
     /// Mapping from query_id to processor that is handling it (represented as index in processors vector above).
     ranges: BTreeMap<u32, usize>,
 }
 
-impl<M: U32Memory> Default for ZkEENonDeterminismSource<M> {
+impl Default for ZkEENonDeterminismSource {
     fn default() -> Self {
         Self {
             query_buffer: None,
@@ -85,9 +85,9 @@ impl<M: U32Memory> Default for ZkEENonDeterminismSource<M> {
     }
 }
 
-impl<M: U32Memory> ZkEENonDeterminismSource<M> {
+impl ZkEENonDeterminismSource {
     #[track_caller]
-    pub fn add_external_processor<P: OracleQueryProcessor<M> + 'static + Send + Sync>(
+    pub fn add_external_processor<P: OracleQueryProcessor + 'static + Send + Sync>(
         &mut self,
         processor: P,
     ) {
@@ -104,7 +104,7 @@ impl<M: U32Memory> ZkEENonDeterminismSource<M> {
         self.is_connected_to_external_oracle = true;
     }
 
-    fn process_buffered_query(&mut self, memory: &M) {
+    fn process_buffered_query(&mut self, memory: &dyn U32Memory) {
         assert!(self.current_iterator.is_none());
         assert!(self.current_query_id.is_none());
 
@@ -176,7 +176,7 @@ impl<M: U32Memory> ZkEENonDeterminismSource<M> {
         low
     }
 
-    fn write_impl(&mut self, memory: &M, value: u32) {
+    fn write_impl(&mut self, memory: &dyn U32Memory, value: u32) {
         if self.current_query_id.is_some() {
             println!(
                 "Current query ID = 0x{:08x} iterator is not consumed in full, but received value 0x{:08x}",
@@ -219,7 +219,7 @@ impl<M: U32Memory> ZkEENonDeterminismSource<M> {
     }
 }
 
-impl IOOracle for ZkEENonDeterminismSource<DummyMemorySource> {
+impl IOOracle for ZkEENonDeterminismSource {
     type RawIterator<'a> = Box<dyn ExactSizeIterator<Item = usize> + 'static>;
 
     fn raw_query<'a, I: UsizeSerializable + UsizeDeserializable>(
@@ -247,7 +247,7 @@ impl IOOracle for ZkEENonDeterminismSource<DummyMemorySource> {
     }
 }
 
-pub trait OracleQueryProcessor<M: U32Memory> {
+pub trait OracleQueryProcessor {
     /// List of different query ids that are supported (for example NextTxSize or BlockLevelMetadataIterator).
     fn supported_query_ids(&self) -> Vec<u32>;
     fn supports_query_id(&self, query_id: u32) -> bool {
@@ -258,7 +258,7 @@ pub trait OracleQueryProcessor<M: U32Memory> {
         &mut self,
         query_id: u32,
         query: Vec<usize>,
-        memory: &M,
+        memory: &dyn U32Memory,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync>;
 }
 
@@ -308,7 +308,7 @@ impl QueryBuffer {
 }
 
 // now we hook an access
-impl<M: MemorySource> NonDeterminismCSRSource<M> for ZkEENonDeterminismSource<M>
+impl<M: MemorySource> NonDeterminismCSRSource<M> for ZkEENonDeterminismSource
 where
     M: U32Memory,
 {
@@ -325,11 +325,18 @@ where
     }
 }
 
-impl<M: riscv_transpiler::vm::RAM> riscv_transpiler::vm::NonDeterminismCSRSource<M>
-    for ZkEENonDeterminismSource<M>
-where
-    M: U32Memory,
-{
+struct RamPeekProxy<'a, R: riscv_transpiler::vm::RamPeek + ?Sized> {
+    inner: &'a R,
+}
+
+impl<'a, R: riscv_transpiler::vm::RamPeek + ?Sized> U32Memory for RamPeekProxy<'a, R> {
+    fn read_word(&self, address: u32) -> u32 {
+        self.inner.peek_word(address)
+    }
+}
+
+impl riscv_transpiler::vm::NonDeterminismCSRSource
+    for ZkEENonDeterminismSource {
     #[allow(clippy::let_and_return)]
     fn read(&mut self) -> u32 {
         let value = self.read_impl();
@@ -337,20 +344,21 @@ where
         value
     }
 
-    fn write_with_memory_access(&mut self, memory: &M, value: u32) {
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(&mut self, memory: &R, value: u32) {
         // println!("`NonDeterminismCSRSource` received 0x{:08x}", value);
-        self.write_impl(memory, value);
+        let proxy = RamPeekProxy {inner: memory};
+        self.write_impl(&proxy, value);
     }
 }
 
 /// Wraps the original source and remembers all the read accesses.
-pub struct ReadWitnessSource<M: U32Memory> {
-    original_source: ZkEENonDeterminismSource<M>,
+pub struct ReadWitnessSource {
+    original_source: ZkEENonDeterminismSource,
     read_items: Rc<RefCell<Vec<u32>>>,
 }
 
-impl<M: U32Memory> ReadWitnessSource<M> {
-    pub fn new(original_source: ZkEENonDeterminismSource<M>) -> Self {
+impl ReadWitnessSource {
+    pub fn new(original_source: ZkEENonDeterminismSource) -> Self {
         Self {
             original_source,
             read_items: Rc::new(RefCell::new(vec![])),
@@ -362,12 +370,12 @@ impl<M: U32Memory> ReadWitnessSource<M> {
     }
 }
 
-impl<M: MemorySource> NonDeterminismCSRSource<M> for ReadWitnessSource<M>
+impl<M: MemorySource> NonDeterminismCSRSource<M> for ReadWitnessSource
 where
     M: U32Memory,
 {
     fn read(&mut self) -> u32 {
-        let item = self.original_source.read();
+        let item = NonDeterminismCSRSource::<M>::read(&mut self.original_source);
         // on read - remember the items.
         self.read_items.borrow_mut().push(item);
         item
@@ -378,19 +386,17 @@ where
     }
 }
 
-impl<M: riscv_transpiler::vm::RAM> riscv_transpiler::vm::NonDeterminismCSRSource<M>
-    for ReadWitnessSource<M>
-where
-    M: U32Memory,
+impl riscv_transpiler::vm::NonDeterminismCSRSource
+    for ReadWitnessSource
 {
     fn read(&mut self) -> u32 {
-        let item = self.original_source.read();
+        let item = riscv_transpiler::vm::NonDeterminismCSRSource::read(&mut self.original_source);
         // on read - remember the items.
         self.read_items.borrow_mut().push(item);
         item
     }
 
-    fn write_with_memory_access(&mut self, memory: &M, value: u32) {
-        self.original_source.write_with_memory_access(memory, value);
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(&mut self, memory: &R, value: u32) {
+        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access(&mut self.original_source, memory, value);
     }
 }
