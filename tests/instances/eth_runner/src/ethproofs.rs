@@ -125,7 +125,7 @@ pub fn ethproofs_run(
 pub fn ethproofs_get_proving_witness_from_rpc(
     block_number: u64,
     reth_endpoint: &str,
-) -> anyhow::Result<(Block, ExecutionWitness, f64)> {
+) -> anyhow::Result<(Block, ExecutionWitness)> {
     // get current time
     let current_time = std::time::SystemTime::now();
 
@@ -143,7 +143,7 @@ pub fn ethproofs_get_proving_witness_from_rpc(
     let duration = current_time.elapsed().unwrap();
     println!("RPC time taken: {:?}", duration);
 
-    Ok((block, witness, duration.as_secs_f64()))
+    Ok((block, witness))
 }
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -284,10 +284,10 @@ pub fn ethproofs_with_proofs(
         };
         if head > next {
             println!("Generating proof for block {}", head);
-            let (block, reth_witness, duration) =
+            let (block, reth_witness) =
                 ethproofs_get_proving_witness_from_rpc(head, reth_endpoint)?;
 
-            let mut total_proof_time = Some(duration);
+            let mut total_proof_time = Some(0f64);
 
             let start_time = std::time::SystemTime::now();
             // prepare an "oracle"
