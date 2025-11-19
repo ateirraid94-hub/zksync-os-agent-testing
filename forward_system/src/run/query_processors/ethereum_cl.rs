@@ -27,7 +27,7 @@ impl EthereumCLResponder {
     ];
 }
 
-impl<M: U32Memory> OracleQueryProcessor<M> for EthereumCLResponder {
+impl OracleQueryProcessor for EthereumCLResponder {
     fn supported_query_ids(&self) -> Vec<u32> {
         Self::SUPPORTED_QUERY_IDS.to_vec()
     }
@@ -40,7 +40,7 @@ impl<M: U32Memory> OracleQueryProcessor<M> for EthereumCLResponder {
         &mut self,
         query_id: u32,
         query: Vec<usize>,
-        _memory: &M,
+        _memory: &dyn U32Memory,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         assert!(Self::SUPPORTED_QUERY_IDS.contains(&query_id));
 

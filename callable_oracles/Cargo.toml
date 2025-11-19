@@ -18,8 +18,8 @@ basic_system = { path = "../basic_system", default-features = false }
 ruint = { workspace = true, default-features = false }
 k256 =  { version = "0.13", default-features = false, features = ["arithmetic"] }
 
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", optional = true }
-riscv_transpiler = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", optional = true }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", optional = true }
+riscv_transpiler = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", optional = true }
 num-bigint = { version = "*", optional = true }
 num-traits = { version = "*", optional = true }
 

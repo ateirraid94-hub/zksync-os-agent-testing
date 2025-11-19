@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 use oracle_provider::U32Memory;
 
-pub fn read_memory_as_u8<M: U32Memory>(memory: &M, offset: u32, len: u32) -> Result<Vec<u8>, ()> {
+pub fn read_memory_as_u8(memory: &dyn U32Memory, offset: u32, len: u32) -> Result<Vec<u8>, ()> {
     let (_, of) = offset.overflowing_add(len);
     if of == true {
         return Err(());
@@ -43,8 +43,8 @@ pub fn read_memory_as_u8<M: U32Memory>(memory: &M, offset: u32, len: u32) -> Res
     Ok(result)
 }
 
-pub fn read_memory_as_u64<M: U32Memory>(
-    memory: &M,
+pub fn read_memory_as_u64(
+    memory: &dyn U32Memory,
     mut offset: u32,
     len_u64_words: u32,
 ) -> Result<Vec<u64>, ()> {
@@ -79,7 +79,7 @@ pub fn read_memory_as_u64<M: U32Memory>(
 
 /// # Safety
 /// The data in the memory at offset should actually be T.
-pub unsafe fn read_struct<T, M: U32Memory>(memory: &M, offset: u32) -> Result<T, ()> {
+pub unsafe fn read_struct<T>(memory: &dyn U32Memory, offset: u32) -> Result<T, ()> {
     if core::mem::size_of::<T>() % 4 != 0 {
         todo!()
     }

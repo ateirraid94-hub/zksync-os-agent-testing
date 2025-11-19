@@ -2,7 +2,6 @@ use crate::system::system::*;
 use basic_bootloader::bootloader;
 use basic_bootloader::bootloader::config::BasicBootloaderExecutionConfig;
 use basic_bootloader::bootloader::result_keeper::ResultKeeperExt;
-use oracle_provider::DummyMemorySource;
 use oracle_provider::ZkEENonDeterminismSource;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::types_config::EthereumIOTypesConfig;
@@ -12,7 +11,7 @@ use zk_ee::types_config::EthereumIOTypesConfig;
 /// Returns execution results(tx results, state changes, events, etc) via `results_keeper`.
 ///
 pub fn run_forward<Config: BasicBootloaderExecutionConfig>(
-    oracle: ZkEENonDeterminismSource<DummyMemorySource>,
+    oracle: ZkEENonDeterminismSource,
     result_keeper: &mut impl ResultKeeperExt<
         EthereumIOTypesConfig,
         BlockHeader = bootloader::block_header::BlockHeader,

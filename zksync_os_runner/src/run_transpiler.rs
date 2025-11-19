@@ -1,16 +1,15 @@
 use crate::DiagnosticsConfig;
 use riscv_transpiler::vm::NonDeterminismCSRSource;
-use riscv_transpiler::vm::RamWithRomRegion;
 use std::{path::PathBuf, str::FromStr};
 
 /// Runs the zksync_os binary on a simulator with a given non_determinism source for that many cycles.
 /// If you enable diagnostics, it will print the flamegraph - but the run will be a lot slower.
 pub fn run_default<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     cycles: usize,
-    non_determinism_source: impl NonDeterminismCSRSource<RamWithRomRegion<ROM_BOUND_SECOND_WORD_BITS>>,
+    non_determinism_source: impl NonDeterminismCSRSource,
     enable_diagnostics: bool,
 ) -> [u32; 8] {
-    run_default_with_flamegraph_path(
+    run_default_with_flamegraph_path::<ROM_BOUND_SECOND_WORD_BITS>(
         cycles,
         non_determinism_source,
         if enable_diagnostics {
@@ -23,7 +22,7 @@ pub fn run_default<const ROM_BOUND_SECOND_WORD_BITS: usize>(
 
 pub fn run_default_with_flamegraph_path<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     cycles: usize,
-    non_determinism_source: impl NonDeterminismCSRSource<RamWithRomRegion<ROM_BOUND_SECOND_WORD_BITS>>,
+    non_determinism_source: impl NonDeterminismCSRSource,
     _diagnostics_path: Option<PathBuf>,
 ) -> [u32; 8] {
     let zksync_os_path =
@@ -45,7 +44,7 @@ pub fn run_default_with_flamegraph_path<const ROM_BOUND_SECOND_WORD_BITS: usize>
     //     d
     // });
     let diag_config = None;
-    run(
+    run::<ROM_BOUND_SECOND_WORD_BITS>(
         PathBuf::from_str(&zksync_os_path).unwrap().join("app.bin"),
         PathBuf::from_str(&zksync_os_path).unwrap().join("app.text"),
         diag_config,
@@ -69,9 +68,9 @@ pub fn run<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     text_section_path: PathBuf,
     diagnostics: Option<DiagnosticsConfig>,
     cycles: usize,
-    non_determinism_source: impl NonDeterminismCSRSource<RamWithRomRegion<ROM_BOUND_SECOND_WORD_BITS>>,
+    non_determinism_source: impl NonDeterminismCSRSource,
 ) -> [u32; 8] {
-    run_and_get_effective_cycles(
+    run_and_get_effective_cycles::<ROM_BOUND_SECOND_WORD_BITS>(
         img_path,
         text_section_path,
         diagnostics,
@@ -100,9 +99,7 @@ pub fn run_and_get_effective_cycles<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     text_section_path: PathBuf,
     _diagnostics: Option<DiagnosticsConfig>,
     cycles: usize,
-    mut non_determinism_source: impl NonDeterminismCSRSource<
-        RamWithRomRegion<ROM_BOUND_SECOND_WORD_BITS>,
-    >,
+    mut non_determinism_source: impl NonDeterminismCSRSource,
 ) -> ([u32; 8], Option<u64>) {
     use riscv_transpiler::ir::*;
     use riscv_transpiler::vm::*;
@@ -113,10 +110,8 @@ pub fn run_and_get_effective_cycles<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     let (_, binary) = read_binary(&img_path);
     let (_, text) = read_binary(&text_section_path);
 
-    let instructions: Vec<Instruction> = text
-        .into_iter()
-        .map(|el| decode::<FullUnsignedMachineDecoderConfig>(el))
-        .collect();
+    let instructions: Vec<Instruction> =
+        preprocess_bytecode::<FullUnsignedMachineDecoderConfig>(&text);
 
     // let instructions: Vec<Instruction> = text
     //     .into_iter()
@@ -131,18 +126,11 @@ pub fn run_and_get_effective_cycles<const ROM_BOUND_SECOND_WORD_BITS: usize>(
     let tape = SimpleTape::new(&instructions);
     let mut ram =
         RamWithRomRegion::<ROM_BOUND_SECOND_WORD_BITS>::from_rom_content(&binary, 1 << 30);
-    let period = 1 << 20;
-    let num_snapshots = cycles.div_ceil(period);
-    let mut cycles_bound = period * num_snapshots;
-
-    if cycles_bound > (1 << 31) {
-        cycles_bound = 1 << 31;
-    }
 
     let mut state = State::initial_with_counters(CountersT::default());
 
     let mut snapshotter: SimpleSnapshotter<CountersT, ROM_BOUND_SECOND_WORD_BITS> =
-        SimpleSnapshotter::new_with_cycle_limit(cycles_bound, period, state);
+        SimpleSnapshotter::new_with_cycle_limit(cycles, state);
 
     let now = std::time::Instant::now();
     VM::<CountersT>::run_basic_unrolled::<
@@ -151,11 +139,10 @@ pub fn run_and_get_effective_cycles<const ROM_BOUND_SECOND_WORD_BITS: usize>(
         _,
     >(
         &mut state,
-        num_snapshots,
         &mut ram,
         &mut snapshotter,
         &tape,
-        period,
+        cycles,
         &mut non_determinism_source,
     );
     let elapsed = now.elapsed();

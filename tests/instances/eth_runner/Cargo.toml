@@ -41,9 +41,9 @@ base64 = "0.21.7"
 cli = {git = "https://github.com/matter-labs/zksync-airbender", rev = "7579fadb52a15f14737d2144251daaf88a075350", optional = true }
 
 [dev-dependencies]
-# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover", "verifier_80"] }
-execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false, features = ["prover"] }
-risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", features = ["delegation"] }
+# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false, features = ["prover", "verifier_80"] }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false, features = ["prover"] }
+risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", features = ["delegation"] }
 
 [features]
 simulate_witness_gen = ["rig/simulate_witness_gen"]

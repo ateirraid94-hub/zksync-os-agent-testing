@@ -29,7 +29,7 @@ impl InMemoryEthereumInitialStorageSlotValueResponder {
     const SUPPORTED_QUERY_IDS: &[u32] = &[INITIAL_STORAGE_SLOT_VALUE_QUERY_ID];
 }
 
-impl<M: U32Memory> OracleQueryProcessor<M> for InMemoryEthereumInitialStorageSlotValueResponder {
+impl OracleQueryProcessor for InMemoryEthereumInitialStorageSlotValueResponder {
     fn supported_query_ids(&self) -> Vec<u32> {
         Self::SUPPORTED_QUERY_IDS.to_vec()
     }
@@ -42,7 +42,7 @@ impl<M: U32Memory> OracleQueryProcessor<M> for InMemoryEthereumInitialStorageSlo
         &mut self,
         query_id: u32,
         query: Vec<usize>,
-        _memory: &M,
+        _memory: &dyn U32Memory,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         assert!(Self::SUPPORTED_QUERY_IDS.contains(&query_id));
 

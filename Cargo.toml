@@ -79,8 +79,8 @@ keywords = ["blockchain", "zksync", "zk", "risc-v"]
 categories = ["cryptography"]
 
 [workspace.dependencies]
-blake2s_u32 = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries", default-features = false }
-common_constants = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_fix_verifier_binaries" }
+blake2s_u32 = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit", default-features = false }
+common_constants = { git = "https://github.com/matter-labs/zksync-airbender", branch = "av_jit" }
 ruint = { version = "1.16", default-features = false }
 arrayvec = { version = "0.7", default-features = false }
 serde = { version = "1", default-features = false }

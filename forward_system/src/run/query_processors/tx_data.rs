@@ -16,7 +16,7 @@ impl<TS: TxSource> TxDataResponder<TS> {
     const SUPPORTED_QUERY_IDS: &[u32] = &[NEXT_TX_SIZE_QUERY_ID, TX_DATA_WORDS_QUERY_ID];
 }
 
-impl<TS: TxSource, M: U32Memory> OracleQueryProcessor<M> for TxDataResponder<TS> {
+impl<TS: TxSource> OracleQueryProcessor for TxDataResponder<TS> {
     fn supported_query_ids(&self) -> Vec<u32> {
         Self::SUPPORTED_QUERY_IDS.to_vec()
     }
@@ -29,7 +29,7 @@ impl<TS: TxSource, M: U32Memory> OracleQueryProcessor<M> for TxDataResponder<TS>
         &mut self,
         query_id: u32,
         _query: Vec<usize>,
-        _memory: &M,
+        _memory: &dyn U32Memory,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         assert!(Self::SUPPORTED_QUERY_IDS.contains(&query_id));
 

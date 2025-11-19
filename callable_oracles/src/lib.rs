@@ -23,7 +23,7 @@ use zk_ee::{
     system::errors::internal::InternalError,
 };
 
-pub mod hash_to_prime;
+// pub mod hash_to_prime;
 
 #[derive(Clone, Copy, Debug)]
 pub struct MemoryRegionDescriptionParams {
