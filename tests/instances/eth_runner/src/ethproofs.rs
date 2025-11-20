@@ -1,5 +1,5 @@
 use crate::block::Block;
-use crate::live_run::rpc::{self, EthProofPayload};
+use crate::live_run::rpc::{self, EthProofPayload, ProofRequest};
 use alloy::consensus::Header;
 use alloy_primitives::U256;
 use alloy_rlp::Encodable;
@@ -284,9 +284,17 @@ pub fn ethproofs_with_proofs(
         };
         if head > next {
             println!("Generating proof for block {}", head);
+            if let Some(connector) = connector.as_ref() {
+                // Tell ethproofs we're ready for this proof.
+                let _ = connector.queue_proof(head);
+            }
             let (block, reth_witness) =
                 ethproofs_get_proving_witness_from_rpc(head, reth_endpoint)?;
 
+            if let Some(connector) = connector.as_ref() {
+                // Tell ethproofs we're starting actual proving.
+                let _ = connector.proving_proof(head);
+            }
             let mut total_proof_time = Some(0f64);
 
             let start_time = std::time::SystemTime::now();
@@ -363,6 +371,32 @@ impl EthProofsConnector {
             return selected_block - block_mod;
         }
         return selected_block;
+    }
+    pub fn queue_proof(&self, block_number: u64) -> anyhow::Result<()> {
+        let payload = ProofRequest {
+            block_number,
+            cluster_id: self.cluster_id,
+        };
+        let response = rpc::update_proof_request(
+            &format!("{}proofs/queued", self.url),
+            self.auth_token.clone(),
+            payload,
+        )?;
+        println!("Response from server: {}", response);
+        Ok(())
+    }
+    pub fn proving_proof(&self, block_number: u64) -> anyhow::Result<()> {
+        let payload = ProofRequest {
+            block_number,
+            cluster_id: self.cluster_id,
+        };
+        let response = rpc::update_proof_request(
+            &format!("{}proofs/proving", self.url),
+            self.auth_token.clone(),
+            payload,
+        )?;
+        println!("Response from server: {}", response);
+        Ok(())
     }
     pub fn send_proof(
         &self,

@@ -338,3 +338,28 @@ pub fn send_ethproofs(
     response.into_reader().read_to_string(&mut out)?;
     Ok(out)
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProofRequest {
+    pub block_number: u64,
+    pub cluster_id: u64,
+}
+
+pub fn update_proof_request(
+    endpoint: &str,
+    auth_token: String,
+    proof_request: ProofRequest,
+) -> Result<String> {
+    let agent: Agent = AgentBuilder::new().build();
+
+    let response = agent
+        .post(endpoint)
+        // Add bearer auth header
+        .set("Authorization", &format!("Bearer {}", auth_token))
+        .set("Content-Type", "application/json")
+        .send_json(proof_request)?;
+
+    let mut out = String::new();
+    response.into_reader().read_to_string(&mut out)?;
+    Ok(out)
+}
