@@ -26,7 +26,9 @@ pub(crate) enum ValueInsertionStrategy {
     },
 }
 
-impl<'a, A: Allocator + Clone, VC: VecLikeCtor> EthereumMPT<'a, A, VC> {
+impl<'a, A: Allocator + Clone, VC: VecLikeCtor, const COMPARE_HASHES: bool>
+    EthereumMPT<'a, A, VC, COMPARE_HASHES>
+{
     #[inline(always)]
     pub(crate) fn remove_from_cache(&mut self, node: NodeType) {
         if node.is_leaf() {

@@ -1,6 +1,8 @@
 use super::*;
 
-impl<'a, A: Allocator + Clone, VC: VecLikeCtor> EthereumMPT<'a, A, VC> {
+impl<'a, A: Allocator + Clone, VC: VecLikeCtor, const COMPARE_HASHES: bool>
+    EthereumMPT<'a, A, VC, COMPARE_HASHES>
+{
     pub(crate) fn delete_from_branch_node(
         &mut self,
         branch_node: NodeType,

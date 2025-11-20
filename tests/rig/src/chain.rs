@@ -501,9 +501,12 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         let mut preimage_source = InMemoryPreimageSource::default();
         let mut oracle: BTreeMap<Bytes32, Vec<u8>> = BTreeMap::new();
 
+        let mut hasher = crypto::sha3::Keccak256::new();
+
         // make an oracle
         for el in witness.state.iter() {
-            let hash = crypto::sha3::Keccak256::digest(el);
+            hasher.update(el);
+            let hash = hasher.finalize_reset();
             oracle.insert(Bytes32::from_array(hash), el.to_vec());
             preimage_source
                 .inner
@@ -511,7 +514,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         }
 
         for el in witness.codes.iter() {
-            let hash = crypto::sha3::Keccak256::digest(el);
+            hasher.update(el);
+            let hash = hasher.finalize_reset();
             oracle.insert(Bytes32::from_array(hash), el.to_vec());
             preimage_source
                 .inner
@@ -524,13 +528,13 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         use basic_system::system_implementation::ethereum_storage_model::Path;
 
         let mut interner = BoxInterner::with_capacity_in(1 << 26, Global);
-        let mut hasher = crypto::sha3::Keccak256::new();
-        let mut accounts_mpt: EthereumMPT<'_, Global, VecCtor> =
+        let mut accounts_mpt: EthereumMPT<'_, Global, VecCtor, false> =
             EthereumMPT::new_in(initial_root.0, &mut interner, Global).unwrap();
         let mut account_properties = HashMap::<B160, EthereumAccountProperties>::new();
         for el in witness.keys.iter() {
             if el.len() == 20 {
-                let hash = crypto::sha3::Keccak256::digest(el);
+                hasher.update(el);
+                let hash = hasher.finalize_reset();
                 let digits = digits_from_key(&hash);
                 let path = Path::new(&digits);
                 if let Ok(props) = accounts_mpt.get(path, &mut oracle, &mut interner, &mut hasher) {
@@ -562,25 +566,19 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             next_tx: None,
         };
         let preimage_responder = GenericPreimageResponder { preimage_source };
-        let initial_account_state_responder = InMemoryEthereumInitialAccountStateResponder {
-            state_root: initial_root.0,
-            source: account_properties.clone(),
-            preimages_oracle: oracle.clone(),
-        };
-        let initial_values_responder = InMemoryEthereumInitialStorageSlotValueResponder {
-            source: account_properties,
-            preimages_oracle: oracle,
-        };
+        let initial_account_state_responder = InMemoryEthereumInitialAccountStateResponder::new(
+            initial_root.0,
+            account_properties.clone(),
+            oracle.clone(),
+        );
+        let initial_values_responder =
+            InMemoryEthereumInitialStorageSlotValueResponder::new(account_properties, oracle);
 
         let cl_responder = EthereumCLResponder {
             withdrawals_list: withdrawals,
             parent_headers_list: headers,
             parent_headers_encodings_list: headers_encodings,
         };
-
-        use crate::forward_system::system::system_types::ethereum::*;
-        use basic_bootloader::bootloader::config::BasicBootloaderForwardETHLikeConfig;
-        use forward_system::run::result_keeper::ForwardRunningResultKeeper;
 
         let mut oracle = ZkEENonDeterminismSource::default();
         oracle.add_external_processor(target_header_reponsder.clone());
@@ -721,15 +719,13 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             next_tx: None,
         };
         let preimage_responder = GenericPreimageResponder { preimage_source };
-        let initial_account_state_responder = InMemoryEthereumInitialAccountStateResponder {
-            state_root: initial_root.0,
-            source: account_properties.clone(),
-            preimages_oracle: oracle.clone(),
-        };
-        let initial_values_responder = InMemoryEthereumInitialStorageSlotValueResponder {
-            source: account_properties,
-            preimages_oracle: oracle,
-        };
+        let initial_account_state_responder = InMemoryEthereumInitialAccountStateResponder::new(
+            initial_root.0,
+            account_properties.clone(),
+            oracle.clone(),
+        );
+        let initial_values_responder =
+            InMemoryEthereumInitialStorageSlotValueResponder::new(account_properties, oracle);
 
         let cl_responder = EthereumCLResponder {
             withdrawals_list: withdrawals,
@@ -753,11 +749,10 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         oracle.add_external_processor(callable_oracles::field_hints::FieldOpsQuery::default());
 
         let result_keeper = if PROOF_ENV {
-            if let Ok(result_keeper) =
-                std::thread::spawn(move || {
-                    let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);
-                    let mut nop_tracer = NopTracer::default();
-                    BasicBootloader::<
+            if let Ok(result_keeper) = std::thread::spawn(move || {
+                let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);
+                let mut nop_tracer = NopTracer::default();
+                BasicBootloader::<
                         EthereumStorageSystemTypesWithPostOps<ZkEENonDeterminismSource>,
                     >::run::<BasicBootloaderForwardETHLikeConfig>(
                         oracle,
@@ -766,9 +761,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
                     )
                     .expect("must succeed");
 
-                    result_keeper
-                })
-                .join()
+                result_keeper
+            })
+            .join()
             {
                 // Simulated ok
                 result_keeper

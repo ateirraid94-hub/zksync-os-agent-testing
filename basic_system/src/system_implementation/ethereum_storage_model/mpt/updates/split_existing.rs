@@ -1,6 +1,8 @@
 use super::*;
 
-impl<'a, A: Allocator + Clone, VC: VecLikeCtor> EthereumMPT<'a, A, VC> {
+impl<'a, A: Allocator + Clone, VC: VecLikeCtor, const COMPARE_HASHES: bool>
+    EthereumMPT<'a, A, VC, COMPARE_HASHES>
+{
     // NOTE: all splits are "temporary" as they break the invariant that branch node
     // should have at least two children
 

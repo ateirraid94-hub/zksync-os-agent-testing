@@ -166,7 +166,7 @@ impl<A: Allocator + Clone, B: Allocator> EthereumBasicTransactionDataKeeper<A, B
             current_transaction_number as usize,
             allocator.clone(),
         );
-        let mut receipts_mpt = EthereumMPT::empty_with_preallocated_capacities(
+        let mut receipts_mpt = EthereumMPT::<_, _, true>::empty_with_preallocated_capacities(
             receipts_mpt_capacity,
             allocator.clone(),
         );
@@ -174,7 +174,7 @@ impl<A: Allocator + Clone, B: Allocator> EthereumBasicTransactionDataKeeper<A, B
             current_transaction_number as usize,
             allocator.clone(),
         );
-        let mut transactions_mpt = EthereumMPT::empty_with_preallocated_capacities(
+        let mut transactions_mpt = EthereumMPT::<_, _, true>::empty_with_preallocated_capacities(
             transactions_mpt_capacity,
             allocator.clone(),
         );
