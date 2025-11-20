@@ -71,7 +71,10 @@ where
     let mut hasher = crypto::sha3::Keccak256::new();
     let mpt_capacity =
         MPTInternalCapacities::<S::Allocator, VC>::with_capacity_in(num_items, allocator.clone());
-    let mut mpt = EthereumMPT::empty_with_preallocated_capacities(mpt_capacity, allocator.clone());
+    let mut mpt = EthereumMPT::<_, _, true>::empty_with_preallocated_capacities(
+        mpt_capacity,
+        allocator.clone(),
+    );
 
     let mut resources = S::Resources::from_native(
         <S::Resources as Resources>::Native::from_computational(u64::MAX),

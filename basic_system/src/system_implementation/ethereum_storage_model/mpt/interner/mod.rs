@@ -180,6 +180,7 @@ impl<'a> InterningWordBuffer<'a> for MaybeUninitWordBuffer<'a> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct BoxInterner<A: Allocator> {
     buffer: Box<[MaybeUninit<usize>], A>,
     used: usize,
@@ -193,6 +194,11 @@ impl<A: Allocator> BoxInterner<A> {
             buffer: Box::new_uninit_slice_in(word_capacity, allocator),
             used: 0,
         }
+    }
+
+    // We have mutable reference, so all internet slices would be deconstructed by that time
+    pub fn reset(&mut self) {
+        self.used = 0;
     }
 }
 

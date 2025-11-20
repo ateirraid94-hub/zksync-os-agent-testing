@@ -129,7 +129,12 @@ impl<'a, A: Allocator + Clone, VC: VecLikeCtor> MPTInternalCapacities<'a, A, VC>
 /// Ethereum MPT implementation, that assumes constant-length paths of length at most 64 characters,
 /// and hash function that outputs 32 bytes
 #[derive(Debug)]
-pub struct EthereumMPT<'a, A: Allocator + Clone, VC: VecLikeCtor = VecCtor> {
+pub struct EthereumMPT<
+    'a,
+    A: Allocator + Clone,
+    VC: VecLikeCtor = VecCtor,
+    const COMPARE_HASHES: bool = true,
+> {
     pub(crate) root: NodeType,
     pub(crate) interned_root_node_key: &'a [u8], // We follow the same logic here - either hash, or short key
     // we want to store nodes separately
@@ -138,7 +143,9 @@ pub struct EthereumMPT<'a, A: Allocator + Clone, VC: VecLikeCtor = VecCtor> {
     pub(crate) preimages_cache: BTreeMap<Bytes32, &'a [u8], A>,
 }
 
-impl<'a, A: Allocator + Clone, VC: VecLikeCtor> EthereumMPT<'a, A, VC> {
+impl<'a, A: Allocator + Clone, VC: VecLikeCtor, const COMPARE_HASHES: bool>
+    EthereumMPT<'a, A, VC, COMPARE_HASHES>
+{
     pub fn new_in(
         root_hash: [u8; 32],
         interner: &mut (impl Interner<'a> + 'a),
@@ -501,9 +508,11 @@ impl<'a, A: Allocator + Clone, VC: VecLikeCtor> EthereumMPT<'a, A, VC> {
                 Ok(known)
             } else {
                 let new = preimages_oracle.provide_preimage(key.as_u8_array_ref(), interner)?;
-                hasher.update(new);
-                let recomputed = hasher.finalize_reset();
-                assert_eq!(recomputed, key.as_u8_array());
+                if COMPARE_HASHES {
+                    hasher.update(new);
+                    let recomputed = hasher.finalize_reset();
+                    assert_eq!(recomputed, key.as_u8_array());
+                }
                 self.preimages_cache.insert(key, new);
 
                 Ok(new)

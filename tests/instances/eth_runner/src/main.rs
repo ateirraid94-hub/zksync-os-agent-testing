@@ -196,7 +196,11 @@ fn main() -> anyhow::Result<()> {
             let connector = EthProofsConnector::new(staging, auth_token, cluster_id);
             let block_mod = block_mod.unwrap_or_else(|| if staging { 10 } else { 100 });
             let prover_id = prover_id.unwrap_or_else(|| 0);
-            ethproofs::ethproofs_with_proofs(&reth_endpoint, Some(connector), (prover_id, block_mod))
+            ethproofs::ethproofs_with_proofs(
+                &reth_endpoint,
+                Some(connector),
+                (prover_id, block_mod),
+            )
         }
         Command::EthproofsWithProofsNoSubmission {
             reth_endpoint,
@@ -228,7 +232,7 @@ mod test {
         setups::prover::{common_constants, worker::Worker},
         unrolled::{UnrolledProgramProof, UnrolledProgramSetup},
     };
-    use risc_v_simulator::cycle::IMStandardIsaConfigWithUnsignedMulDiv;
+    use risc_v_simulator::{cycle::IMStandardIsaConfigWithUnsignedMulDiv, setup};
 
     #[test]
     fn invoke_single_block() {
@@ -331,7 +335,7 @@ mod test {
     //     use std::fs::File;
     //     use std::path::Path;
 
-    //     let (binary, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
+    //     let (_, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
 
     //     let setup: UnrolledProgramSetup = serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
     //     let proof: UnrolledProgramProof = serde_json::from_reader(&File::open("proof.json").unwrap()).unwrap();
@@ -348,11 +352,15 @@ mod test {
     //     use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
     //     use std::fs::File;
     //     use std::{io::Read, path::Path};
+    //     use execution_utils::setups::read_and_pad_binary;
 
     //     let setup: UnrolledProgramSetup =
     //         serde_json::from_reader(&File::open("setup.json").unwrap()).unwrap();
     //     let proof: UnrolledProgramProof =
     //         serde_json::from_reader(&File::open("proof.json").unwrap()).unwrap();
+
+    //     let (_, binary_u32) = read_and_pad_binary(Path::new("../../../zksync_os/app.bin"));
+    //     let cicuit_set = execution_utils::unrolled::get_unrolled_circuits_artifacts_for_machine_type::<IMStandardIsaConfigWithUnsignedMulDiv>(&binary_u32);
 
     //     assert_eq!(setup.circuit_families_setups.len(), 6);
 
@@ -418,19 +426,20 @@ mod test {
             println!("{} proofs for delegation {}", proofs.len(), delegation_type);
         }
 
-        // println!("Verifying out of circuit ...");
-        // let result = execution_utils::unrolled::verify_unrolled_base_layer_for_machine_configuration::<IWithoutByteAccessIsaConfigWithDelegation>(&proof, &setup).expect("is valid proof");
-        // assert!(result.iter().all(|el| *el == 0) == false);
-
-        let mut witness = base_layer_setup.flatten_for_recursion();
-        witness.extend(proof.flatten_into_responses(&[1984, 1991, 1994, 1995], &layout));
-        let source = QuasiUARTSource::new_with_reads(witness);
+        let responses =
+            execution_utils::unrolled::flatten_proof_into_responses_for_unrolled_recursion(
+                &proof,
+                &base_layer_setup,
+                &layout,
+                true,
+            );
+        let source = QuasiUARTSource::new_with_reads(responses);
 
         let (binary, binary_u32) = read_and_pad_binary(Path::new(
-            "../../../../zksync-airbender/tools/verifier/unrolled_base_layer.bin",
+            "../../../../zksync-airbender/tools/verifier/recursion_in_unrolled_layer.bin",
         ));
         let (text, text_u32) = read_and_pad_binary(Path::new(
-            "../../../../zksync-airbender/tools/verifier/unrolled_base_layer.text",
+            "../../../../zksync-airbender/tools/verifier/recursion_in_unrolled_layer.text",
         ));
         println!("Computing setup");
         let setup = execution_utils::unrolled::compute_setup_for_machine_configuration::<

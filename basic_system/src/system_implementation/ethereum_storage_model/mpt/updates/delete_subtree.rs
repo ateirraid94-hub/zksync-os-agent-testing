@@ -5,7 +5,9 @@ enum SubtreeDeletionControlFlow {
     Break,
 }
 
-impl<'a, A: Allocator + Clone, VC: VecLikeCtor> EthereumMPT<'a, A, VC> {
+impl<'a, A: Allocator + Clone, VC: VecLikeCtor, const COMPARE_HASHES: bool>
+    EthereumMPT<'a, A, VC, COMPARE_HASHES>
+{
     fn cascade_delete_subtree_step(
         &mut self,
         node_to_delete: NodeType,
