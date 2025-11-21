@@ -735,7 +735,7 @@ impl<
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
             upgrade_tx_hash,
-            interop_roots_rolling_hash, // for now no interop roots
+            interop_roots_rolling_hash,
         };
         let _ = logger.write_fmt(format_args!(
             "PI calculation: batch output {batch_output:?}\n",

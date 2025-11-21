@@ -5,6 +5,7 @@ use ruint::aliases::*;
 use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::common_structs::MAX_NUMBER_OF_LOGS;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
+use zk_ee::system::errors::context::contextualized::Contextualized;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{EthereumLikeTypes, System, SystemTypes};
 
@@ -27,10 +28,11 @@ mod rlp;
 use alloc::boxed::Box;
 use core::fmt::Write;
 use crypto::MiniDigest;
-use zk_ee::{interface_error, internal_error, wrap_error};
+use zk_ee::{error_ctx, interface_error, internal_error, wrap_error};
 
 use crate::bootloader::block_header::BlockHeader;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
+use crate::bootloader::constants::{BOOTLOADER_FORMAL_ADDRESS, L2_INTEROP_ROOT_STORAGE_ADDRESS};
 use crate::bootloader::errors::{BootloaderInterfaceError, TxError};
 use crate::bootloader::result_keeper::*;
 use crate::bootloader::runner::RunnerMemoryBuffers;
@@ -43,14 +45,6 @@ use zk_ee::utils::*;
 
 pub(crate) const EVM_EE_BYTE: u8 = ExecutionEnvironmentType::EVM_EE_BYTE;
 pub const DEBUG_OUTPUT: bool = false;
-
-// TODO move to a better place
-// l2 interop root storage system hook (contract) needed for all envs (add interop root)
-pub const L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW: u32 = 0x10008;
-pub const L2_INTEROP_ROOT_STORAGE_ADDRESS: B160 =
-    B160::from_limbs([L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW as u64, 0, 0]);
-
-pub const BOOTLOADER_FORMAL_ADDRESS: B160 = B160::from_limbs([0x8001, 0, 0]);
 
 pub struct BasicBootloader<S: EthereumLikeTypes, F: BasicTransactionFlow<S>>
 where
@@ -516,9 +510,14 @@ where
                 "Unexpected preparation failure in interop roots processing"
             )
             .into()), // Should never happen
-            CallResult::Failed { return_values: _ } => Err(interface_error!(
+            CallResult::Failed { return_values } => Err(interface_error!(
                 BootloaderInterfaceError::FailedToSetInteropRoots
-            )), // TODO error context can be helpful here
+            ))
+            .with_context(|| {
+                error_ctx! {
+                     "return_values" => debug_format(return_values),
+                }
+            }),
             CallResult::Successful { return_values: _ } => Ok(res.resources_returned),
         }
     }

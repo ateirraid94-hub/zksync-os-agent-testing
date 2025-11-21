@@ -4,6 +4,14 @@ use ruint::aliases::{B160, U256};
 pub const SPECIAL_ADDRESS_SPACE_BOUND: u64 = 0x010000;
 pub const SPECIAL_ADDRESS_TO_WASM_DEPLOY: B160 = B160::from_limbs([0x9000, 0, 0]);
 
+// TODO move to a better place
+// l2 interop root storage system hook (contract) needed for all envs (add interop root)
+pub const L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW: u32 = 0x10008;
+pub const L2_INTEROP_ROOT_STORAGE_ADDRESS: B160 =
+    B160::from_limbs([L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW as u64, 0, 0]);
+
+pub const BOOTLOADER_FORMAL_ADDRESS: B160 = B160::from_limbs([0x8001, 0, 0]);
+
 pub const MAX_TX_LEN_BYTES: usize = 1 << 23;
 pub const MAX_TX_LEN_WORDS: usize = MAX_TX_LEN_BYTES / core::mem::size_of::<u32>();
 
