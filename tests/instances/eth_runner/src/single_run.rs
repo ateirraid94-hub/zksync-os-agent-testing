@@ -5,10 +5,13 @@ use crate::native_model::compute_ratio;
 use crate::post_check::post_check;
 use crate::prestate::{populate_prestate, DiffTrace, PrestateTrace};
 use crate::receipts::{BlockReceipts, TransactionReceipt};
+use alloy::primitives::U256;
 use rig::log::info;
 use rig::*;
 use std::fs::{self, File};
 use std::io::BufReader;
+use zk_ee::common_structs::interop_root::InteropRoot;
+use zk_ee::utils::Bytes32;
 use zk_ee::system::tracer::NopTracer;
 use zksync_os_interface::traits::EncodedTx;
 
