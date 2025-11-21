@@ -17,6 +17,7 @@ use zk_ee::common_structs::{da_commitment_scheme::DACommitmentScheme, interop_ro
 
 /// Runs a block in RISC-V - using zksync_os binary - and returns the
 /// witness that can be passed to the prover subsystem.
+#[allow(clippy::too_many_arguments)]
 pub fn run_block_generate_witness(
     block_context: BlockContext,
     tree: InMemoryTree,
