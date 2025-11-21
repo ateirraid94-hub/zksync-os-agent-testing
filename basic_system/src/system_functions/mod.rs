@@ -29,9 +29,11 @@ fn bytereverse(input: &mut [u8]) {
 /// No std system functions implementations.
 /// All of them are following EVM specs(for precompiles and keccak opcode).
 ///
-pub struct NoStdSystemFunctions;
+pub struct NoStdSystemFunctions<const USE_DELEGATION: bool>;
 
-impl<R: Resources> SystemFunctions<R> for NoStdSystemFunctions {
+impl<R: Resources, const USE_DELEGATION: bool> SystemFunctions<R>
+    for NoStdSystemFunctions<USE_DELEGATION>
+{
     type Keccak256 = keccak256::Keccak256Impl;
     type Sha256 = sha256::Sha256Impl;
     type Secp256k1ECRecover = ecrecover::EcRecoverImpl;
@@ -47,6 +49,8 @@ impl<R: Resources> SystemFunctions<R> for NoStdSystemFunctions {
     type PointEvaluation = point_evaluation::PointEvaluationImpl;
 }
 
-impl<R: Resources> SystemFunctionsExt<R> for NoStdSystemFunctions {
-    type ModExp = modexp::ModExpImpl;
+impl<R: Resources, const USE_DELEGATION: bool> SystemFunctionsExt<R>
+    for NoStdSystemFunctions<USE_DELEGATION>
+{
+    type ModExp = modexp::ModExpImpl<USE_DELEGATION>;
 }
