@@ -179,6 +179,32 @@ fn eth_run<const PROOF_ENV: bool>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn minimal_eth_run<const PROOF_ENV: bool>(
+    mut chain: Chain<false>,
+    header: Header,
+    transactions: Vec<Vec<u8>>,
+    witness: alloy_rpc_types_debug::ExecutionWitness,
+    withdrawals_encoding: Vec<u8>,
+) -> anyhow::Result<()> {
+    let witness_output_dir = {
+        let mut suffix = header.number.to_string();
+        suffix.push_str("_witness");
+        std::path::PathBuf::from(&suffix)
+    };
+
+    let _ = chain.run_eth_block::<PROOF_ENV>(
+        transactions,
+        witness,
+        header,
+        withdrawals_encoding,
+        Some(witness_output_dir),
+        None,
+    );
+
+    Ok(())
+}
+
 pub fn single_run(
     block_dir: String,
     block_hashes: Option<String>,
@@ -466,5 +492,46 @@ pub fn single_eth_run<const PROOF_ENV: bool>(
         withdrawals_encoding,
         account_diffs,
         vec![],
+    )
+}
+
+pub fn single_minimal_eth_run<const PROOF_ENV: bool>(
+    block_dir: String,
+    chain_id: Option<u64>,
+) -> anyhow::Result<()> {
+    use crate::live_run::rpc::JsonResponse;
+
+    use std::path::Path;
+    let dir = Path::new(&block_dir);
+    let block = fs::read_to_string(dir.join("block.json"))?;
+    let witness = fs::File::open(dir.join("witness.json"))?;
+    
+    let rpc_result: JsonResponse<alloy_rpc_types_debug::ExecutionWitness> =
+        serde_json::from_reader(witness)?;
+    let witness = rpc_result.result;
+
+    let block: Block = serde_json::from_str(&block).expect("valid block JSON");
+    let block_number = block.result.header.number;
+    info!("Running block: {block_number}");
+    info!("Block gas used: {}", block.result.header.gas_used);
+    
+    let header = block.result.header.clone().into();
+    let withdrawals_encoding = if let Some(withdrawals) = block.result.withdrawals.as_ref() {
+        let mut buff = vec![];
+        withdrawals.encode(&mut buff);
+
+        buff
+    } else {
+        Vec::new()
+    };
+    let transactions = block.get_all_raw_transactions();
+    
+    let chain = Chain::empty(chain_id);
+    minimal_eth_run::<PROOF_ENV>(
+        chain,
+        header,
+        transactions,
+        witness,
+        withdrawals_encoding,
     )
 }

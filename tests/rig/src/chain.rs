@@ -828,6 +828,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         oracle.add_external_processor(callable_oracles::field_hints::FieldOpsQuery::default());
         //let _ = Self::run_batch_via_transpiler::<false, 5>(oracle, &app);
         let result = Self::run_batch_generate_witness::<false>(oracle, &app);
+        // let result = Self::run_batch_generate_witness::<true>(oracle, &app);
         if let Some(path) = witness_output_file {
             let mut file = File::create(&path).expect("should create file");
             let witness: Vec<u8> = result.iter().flat_map(|x| x.to_be_bytes()).collect();

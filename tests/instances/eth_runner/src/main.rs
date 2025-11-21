@@ -246,7 +246,7 @@ mod test {
 
     #[test]
     fn run_dump() {
-        let block_number = 23832885;
+        let block_number = 23846054;
         let _ = std::fs::create_dir(&format!("blocks/{}", block_number));
         crate::dump_utils::dump_eth_block(
             block_number,
@@ -261,8 +261,11 @@ mod test {
 
     #[test]
     fn invoke_single_eth_block() {
-        let block_number = 23832885;
-        crate::single_run::single_eth_run::<true>(format!("blocks/{}", block_number), Some(1))
+        let block_number = 23846054;
+        // crate::single_run::single_eth_run::<true>(format!("blocks/{}", block_number), Some(1))
+        //     .expect("must succeed");
+
+        crate::single_run::single_minimal_eth_run::<true>(format!("blocks/{}", block_number), Some(1))
             .expect("must succeed");
     }
 
