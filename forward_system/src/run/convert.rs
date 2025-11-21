@@ -2,11 +2,13 @@ use alloy::consensus::{Header, Sealed};
 use alloy::primitives::Log;
 use basic_bootloader::bootloader::block_header::BlockHeader;
 use ruint::aliases::B160;
+use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::common_structs::GenericEventContent;
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::types_config::EthereumIOTypesConfig;
+use zk_ee::utils::Bytes32;
 use zksync_os_interface::error::InvalidTransaction;
-use zksync_os_interface::types::{BlockContext, L2ToL1Log};
+use zksync_os_interface::types::{BlockContext, InteropRoot as InteropRootInterface, L2ToL1Log};
 
 pub trait FromInterface<T> {
     fn from_interface(value: T) -> Self;
@@ -128,5 +130,20 @@ impl IntoInterface<Sealed<Header>> for BlockHeader {
             requests_hash: None,
         };
         Sealed::new_unchecked(header, hash.into())
+    }
+}
+
+impl FromInterface<&InteropRootInterface> for InteropRoot {
+    fn from_interface(value: &InteropRootInterface) -> Self {
+        assert_eq!(
+            value.sides[0].len(),
+            1,
+            "Currently every root must have exactly 1 side"
+        );
+        InteropRoot {
+            root: Bytes32::from(value.sides[0].0),
+            block_or_batch_number: value.block_or_batch_number,
+            chain_id: value.chain_id,
+        }
     }
 }

@@ -8,8 +8,8 @@ use zksync_os_interface::tracing::AnyTracer;
 use zksync_os_interface::traits::{
     EncodedTx, PreimageSource, ReadStorage, RunBlock, SimulateTx, TxResultCallback, TxSource,
 };
-use zksync_os_interface::types::BlockContext;
 use zksync_os_interface::types::BlockOutput;
+use zksync_os_interface::types::{BlockContext, InteropRoot};
 
 pub struct RunBlockForward {
     // Empty struct for now, but it can contain some configuration in the future.
@@ -35,6 +35,7 @@ impl RunBlock for RunBlockForward {
         preimage_source: PreimgSrc,
         tx_source: TrSrc,
         tx_result_callback: TrCallback,
+        interop_roots: &[InteropRoot],
         tracer: &mut Tracer,
     ) -> Result<BlockOutput, Self::Error> {
         let evm_tracer = tracer.as_evm().expect("only EVM tracers are supported");
@@ -44,7 +45,10 @@ impl RunBlock for RunBlockForward {
             preimage_source,
             tx_source,
             tx_result_callback,
-            vec![], // TODO
+            interop_roots
+                .iter()
+                .map(FromInterface::from_interface)
+                .collect(),
             &mut TracerWrapped(evm_tracer),
         )
     }
@@ -61,6 +65,7 @@ impl SimulateTx for RunBlockForward {
         block_context: BlockContext,
         storage: Storage,
         preimage_source: PreimgSrc,
+        interop_roots: &[InteropRoot],
         tracer: &mut Tracer,
     ) -> Result<TxResult, Self::Error> {
         let evm_tracer = tracer.as_evm().expect("only EVM tracers are supported");
@@ -69,6 +74,10 @@ impl SimulateTx for RunBlockForward {
             BlockMetadataFromOracle::from_interface(block_context),
             storage,
             preimage_source,
+            interop_roots
+                .iter()
+                .map(FromInterface::from_interface)
+                .collect(),
             &mut TracerWrapped(evm_tracer),
         )
     }

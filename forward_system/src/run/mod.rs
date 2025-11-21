@@ -451,6 +451,7 @@ pub fn simulate_tx<S: ReadStorage, PS: PreimageSource>(
     block_context: BlockContext,
     storage: S,
     preimage_source: PS,
+    interop_roots: Vec<InteropRoot>,
     tracer: &mut impl Tracer<CallSimulationSystem>,
 ) -> Result<TxResult, ForwardSubsystemError> {
     let tx_source = TxListSource {
@@ -469,11 +470,14 @@ pub fn simulate_tx<S: ReadStorage, PS: PreimageSource>(
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let storage_responder = ReadStorageResponder { storage };
 
+    let interop_roots_responder = InteropRootsResponder { interop_roots };
+
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(storage_responder);
+    oracle.add_external_processor(interop_roots_responder);
 
     let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);
 
