@@ -19,11 +19,11 @@ type Logger = crate::system::logger::StdIOLogger;
 #[cfg(feature = "no_print")]
 type Logger = zk_ee::system::NullLogger;
 
-pub struct ForwardSystemTypes<O>(O);
+pub struct ForwardSystemTypes<O, const PROOF_ENV: bool>(O);
 
 type Native = zk_ee::reference_implementations::DecreasingNative;
 
-impl<O: IOOracle> SystemTypes for ForwardSystemTypes<O> {
+impl<O: IOOracle, const PROOF_ENV: bool> SystemTypes for ForwardSystemTypes<O, PROOF_ENV> {
     type IOTypes = EthereumIOTypesConfig;
     type Resources = BaseResources<Native>;
     type IO = FullIO<
@@ -33,7 +33,7 @@ impl<O: IOOracle> SystemTypes for ForwardSystemTypes<O> {
         VecStackFactory,
         0,
         O,
-        false,
+        PROOF_ENV,
     >;
     type SystemFunctions = NoStdSystemFunctions;
     type SystemFunctionsExt = NoStdSystemFunctions;
@@ -42,12 +42,19 @@ impl<O: IOOracle> SystemTypes for ForwardSystemTypes<O> {
     type Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata;
 }
 
-impl<O: IOOracle> EthereumLikeTypes for ForwardSystemTypes<O> {}
+impl<O: IOOracle, const PROOF_ENV: bool> EthereumLikeTypes for ForwardSystemTypes<O, PROOF_ENV> {}
 
-pub type ForwardRunningSystem = ForwardSystemTypes<ZkEENonDeterminismSource<DummyMemorySource>>;
+pub type ForwardRunningSystem =
+    ForwardSystemTypes<ZkEENonDeterminismSource<DummyMemorySource>, false>;
 
-pub type CallSimulationSystem = ForwardSystemTypes<ZkEENonDeterminismSource<DummyMemorySource>>;
+pub type CallSimulationSystem =
+    ForwardSystemTypes<ZkEENonDeterminismSource<DummyMemorySource>, false>;
+
+pub type ProverInputSystem =
+    ForwardSystemTypes<oracle_provider::ReadWitnessSource<DummyMemorySource>, true>;
 
 pub type ForwardBootloader = BasicBootloader<ForwardRunningSystem, ZkTransactionFlowOnlyEOA>;
 
 pub type CallSimulationBootloader = BasicBootloader<CallSimulationSystem, ZkTransactionFlowOnlyEOA>;
+
+pub type ProverInputBootloader = BasicBootloader<ProverInputSystem, ZkTransactionFlowOnlyEOA>;
