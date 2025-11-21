@@ -1,4 +1,4 @@
-use std::alloc::Allocator;
+use core::alloc::Allocator;
 
 use zk_ee::common_structs::interop_root::InteropRoot;
 
