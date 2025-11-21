@@ -44,6 +44,7 @@ impl RunBlock for RunBlockForward {
             preimage_source,
             tx_source,
             tx_result_callback,
+            vec![], // TODO
             &mut TracerWrapped(evm_tracer),
         )
     }

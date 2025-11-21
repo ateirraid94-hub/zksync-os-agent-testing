@@ -13,6 +13,7 @@ pub mod test_impl;
 mod tracing_impl;
 
 use crate::run::query_processors::GenericPreimageResponder;
+use crate::run::query_processors::InteropRootsResponder;
 use crate::run::query_processors::ReadStorageResponder;
 use crate::run::query_processors::ReadTreeResponder;
 use crate::run::query_processors::TxDataResponder;
@@ -31,6 +32,7 @@ use errors::ForwardSubsystemError;
 use oracle_provider::MemorySource;
 use oracle_provider::ReadWitnessSource;
 use oracle_provider::ZkEENonDeterminismSource;
+use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::common_structs::ProofData;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::utils::Bytes32;
@@ -68,6 +70,7 @@ pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxRes
     preimage_source: PS,
     tx_source: TS,
     tx_result_callback: TR,
+    interop_roots: Vec<InteropRoot>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     let block_metadata_responder = BlockMetadataResponder {
@@ -82,11 +85,14 @@ pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxRes
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
 
+    let interop_roots_responder = InteropRootsResponder { interop_roots };
+
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);
     oracle.add_external_processor(tx_data_responder);
     oracle.add_external_processor(preimage_responder);
     oracle.add_external_processor(tree_responder);
+    oracle.add_external_processor(interop_roots_responder);
 
     let mut result_keeper = ForwardRunningResultKeeper::new(tx_result_callback);
 
@@ -100,6 +106,7 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
     block_context: BlockContext,
     proof_data: ProofData<StorageCommitment>,
     da_commitment_scheme: DACommitmentScheme,
+    interop_roots: Vec<InteropRoot>,
     tree: T,
     preimage_source: PS,
     tx_source: TS,
@@ -122,6 +129,8 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
     let preimage_responder = GenericPreimageResponder { preimage_source };
     let tree_responder = ReadTreeResponder { tree };
 
+    let interop_roots_responder = InteropRootsResponder { interop_roots };
+
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);
     oracle.add_external_processor(tx_data_responder);
@@ -133,6 +142,7 @@ pub fn generate_proof_input<T: ReadStorageTree, PS: PreimageSource, TS: TxSource
     oracle.add_external_processor(
         callable_oracles::blob_kzg_commitment::BlobCommitmentAndProofQuery::default(),
     );
+    oracle.add_external_processor(interop_roots_responder);
     oracle.add_external_processor(UARTPrintResponder);
 
     // We'll wrap the source, to collect all the reads.
@@ -219,6 +229,7 @@ pub fn make_oracle_for_proofs_and_dumps<
     tx_source: TS,
     proof_data: Option<ProofData<StorageCommitment>>,
     da_commitment_scheme: Option<DACommitmentScheme>,
+    interop_roots: Vec<InteropRoot>,
     add_uart: bool,
 ) -> ZkEENonDeterminismSource<M> {
     make_oracle_for_proofs_and_dumps_for_init_data(
@@ -228,6 +239,7 @@ pub fn make_oracle_for_proofs_and_dumps<
         tx_source,
         proof_data,
         da_commitment_scheme,
+        interop_roots,
         add_uart,
     )
 }
@@ -244,6 +256,7 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     tx_source: TS,
     proof_data: Option<ProofData<StorageCommitment>>,
     da_commitment_scheme: Option<DACommitmentScheme>,
+    interop_roots: Vec<InteropRoot>,
     add_uart: bool,
 ) -> ZkEENonDeterminismSource<M> {
     let block_metadata_responder = BlockMetadataResponder {
@@ -262,6 +275,8 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
         da_commitment_scheme,
     };
 
+    let interop_roots_responder = InteropRootsResponder { interop_roots };
+
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);
     oracle.add_external_processor(tx_data_responder);
@@ -273,6 +288,7 @@ pub fn make_oracle_for_proofs_and_dumps_for_init_data<
     oracle.add_external_processor(
         callable_oracles::blob_kzg_commitment::BlobCommitmentAndProofQuery::default(),
     );
+    oracle.add_external_processor(interop_roots_responder);
 
     if add_uart {
         let uart_responder = UARTPrintResponder;
@@ -296,6 +312,7 @@ pub fn run_block_with_oracle_dump<
     tx_result_callback: TR,
     proof_data: Option<ProofData<StorageCommitment>>,
     da_commitment_scheme: Option<DACommitmentScheme>,
+    interop_roots: Vec<InteropRoot>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     run_block_with_oracle_dump_ext::<T, PS, TS, TR, BasicBootloaderForwardSimulationConfig>(
@@ -306,6 +323,7 @@ pub fn run_block_with_oracle_dump<
         tx_result_callback,
         proof_data,
         da_commitment_scheme,
+        interop_roots,
         tracer,
     )
 }
@@ -325,6 +343,7 @@ pub fn run_block_with_oracle_dump_ext<
     tx_result_callback: TR,
     proof_data: Option<ProofData<StorageCommitment>>,
     da_commitment_scheme: Option<DACommitmentScheme>,
+    interop_roots: Vec<InteropRoot>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     let block_metadata_responder = BlockMetadataResponder {
@@ -342,6 +361,7 @@ pub fn run_block_with_oracle_dump_ext<
     let da_commitment_scheme_responder = DACommitmentSchemeResponder {
         da_commitment_scheme,
     };
+    let interop_roots_responder = InteropRootsResponder { interop_roots };
 
     if let Ok(path) = std::env::var("ORACLE_DUMP_FILE") {
         let dump = crate::run::query_processors::ForwardRunningOracleDump {
@@ -367,6 +387,7 @@ pub fn run_block_with_oracle_dump_ext<
     oracle.add_external_processor(
         callable_oracles::blob_kzg_commitment::BlobCommitmentAndProofQuery::default(),
     );
+    oracle.add_external_processor(interop_roots_responder);
     oracle.add_external_processor(UARTPrintResponder);
 
     let mut result_keeper = ForwardRunningResultKeeper::new(tx_result_callback);
@@ -398,6 +419,7 @@ pub fn run_block_from_oracle_dump<
         tx_data_responder,
         preimage_responder,
     } = dump;
+    // TODO also include interop roots
 
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(block_metadata_responder);

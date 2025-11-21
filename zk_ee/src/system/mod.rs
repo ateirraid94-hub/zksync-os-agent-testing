@@ -48,7 +48,10 @@ use self::{
     metadata::zk_metadata::ZkMetadata,
 };
 
+use crate::common_structs::interop_root::InteropRoot;
+use crate::oracle::query_ids::INTEROP_ROOTS_QUERY_ID;
 use crate::oracle::query_ids::TX_DATA_WORDS_QUERY_ID;
+use crate::oracle::usize_serialization::usize_serializable_dynamic::UsizeDeserializableDynamic;
 use crate::utils::Bytes32;
 use crate::{
     execution_environment_type::ExecutionEnvironmentType,
@@ -304,6 +307,22 @@ where
         Some(Ok((next_tx_len_bytes, buffer)))
     }
 
+    pub fn get_interop_roots(
+        &mut self,
+    ) -> Result<alloc::vec::Vec<InteropRoot, S::Allocator>, InteropRootsSubsystemError> {
+        let mut interop_roots_iterator = self
+            .io
+            .oracle()
+            .raw_query_with_empty_input(INTEROP_ROOTS_QUERY_ID)?;
+
+        let res = UsizeDeserializableDynamic::from_iter(
+            &mut interop_roots_iterator,
+            self.allocator.clone(),
+        )?;
+
+        Ok(res)
+    }
+
     pub fn deploy_bytecode(
         &mut self,
         for_ee: ExecutionEnvironmentType,
@@ -363,6 +382,7 @@ where
         block_hash: Bytes32,
         l1_to_l2_txs_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         result_keeper: &mut impl IOResultKeeper<S::IOTypes>,
     ) -> <S::IO as IOSubsystemExt>::FinalData {
         let logger = self.get_logger();
@@ -371,6 +391,7 @@ where
             block_hash,
             l1_to_l2_txs_hash,
             upgrade_tx_hash,
+            interop_roots,
             result_keeper,
             logger,
         )
@@ -382,5 +403,11 @@ define_subsystem!(NextTx,
     TxLengthTooLarge,
     DestinationBufferInsufficient,
     TxWriteIteratorTooBig,
+  }
+);
+
+define_subsystem!(InteropRoots,
+  interface InteropRootsInterfaceError {
+    InteropRootsIteratorLengthMismatch,
   }
 );

@@ -10,6 +10,7 @@ use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable}
 mod block_metadata;
 mod da_commitment_scheme;
 mod generic_preimage;
+mod interop_roots;
 mod read_storage;
 mod read_tree;
 mod simple_storage_map;
@@ -20,6 +21,7 @@ mod zk_proof_data;
 pub use self::block_metadata::BlockMetadataResponder;
 pub use self::da_commitment_scheme::DACommitmentSchemeResponder;
 pub use self::generic_preimage::GenericPreimageResponder;
+pub use self::interop_roots::InteropRootsResponder;
 pub use self::read_storage::ReadStorageResponder;
 pub use self::read_tree::ReadTreeResponder;
 pub use self::tx_data::TxDataResponder;

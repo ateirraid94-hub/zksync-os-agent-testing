@@ -25,6 +25,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
+use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::common_structs::{derive_flat_storage_key, ProofData};
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::system::tracer::NopTracer;
@@ -46,6 +47,7 @@ pub trait TestingOracleFactory<const RANDOMIZED_TREE: bool> {
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,
+        interop_roots: Vec<InteropRoot>,
         add_uart: bool,
     ) -> ZkEENonDeterminismSource<M>;
 }
@@ -64,6 +66,7 @@ impl<const RANDOMIZED_TREE: bool> TestingOracleFactory<RANDOMIZED_TREE>
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,
+        interop_roots: Vec<InteropRoot>,
         add_uart: bool,
     ) -> ZkEENonDeterminismSource<M> {
         forward_system::run::make_oracle_for_proofs_and_dumps(
@@ -73,6 +76,7 @@ impl<const RANDOMIZED_TREE: bool> TestingOracleFactory<RANDOMIZED_TREE>
             tx_source,
             proof_data,
             da_commitment_scheme,
+            interop_roots,
             add_uart,
         )
     }
@@ -100,6 +104,7 @@ pub struct BlockContext {
     pub gas_limit: u64,
     pub pubdata_limit: u64,
     pub mix_hash: U256,
+    pub interop_roots: Vec<InteropRoot>,
 }
 
 impl Default for BlockContext {
@@ -113,6 +118,7 @@ impl Default for BlockContext {
             gas_limit: MAX_BLOCK_GAS_LIMIT,
             pubdata_limit: u64::MAX,
             mix_hash: U256::ONE,
+            interop_roots: Default::default(),
         }
     }
 }
@@ -241,6 +247,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         block_context: Option<BlockContext>,
     ) -> BlockOutput {
         let block_context = block_context.unwrap_or_default();
+        let interop_roots = block_context.interop_roots;
         let block_metadata = BlockMetadataFromOracle {
             chain_id: self.chain_id,
             block_number: self.next_block_number(),
@@ -274,6 +281,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             NoopTxCallback,
             None,
             None,
+            interop_roots,
             &mut nop_tracer,
         )
         .unwrap();
@@ -417,6 +425,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             check_storage_diff_hashes,
         } = run_config;
         let block_context = block_context.unwrap_or_default();
+        let interop_roots = block_context.interop_roots;
         let block_metadata = BlockMetadataFromOracle {
             chain_id: self.chain_id,
             block_number: self.next_block_number(),
@@ -451,6 +460,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             tx_source.clone(),
             Some(proof_data),
             Some(da_commitment_scheme),
+            interop_roots.clone(),
             true,
         );
 
@@ -461,6 +471,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             tx_source.clone(),
             Some(proof_data),
             Some(da_commitment_scheme),
+            interop_roots.clone(),
             true,
         );
 
@@ -473,6 +484,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
                 tx_source.clone(),
                 Some(proof_data),
                 Some(da_commitment_scheme),
+                interop_roots,
                 false,
             )
         };

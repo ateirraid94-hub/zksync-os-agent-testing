@@ -92,6 +92,7 @@ impl ZKsyncOS {
             coinbase: ruint::Bits::try_from_be_slice(system_context.coinbase.as_slice())
                 .expect("Invalid coinbase"),
             mix_hash: system_context.mix_hash,
+            interop_roots: vec![],
         };
 
         let run_config = RunConfig {

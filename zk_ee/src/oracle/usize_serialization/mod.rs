@@ -23,6 +23,7 @@ use crate::{
 pub mod dyn_usize_iterator;
 #[cfg(test)]
 mod tests;
+pub mod usize_serializable_dynamic;
 
 /// Trait for types that can be serialized into a sequence of `usize` values with a known (fixed) length.
 pub trait UsizeSerializable {

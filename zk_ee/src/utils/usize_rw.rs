@@ -211,3 +211,19 @@ impl<'a, I: ExactSizeIterator<Item = &'a mut u8>> SafeUsizeWritable
         Ok(())
     }
 }
+
+impl<I: ExactSizeIterator<Item = usize>> Iterator for ReadIterWrapper<usize, I> {
+    type Item = usize;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.inner.len() == 0 {
+            return None;
+        }
+        self.inner.next()
+    }
+}
+
+impl<I: ExactSizeIterator<Item = usize>> ExactSizeIterator for ReadIterWrapper<usize, I> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}

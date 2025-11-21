@@ -1,6 +1,8 @@
+use basic_system::system_implementation::system::public_input::native_resource_cost_of_hashing_interop_roots;
 use errors::{BootloaderSubsystemError, InvalidTransaction};
 use result_keeper::ResultKeeperExt;
 use ruint::aliases::*;
+use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::common_structs::MAX_NUMBER_OF_LOGS;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::tracer::Tracer;
@@ -25,11 +27,11 @@ mod rlp;
 use alloc::boxed::Box;
 use core::fmt::Write;
 use crypto::MiniDigest;
-use zk_ee::internal_error;
+use zk_ee::{interface_error, internal_error, wrap_error};
 
 use crate::bootloader::block_header::BlockHeader;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
-use crate::bootloader::errors::TxError;
+use crate::bootloader::errors::{BootloaderInterfaceError, TxError};
 use crate::bootloader::result_keeper::*;
 use crate::bootloader::runner::RunnerMemoryBuffers;
 use crate::bootloader::transaction_flow::{
@@ -41,6 +43,14 @@ use zk_ee::utils::*;
 
 pub(crate) const EVM_EE_BYTE: u8 = ExecutionEnvironmentType::EVM_EE_BYTE;
 pub const DEBUG_OUTPUT: bool = false;
+
+// TODO move to a better place
+// l2 interop root storage system hook (contract) needed for all envs (add interop root)
+pub const L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW: u32 = 0x10008;
+pub const L2_INTEROP_ROOT_STORAGE_ADDRESS: B160 =
+    B160::from_limbs([L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW as u64, 0, 0]);
+
+pub const BOOTLOADER_FORMAL_ADDRESS: B160 = B160::from_limbs([0x8001, 0, 0]);
 
 pub struct BasicBootloader<S: EthereumLikeTypes, F: BasicTransactionFlow<S>>
 where
@@ -142,6 +152,12 @@ where
         let mut block_gas_used = 0;
         let mut block_computational_native_used = 0;
         let mut block_pubdata_used = 0;
+
+        // Get interop roots and set them in the L2_INTEROP_ROOT_STORAGE_ADDRESS storage
+        let (interop_roots, computational_native_used_for_interop_roots) =
+            Self::process_interop_roots(&mut system, &mut system_functions, &mut memories, tracer)?;
+        block_computational_native_used += computational_native_used_for_interop_roots;
+        // TODO pubdata used by interop roots
 
         // now we can run every transaction
         while let Some(r) = Self::try_begin_next_tx(&mut system) {
@@ -351,7 +367,13 @@ where
             "Bootloader execution is complete, will proceed with applying changes\n"
         ));
 
-        let r = system.finish(block_hash, l1_to_l2_tx_hash, upgrade_tx_hash, result_keeper);
+        let r = system.finish(
+            block_hash,
+            l1_to_l2_tx_hash,
+            upgrade_tx_hash,
+            &interop_roots,
+            result_keeper,
+        );
         cycle_marker::end!("run_prepared");
         #[allow(clippy::let_and_return)]
         Ok(r)
@@ -398,6 +420,106 @@ where
             } else {
                 Ok(())
             }
+        }
+    }
+
+    fn process_interop_roots(
+        system: &mut System<S>,
+        system_functions: &mut HooksStorage<S, S::Allocator>,
+        memories: &mut RunnerMemoryBuffers,
+        tracer: &mut impl Tracer<S>,
+    ) -> Result<(Vec<InteropRoot, S::Allocator>, u64), BootloaderSubsystemError>
+    where
+        S::IO: IOSubsystemExt,
+    {
+        let interop_roots = system.get_interop_roots().map_err(|x| wrap_error!(x))?;
+
+        if interop_roots.is_empty() {
+            return Ok((interop_roots, 0));
+        }
+
+        // Block of code needed for interop.
+        // We need to add interop roots to the interop root storage.
+        // We do it by calling the addInteropRoot function.
+        // The function is defined in the InteropRootStorage contract.
+        // The function is called with the chainId, blockOrBatchNumber, and the sides.
+        // The sides are the interop roots.
+        // The chainId is the chainId of the interop root.
+        // The blockOrBatchNumber is the block number of the interop root.
+        //
+        // We also compute the rolling hash of the interop roots and include it as part of the public input
+        let mut native_resource_used =
+            native_resource_cost_of_hashing_interop_roots(interop_roots.as_slice());
+
+        let mut resources = S::Resources::FORMAL_INFINITE;
+        let native_resource_before_processing = resources.native().as_u64();
+
+        for interop_root in interop_roots.iter() {
+            resources = Self::add_interop_root_to_l2_interop_root_storage(
+                interop_root.chain_id,
+                interop_root.block_or_batch_number,
+                &[interop_root.root],
+                system,
+                system_functions,
+                memories,
+                resources,
+                tracer,
+            )?;
+        }
+
+        let native_resources_used_by_calls = native_resource_before_processing
+            .checked_sub(resources.native().as_u64())
+            .ok_or_else(|| internal_error!("Unexpected amount of native resources used"))?;
+
+        native_resource_used = native_resources_used_by_calls.saturating_add(native_resource_used);
+
+        Ok((interop_roots, native_resource_used))
+    }
+
+    fn add_interop_root_to_l2_interop_root_storage(
+        chain_id: u64,
+        block_or_batch_number: u64,
+        sides: &[Bytes32],
+        system: &mut System<S>,
+        system_functions: &mut HooksStorage<S, S::Allocator>,
+        memories: &mut RunnerMemoryBuffers,
+        resources: S::Resources,
+        tracer: &mut impl Tracer<S>,
+    ) -> Result<S::Resources, BootloaderSubsystemError>
+    where
+        S::IO: IOSubsystemExt,
+    {
+        let mut data = [0u8; 164];
+        // fb6200c6: function addInteropRoot(uint256 chainId, uint256 blockOrBatchNumber, bytes32[] calldata sides) external;
+        data[0..4].copy_from_slice(&[0xfb, 0x62, 0x00, 0xc6]);
+        data[28..36].copy_from_slice(&chain_id.to_be_bytes());
+        data[60..68].copy_from_slice(&block_or_batch_number.to_be_bytes());
+        data[96..100].copy_from_slice(&96u32.to_be_bytes());
+        data[128..132].copy_from_slice(&1u32.to_be_bytes());
+        data[132..164].copy_from_slice(&sides[0].as_u8_ref());
+
+        let res = Self::run_single_interaction(
+            system,
+            system_functions,
+            memories.reborrow(),
+            &data,
+            &BOOTLOADER_FORMAL_ADDRESS,
+            &L2_INTEROP_ROOT_STORAGE_ADDRESS,
+            resources,
+            &U256::ZERO,
+            true,
+            tracer,
+        )?;
+
+        match res.result {
+            CallResult::PreparationStepFailed => Err(internal_error!(
+                "Unexpected preparation failure in interop roots processing"
+            )
+            .into()), // Should never happen
+            CallResult::Failed { return_values: _ } => Err(interface_error!(
+                BootloaderInterfaceError::FailedToSetInteropRoots
+            )), // TODO error context can be helpful here
+            CallResult::Successful { return_values: _ } => Ok(res.resources_returned),
         }
     }
 }

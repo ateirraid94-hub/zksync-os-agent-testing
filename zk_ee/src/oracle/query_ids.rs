@@ -96,3 +96,5 @@ pub const BLOCK_METADATA_QUERY_ID: u32 = BLOCK_SUBSPACE_MASK | 0; // 0x40070000
 pub const ZK_PROOF_DATA_INIT_QUERY_ID: u32 = BLOCK_SUBSPACE_MASK | 1; // 0x40070001
 /// Query to get needed DA commitment scheme.
 pub const DA_COMMITMENT_SCHEME_QUERY_ID: u32 = BLOCK_SUBSPACE_MASK | 2; // 0x40070002
+/// Query to get interop roots.
+pub const INTEROP_ROOTS_QUERY_ID: u32 = BLOCK_SUBSPACE_MASK | 3; // 0x40070003

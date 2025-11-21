@@ -232,6 +232,7 @@ fn fuzz(input: FuzzInput) {
         Bytes32::default(),
         Bytes32::default(),
         Bytes32::default(),
+        Bytes32::default(),
         &mut NopResultKeeper,
     );
 }

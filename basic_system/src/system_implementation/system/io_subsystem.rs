@@ -6,6 +6,7 @@ use crate::system_implementation::system::da_commitment_generator::{
     da_commitment_generator_from_scheme, NopCommitmentGenerator,
 };
 use crate::system_implementation::system::pubdata::PUBDATA_ENCODING_VERSION;
+use crate::system_implementation::system::public_input::calculate_interop_roots_rolling_hash;
 #[cfg(feature = "aggregation")]
 use crate::system_implementation::system::public_input::{BlocksOutput, BlocksPublicInput};
 use cost_constants::EVENT_DATA_PER_BYTE_COST;
@@ -24,6 +25,7 @@ use storage_models::common_structs::generic_transient_storage::GenericTransientS
 use storage_models::common_structs::snapshottable_io::SnapshottableIo;
 use storage_models::common_structs::StorageModel;
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
+use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::common_structs::ProofData;
 use zk_ee::common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE;
 use zk_ee::interface_error;
@@ -435,6 +437,7 @@ pub trait FinishIO {
         current_block_hash: Bytes32,
         l1_to_l2_txs_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         logger: impl Logger,
     ) -> Self::FinalData;
@@ -457,6 +460,7 @@ impl<
         current_block_hash: Bytes32,
         _l1_to_l2_txs_hash: Bytes32,
         _upgrade_tx_hash: Bytes32,
+        _interop_roots: &[InteropRoot],
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         mut logger: impl Logger,
     ) -> Self::FinalData {
@@ -504,6 +508,7 @@ impl<
         current_block_hash: Bytes32,
         l1_to_l2_txs_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         mut logger: impl Logger,
     ) -> Self::FinalData {
@@ -571,6 +576,12 @@ impl<
             last_block_timestamp: block_metadata.timestamp,
         };
 
+        let interop_roots_rolling_hash = calculate_interop_roots_rolling_hash(
+            Bytes32::zero(),
+            interop_roots,
+            &mut crypto::sha3::Keccak256::new(),
+        );
+
         // other outputs to be opened on the settlement layer/aggregation program
         let block_output = BlocksOutput {
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
@@ -580,6 +591,7 @@ impl<
             priority_ops_hashes_hash: l1_to_l2_txs_hash,
             l2_to_l1_logs_hashes_hash: l2_to_l1_logs_hashes_hash.into(),
             upgrade_tx_hash,
+            interop_roots_rolling_hash,
         };
 
         let public_input = BlocksPublicInput {
@@ -614,6 +626,7 @@ impl<
         current_block_hash: Bytes32,
         _l1_to_l2_txs_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         mut logger: impl Logger,
     ) -> Self::FinalData {
@@ -704,6 +717,13 @@ impl<
         let _ = logger.write_fmt(format_args!(
             "PI calculation: state commitment after {chain_state_commitment_after:?}\n",
         ));
+
+        let interop_roots_rolling_hash = calculate_interop_roots_rolling_hash(
+            Bytes32::zero(),
+            interop_roots,
+            &mut crypto::sha3::Keccak256::new(),
+        );
+
         let batch_output = public_input::BatchOutput {
             chain_id: U256::try_from(block_metadata.chain_id).unwrap(),
             first_block_timestamp: block_metadata.timestamp,
@@ -714,7 +734,7 @@ impl<
             priority_operations_hash: l1_txs_commitment.1,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
             upgrade_tx_hash,
-            interop_root_rolling_hash: Bytes32::from([0u8; 32]), // for now no interop roots
+            interop_roots_rolling_hash, // for now no interop roots
         };
         let _ = logger.write_fmt(format_args!(
             "PI calculation: batch output {batch_output:?}\n",
@@ -757,6 +777,7 @@ impl<
     type FinalData = (
         FullIO<A, R, P, SF, M, O, true>,
         BlockMetadataFromOracle,
+        alloc::vec::Vec<InteropRoot, A>,
         Bytes32,
         Bytes32,
     );
@@ -766,10 +787,20 @@ impl<
         current_block_hash: Bytes32,
         _l1_to_l2_txs_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         _result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         _logger: impl Logger,
     ) -> Self::FinalData {
-        (self, block_metadata, current_block_hash, upgrade_tx_hash)
+        let mut interop_roots_vec =
+            alloc::vec::Vec::with_capacity_in(interop_roots.len(), self.allocator.clone());
+        interop_roots_vec.extend(interop_roots.iter());
+        (
+            self,
+            block_metadata,
+            interop_roots_vec,
+            current_block_hash,
+            upgrade_tx_hash,
+        )
     }
 }
 
@@ -791,6 +822,7 @@ where
         block_metadata: BlockMetadataFromOracle,
         current_block_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         builder: &mut crate::system_implementation::system::public_input::BatchPublicInputBuilder<
             A,
             O,
@@ -890,6 +922,7 @@ where
             block_metadata.timestamp,
             U256::try_from(block_metadata.chain_id).unwrap(),
             upgrade_tx_hash,
+            interop_roots,
         );
 
         self.oracle
@@ -1123,6 +1156,7 @@ where
         current_block_hash: Bytes32,
         l1_to_l2_txs_hash: Bytes32,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         logger: impl Logger,
     ) -> Self::FinalData {
@@ -1132,6 +1166,7 @@ where
             current_block_hash,
             l1_to_l2_txs_hash,
             upgrade_tx_hash,
+            interop_roots,
             result_keeper,
             logger,
         )

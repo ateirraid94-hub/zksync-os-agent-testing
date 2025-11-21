@@ -21,6 +21,7 @@ use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::forward_system::run::ReadStorage;
 use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
 use rig::ruint::aliases::B160;
+use rig::zk_ee::common_structs::interop_root::InteropRoot;
 use rig::zk_ee::common_structs::{
     da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key, ProofData,
 };
@@ -132,6 +133,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,
+        interop_roots: Vec<InteropRoot>,
         _add_uart: bool,
     ) -> ZkEENonDeterminismSource<M> {
         // Create a malicious oracle manually instead of using the default factory

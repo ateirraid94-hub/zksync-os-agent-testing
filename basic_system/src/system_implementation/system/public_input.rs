@@ -1,3 +1,4 @@
+use crate::system_functions::keccak256::keccak256_native_cost_u64;
 use crate::system_implementation::system::da_commitment_generator::DACommitmentGenerator;
 use crate::system_implementation::system::public_input;
 use arrayvec::ArrayVec;
@@ -5,6 +6,7 @@ use crypto::sha3::Keccak256;
 use crypto::MiniDigest;
 use ruint::aliases::U256;
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
+use zk_ee::common_structs::interop_root::InteropRoot;
 use zk_ee::oracle::IOOracle;
 use zk_ee::system::logger::Logger;
 use zk_ee::utils::Bytes32;
@@ -71,6 +73,8 @@ pub struct BlocksOutput {
     pub l2_to_l1_logs_hashes_hash: Bytes32,
     /// Protocol upgrade tx hash (0 if there wasn't)
     pub upgrade_tx_hash: Bytes32,
+    /// Linear keccak256 hash of interop roots
+    pub interop_roots_rolling_hash: Bytes32,
 }
 
 #[cfg(feature = "aggregation")]
@@ -152,8 +156,8 @@ pub struct BatchOutput {
     pub l2_logs_tree_root: Bytes32,
     /// Protocol upgrade tx hash (0 if there wasn't)
     pub upgrade_tx_hash: Bytes32,
-    /// Rolling hash of all the interop roots included in this batch.
-    pub interop_root_rolling_hash: Bytes32,
+    /// Linear keccak256 hash of interop roots
+    pub interop_roots_rolling_hash: Bytes32,
 }
 
 impl BatchOutput {
@@ -173,7 +177,7 @@ impl BatchOutput {
         hasher.update(self.priority_operations_hash.as_u8_ref());
         hasher.update(self.l2_logs_tree_root.as_u8_ref());
         hasher.update(self.upgrade_tx_hash.as_u8_ref());
-        hasher.update(self.interop_root_rolling_hash.as_u8_ref());
+        hasher.update(self.interop_roots_rolling_hash.as_u8_ref());
         hasher.finalize()
     }
 }
@@ -218,6 +222,7 @@ pub struct BatchPublicInputBuilder<A: alloc::alloc::Allocator, O: IOOracle> {
     pub number_of_layer_1_txs: U256,
     pub l1_txs_rolling_hash: Bytes32,
     upgrade_tx_hash: Option<Bytes32>,
+    interop_roots_rolling_hash: Bytes32,
 }
 
 impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
@@ -240,6 +245,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
                 0x5d, 0x85, 0xa4, 0x70,
             ]),
             upgrade_tx_hash: None,
+            interop_roots_rolling_hash: Bytes32::ZERO,
         }
     }
 
@@ -254,6 +260,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
         block_timestamp: u64,
         chain_id: U256,
         upgrade_tx_hash: Bytes32,
+        interop_roots: &[InteropRoot],
     ) {
         if self.is_first_block {
             self.initial_state_commitment = Some(state_commitment_before);
@@ -273,6 +280,12 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
             assert_eq!(self.chain_id.unwrap(), chain_id);
             assert!(upgrade_tx_hash.is_zero());
         }
+
+        self.interop_roots_rolling_hash = calculate_interop_roots_rolling_hash(
+            self.interop_roots_rolling_hash,
+            interop_roots,
+            &mut crypto::sha3::Keccak256::new(),
+        );
     }
 
     ///
@@ -296,7 +309,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
             priority_operations_hash: self.l1_txs_rolling_hash,
             l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
             upgrade_tx_hash: self.upgrade_tx_hash.unwrap(),
-            interop_root_rolling_hash: Bytes32::from([0u8; 32]), // for now no interop roots
+            interop_roots_rolling_hash: self.interop_roots_rolling_hash,
         };
         let public_input = BatchPublicInput {
             state_before: self.initial_state_commitment.unwrap(),
@@ -438,4 +451,43 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> BatchPublicInputBuilder<A, O> {
             EMPTY_HASHES[14].into()
         }
     }
+}
+
+// TODO find a better place
+
+/// Calculates a rolling keccak256 hash over a sequence of interop roots.
+/// This creates a cumulative digest that can be verified on settlement layers.
+///
+/// For each root: rolling_hash = keccak256(old_rolling_hash || chain_id || block_number || root_hash)
+pub fn calculate_interop_roots_rolling_hash(
+    old_rolling_hash: Bytes32,
+    roots: &[InteropRoot],
+    hasher: &mut crypto::sha3::Keccak256,
+) -> Bytes32 {
+    let mut data = [0u8; 96];
+
+    let mut rolling_hash = old_rolling_hash;
+    for root in roots {
+        data[0..32].copy_from_slice(&rolling_hash.as_u8_ref());
+        data[56..64].copy_from_slice(&root.chain_id.to_be_bytes());
+        data[88..96].copy_from_slice(&root.block_or_batch_number.to_be_bytes());
+        hasher.update(data);
+
+        // Note: now we have only one side
+        hasher.update(root.root.as_u8_ref());
+
+        rolling_hash = hasher.finalize_reset().into()
+    }
+
+    rolling_hash
+}
+
+// TODO move to a better place
+pub fn native_resource_cost_of_hashing_interop_roots(roots: &[InteropRoot]) -> u64 {
+    // old_hash + chain_id + block_number = 96 bytes
+    // 1 side = 32 bytes
+    let len = 96 + 32;
+    let cost_per_root = keccak256_native_cost_u64(len);
+
+    cost_per_root * roots.len() as u64
 }
