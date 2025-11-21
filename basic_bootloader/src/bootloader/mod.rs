@@ -22,6 +22,7 @@ pub mod block_header;
 pub mod config;
 pub mod constants;
 pub mod errors;
+pub mod interop;
 pub mod result_keeper;
 mod rlp;
 
@@ -34,6 +35,7 @@ use crate::bootloader::block_header::BlockHeader;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{BOOTLOADER_FORMAL_ADDRESS, L2_INTEROP_ROOT_STORAGE_ADDRESS};
 use crate::bootloader::errors::{BootloaderInterfaceError, TxError};
+use crate::bootloader::interop::encode_interop_roots_setting_batch_call;
 use crate::bootloader::result_keeper::*;
 use crate::bootloader::runner::RunnerMemoryBuffers;
 use crate::bootloader::transaction_flow::{
@@ -474,6 +476,7 @@ where
 
     /// Calls the L2 interop root storage contract to register a single interop root.
     /// Returns updated resource limits after the contract call.
+    /// TODO: add_interop_roots_to_l2_interop_root_storage_batch should be used instead (see below)
     fn add_interop_root_to_l2_interop_root_storage(
         chain_id: u64,
         block_or_batch_number: u64,
@@ -514,6 +517,58 @@ where
                 "Unexpected preparation failure in interop roots processing"
             )
             .into()), // Should never happen
+            CallResult::Failed { return_values } => Err(interface_error!(
+                BootloaderInterfaceError::FailedToSetInteropRoots
+            ))
+            .with_context(|| {
+                error_ctx! {
+                     "return_values" => debug_format(return_values),
+                }
+            }),
+            CallResult::Successful { return_values: _ } => Ok(res.resources_returned),
+        }
+    }
+
+    /// Calls the L2 interop root storage contract to register multiple interop roots in a single batch.
+    /// Returns updated resource limits after the contract call.
+    /// TODO: use after L2InteropRootStorage.sol supports corresponding functionality
+    #[allow(dead_code)]
+    fn add_interop_roots_to_l2_interop_root_storage_batch(
+        interop_roots: &[InteropRoot],
+        system: &mut System<S>,
+        system_functions: &mut HooksStorage<S, S::Allocator>,
+        memories: &mut RunnerMemoryBuffers,
+        resources: S::Resources,
+        tracer: &mut impl Tracer<S>,
+    ) -> Result<S::Resources, BootloaderSubsystemError>
+    where
+        S::IO: IOSubsystemExt,
+    {
+        if interop_roots.is_empty() {
+            return Ok(resources);
+        }
+
+        let calldata =
+            encode_interop_roots_setting_batch_call(interop_roots, system.get_allocator());
+
+        let res = Self::run_single_interaction(
+            system,
+            system_functions,
+            memories.reborrow(),
+            &calldata,
+            &BOOTLOADER_FORMAL_ADDRESS,
+            &L2_INTEROP_ROOT_STORAGE_ADDRESS,
+            resources,
+            &U256::ZERO,
+            true,
+            tracer,
+        )?;
+
+        match res.result {
+            CallResult::PreparationStepFailed => Err(internal_error!(
+                "Unexpected preparation failure in batch interop roots processing"
+            )
+            .into()),
             CallResult::Failed { return_values } => Err(interface_error!(
                 BootloaderInterfaceError::FailedToSetInteropRoots
             ))
