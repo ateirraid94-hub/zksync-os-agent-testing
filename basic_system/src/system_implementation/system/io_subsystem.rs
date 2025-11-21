@@ -532,6 +532,9 @@ impl<
         // finishing IO, applying changes
         let mut da_commitment_generator = crate::system_implementation::system::da_commitment_generator::Blake2sCommitmentGenerator::new();
         // Write version byte first to enable future pubdata format upgrades
+        result_keeper.pubdata(&[PUBDATA_ENCODING_VERSION]);
+        result_keeper.pubdata(current_block_hash.as_u8_ref());
+        result_keeper.pubdata(&block_metadata.timestamp.to_be_bytes());
         da_commitment_generator.write(&[PUBDATA_ENCODING_VERSION]);
         da_commitment_generator.write(current_block_hash.as_u8_ref());
         da_commitment_generator.write(&block_metadata.timestamp.to_be_bytes());
@@ -653,6 +656,9 @@ impl<
                 .unwrap();
 
         // Write version byte first to enable future pubdata format upgrades
+        result_keeper.pubdata(&[PUBDATA_ENCODING_VERSION]);
+        result_keeper.pubdata(current_block_hash.as_u8_ref());
+        result_keeper.pubdata(&block_metadata.timestamp.to_be_bytes());
         da_commitment_generator.write(&[PUBDATA_ENCODING_VERSION]);
         da_commitment_generator.write(current_block_hash.as_u8_ref());
         da_commitment_generator.write(&block_metadata.timestamp.to_be_bytes());
