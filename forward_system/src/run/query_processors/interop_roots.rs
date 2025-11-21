@@ -7,6 +7,8 @@ use zk_ee::oracle::{
     usize_serialization::usize_serializable_dynamic::UsizeSerializableDynamic,
 };
 
+/// Oracle query processor for interop roots data.
+/// Provides interoperability root information to the ZKsync OS runtime.
 #[cfg_attr(feature = "testing", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub struct InteropRootsResponder {

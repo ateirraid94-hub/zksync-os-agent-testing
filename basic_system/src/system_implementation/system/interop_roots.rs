@@ -29,7 +29,8 @@ pub fn calculate_interop_roots_rolling_hash(
     rolling_hash
 }
 
-// TODO move to a better place
+/// Calculates native computational cost for hashing interop roots.
+/// Used for gas estimation and resource tracking.
 pub fn native_resource_cost_of_hashing_interop_roots(roots: &[InteropRoot]) -> u64 {
     // old_hash + chain_id + block_number = 96 bytes
     // 1 side = 32 bytes

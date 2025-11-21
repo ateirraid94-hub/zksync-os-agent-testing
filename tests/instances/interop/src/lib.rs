@@ -18,6 +18,7 @@ use std::fs;
 use std::str::FromStr;
 use zksync_web3_rs::signers::{LocalWallet, Signer};
 
+/// Test constants for L2 interop root storage contract address
 pub const L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW: u32 = 0x10008;
 pub const L2_INTEROP_ROOT_STORAGE_ADDRESS: B160 =
     B160::from_limbs([L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW as u64, 0, 0]);
@@ -74,16 +75,12 @@ fn run_processes_several_interop_roots() {
 fn run_processes_empty_interop_roots() {
     let (mut chain, encoded_mint_tx) = prepare_chain();
 
-    let mut block_context = BlockContext::default();
-
     run_tx_with_interop_roots(&mut chain, encoded_mint_tx, vec![]);
 }
 
 #[test]
 fn run_processes_interop_roots_max_amount() {
     let (mut chain, encoded_mint_tx) = prepare_chain();
-
-    let mut block_context = BlockContext::default();
 
     let mut interop_roots = Vec::new();
 
@@ -111,6 +108,7 @@ fn run_processes_interop_roots_max_amount() {
     run_tx_with_interop_roots(&mut chain, encoded_mint_tx, interop_roots);
 }
 
+/// Sets up test chain with ERC-20 contract and interop root storage contract
 fn prepare_chain() -> (Chain, EncodedTx) {
     let mut chain = Chain::empty(None);
     let wallet = PrivateKeySigner::from_str(
@@ -151,6 +149,7 @@ fn prepare_chain() -> (Chain, EncodedTx) {
     (chain, encoded_mint_tx)
 }
 
+/// Executes a transaction with specified interop roots and verifies success
 fn run_tx_with_interop_roots(
     chain: &mut Chain,
     encoded_tx: EncodedTx,

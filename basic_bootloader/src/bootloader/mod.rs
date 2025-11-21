@@ -417,6 +417,8 @@ where
         }
     }
 
+    /// Processes interoperability roots for cross-chain state verification.
+    /// Registers roots with the L2 interop storage contract and calculates resource costs.
     fn process_interop_roots(
         system: &mut System<S>,
         system_functions: &mut HooksStorage<S, S::Allocator>,
@@ -470,6 +472,8 @@ where
         Ok((interop_roots, native_resource_used))
     }
 
+    /// Calls the L2 interop root storage contract to register a single interop root.
+    /// Returns updated resource limits after the contract call.
     fn add_interop_root_to_l2_interop_root_storage(
         chain_id: u64,
         block_or_batch_number: u64,
