@@ -91,7 +91,7 @@ pub fn encode_interop_roots_setting_batch_call<A: Allocator>(
         struct_offset += 32;
 
         // Offset to sides array (relative to struct start, points to 96 bytes ahead)
-        data[struct_offset + 28..struct_offset + 32].copy_from_slice(&(96 as u32).to_be_bytes());
+        data[struct_offset + 28..struct_offset + 32].copy_from_slice(&96_u32.to_be_bytes());
         struct_offset += 32;
 
         // Sides array length (currently always 1 element)
