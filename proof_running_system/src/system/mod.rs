@@ -42,8 +42,8 @@ impl<O: IOOracle, L: Logger + Default> SystemTypes for ProofRunningSystemTypes<O
         O,
         true,
     >;
-    type SystemFunctions = NoStdSystemFunctions;
-    type SystemFunctionsExt = NoStdSystemFunctions;
+    type SystemFunctions = NoStdSystemFunctions<true>;
+    type SystemFunctionsExt = NoStdSystemFunctions<true>;
     type Allocator = BootloaderAllocator;
     type Logger = L;
     type Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata;
