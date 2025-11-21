@@ -1,4 +1,4 @@
-use basic_system::system_implementation::system::public_input::native_resource_cost_of_hashing_interop_roots;
+use basic_system::system_implementation::system::interop_roots::native_resource_cost_of_hashing_interop_roots;
 use errors::{BootloaderSubsystemError, InvalidTransaction};
 use result_keeper::ResultKeeperExt;
 use ruint::aliases::*;

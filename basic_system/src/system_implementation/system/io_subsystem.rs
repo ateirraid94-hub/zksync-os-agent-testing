@@ -6,7 +6,6 @@ use crate::system_implementation::system::da_commitment_generator::{
     da_commitment_generator_from_scheme, NopCommitmentGenerator,
 };
 use crate::system_implementation::system::pubdata::PUBDATA_ENCODING_VERSION;
-use crate::system_implementation::system::public_input::calculate_interop_roots_rolling_hash;
 #[cfg(feature = "aggregation")]
 use crate::system_implementation::system::public_input::{BlocksOutput, BlocksPublicInput};
 use cost_constants::EVENT_DATA_PER_BYTE_COST;
@@ -630,6 +629,8 @@ impl<
         result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>,
         mut logger: impl Logger,
     ) -> Self::FinalData {
+        use crate::system_implementation::system::interop_roots::calculate_interop_roots_rolling_hash;
+
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
                 ZKProofDataQuery::get(&mut self.oracle, &())

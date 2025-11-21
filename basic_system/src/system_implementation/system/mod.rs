@@ -23,9 +23,10 @@ use zk_ee::{
 };
 
 pub mod da_commitment_generator;
+pub mod interop_roots;
 mod io_subsystem;
 pub mod pubdata;
-pub mod public_input;
+mod public_input;
 
 pub use self::io_subsystem::*;
 pub use self::public_input::BatchOutput;
