@@ -1,6 +1,9 @@
 use core::str::FromStr;
 
+use super::usize_serializable_dynamic::*;
 use super::*;
+use alloc::alloc::Global;
+use alloc::vec;
 use ruint::aliases::{B160, U256};
 
 #[test]
@@ -13,7 +16,7 @@ fn test_unit_serialization() {
 
     // Test deserialization
     let mut empty_iter = core::iter::empty();
-    let deserialized = <() as UsizeDeserializable>::from_iter(&mut empty_iter).unwrap();
+    let _deserialized = <() as UsizeDeserializable>::from_iter(&mut empty_iter).unwrap();
 }
 
 #[test]
@@ -282,4 +285,111 @@ fn test_usize_len_consistency() {
         <[u32; 3] as UsizeSerializable>::USIZE_LEN,
         array_val.iter().len()
     );
+}
+
+// Tests for dynamic serialization functionality
+
+#[test]
+fn test_vec_u32_dynamic_serialization() {
+    let vec = vec![1u32, 2u32, 3u32];
+    let alloc = Global;
+
+    let mut iter = vec.iter(alloc.clone());
+    let deserialized: Vec<u32> = UsizeDeserializableDynamic::from_iter(&mut iter, alloc).unwrap();
+
+    assert_eq!(deserialized, vec![1u32, 2u32, 3u32]);
+}
+
+#[test]
+fn test_empty_vec_dynamic_serialization() {
+    let vec: Vec<u64> = vec![];
+    let alloc = Global;
+
+    let mut iter = vec.iter(alloc.clone());
+    let deserialized: Vec<u64> = UsizeDeserializableDynamic::from_iter(&mut iter, alloc).unwrap();
+
+    assert_eq!(deserialized, Vec::<u64>::new());
+}
+
+#[test]
+fn test_vec_bool_dynamic_serialization() {
+    let vec = vec![true, false, true];
+    let alloc = Global;
+
+    let mut iter = vec.iter(alloc.clone());
+    let deserialized: Vec<bool> = UsizeDeserializableDynamic::from_iter(&mut iter, alloc).unwrap();
+
+    assert_eq!(deserialized, vec![true, false, true]);
+}
+
+#[test]
+fn test_vec_u256_dynamic_serialization() {
+    let val1 = U256::from_str("0x123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF")
+        .unwrap();
+    let val2 = U256::from_str("0xFEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210")
+        .unwrap();
+    let vec = vec![val1, val2];
+    let alloc = Global;
+
+    let mut iter = vec.iter(alloc.clone());
+    let deserialized: Vec<U256> = UsizeDeserializableDynamic::from_iter(&mut iter, alloc).unwrap();
+
+    assert_eq!(deserialized, vec![val1, val2]);
+}
+
+#[test]
+fn test_array_iterator_length_consistency() {
+    let vec = vec![1u32, 2u32, 3u32, 4u32, 5u32];
+    let alloc = Global;
+
+    let iter = UsizeSerializableArrayIterator::from(vec.as_slice(), alloc);
+    let expected_len =
+        <u64 as UsizeSerializable>::USIZE_LEN + 5 * <u32 as UsizeSerializable>::USIZE_LEN;
+
+    assert_eq!(iter.len(), expected_len);
+}
+
+#[test]
+fn test_array_iterator_with_empty_slice() {
+    let vec: Vec<u64> = vec![];
+    let alloc = Global;
+
+    let iter = UsizeSerializableArrayIterator::from(vec.as_slice(), alloc);
+    let expected_len = <u64 as UsizeSerializable>::USIZE_LEN; // Just the length prefix
+
+    assert_eq!(iter.len(), expected_len);
+
+    let collected: Vec<_> = iter.collect();
+    assert_eq!(collected.len(), expected_len);
+}
+
+#[test]
+fn test_vec_deserialization_insufficient_data() {
+    // Test deserialization with insufficient data for the declared length
+    let alloc = Global;
+
+    // Create an iterator that claims length 3 but only has data for 1 element
+    let fake_length = 3u64;
+    let mut data = Vec::new();
+    data.extend(fake_length.iter());
+    data.extend(42u32.iter()); // Only one element instead of three
+
+    let mut iter = data.into_iter();
+    let result: Result<Vec<u32>, _> = UsizeDeserializableDynamic::from_iter(&mut iter, alloc);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_vec_with_unit_type() {
+    let vec = vec![(), (), ()];
+    let alloc = Global;
+
+    let iter = vec.iter(alloc.clone());
+    let collected: Vec<_> = iter.collect();
+
+    let mut iter = collected.into_iter();
+    let deserialized: Vec<()> = UsizeDeserializableDynamic::from_iter(&mut iter, alloc).unwrap();
+
+    assert_eq!(deserialized, vec![(), (), ()]);
+    assert_eq!(deserialized.len(), 3);
 }
