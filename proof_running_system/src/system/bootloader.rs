@@ -220,9 +220,9 @@ pub fn run_proving_inner<
             .expect("Tried to prove a failing batch");
         oracle = io.apply_to_batch(
             block_metadata,
-            &interop_roots,
             current_block_hash,
             upgrade_tx_hash,
+            &interop_roots,
             &mut batch_pi_builder,
         );
         // we do this query for consistency with block based input generation(there is empty iterator as response to this query)

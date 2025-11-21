@@ -428,7 +428,7 @@ where
         system_functions: &mut HooksStorage<S, S::Allocator>,
         memories: &mut RunnerMemoryBuffers,
         tracer: &mut impl Tracer<S>,
-    ) -> Result<(Vec<InteropRoot, S::Allocator>, u64), BootloaderSubsystemError>
+    ) -> Result<(alloc::vec::Vec<InteropRoot, S::Allocator>, u64), BootloaderSubsystemError>
     where
         S::IO: IOSubsystemExt,
     {
