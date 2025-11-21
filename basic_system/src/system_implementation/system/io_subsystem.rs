@@ -28,6 +28,7 @@ use zk_ee::common_structs::ProofData;
 use zk_ee::common_structs::L2_TO_L1_LOG_SERIALIZE_SIZE;
 use zk_ee::interface_error;
 use zk_ee::oracle::basic_queries::ZKProofDataQuery;
+use zk_ee::oracle::query_ids::DISCONNECT_ORACLE_QUERY_ID;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::out_of_ergs_error;
 use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
@@ -588,6 +589,11 @@ impl<
             blocks_output: block_output.hash().into(),
         };
 
+        #[allow(unused_must_use)]
+        self.oracle
+            .raw_query_with_empty_input(DISCONNECT_ORACLE_QUERY_ID)
+            .expect("must disconnect an oracle before performing arbitrary CSR access");
+
         (self.oracle, public_input.hash().into())
     }
 }
@@ -732,6 +738,11 @@ impl<
         let _ = logger.write_fmt(format_args!(
             "PI calculation: final batch public input hash {public_input_hash:?}\n",
         ));
+
+        #[allow(unused_must_use)]
+        self.oracle
+            .raw_query_with_empty_input(DISCONNECT_ORACLE_QUERY_ID)
+            .expect("must disconnect an oracle before performing arbitrary CSR access");
 
         if cfg!(feature = "state-diffs-pi") {
             (self.oracle, state_diffs_hash)
@@ -891,6 +902,11 @@ where
             U256::try_from(block_metadata.chain_id).unwrap(),
             upgrade_tx_hash,
         );
+
+        #[allow(unused_must_use)]
+        self.oracle
+            .raw_query_with_empty_input(DISCONNECT_ORACLE_QUERY_ID)
+            .expect("must disconnect an oracle before performing arbitrary CSR access");
 
         self.oracle
     }
