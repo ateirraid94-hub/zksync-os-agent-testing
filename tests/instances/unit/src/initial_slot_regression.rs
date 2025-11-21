@@ -14,8 +14,8 @@ use rig::basic_system::system_implementation::flat_storage_model::{
 };
 use rig::chain::TestingOracleFactory;
 use rig::forward_system::run::query_processors::{
-    BlockMetadataResponder, DACommitmentSchemeResponder, GenericPreimageResponder, TxDataResponder,
-    ZKProofDataResponder,
+    BlockMetadataResponder, DACommitmentSchemeResponder, GenericPreimageResponder,
+    InteropRootsResponder, TxDataResponder, ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::forward_system::run::ReadStorage;
@@ -156,6 +156,10 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
             da_commitment_scheme: da_commitment_scheme,
         };
 
+        let interop_roots_responder = InteropRootsResponder {
+            interop_roots: vec![],
+        };
+
         let mut oracle = ZkEENonDeterminismSource::default();
         oracle.add_external_processor(block_metadata_responder);
         oracle.add_external_processor(tx_data_responder);
@@ -163,6 +167,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
         oracle.add_external_processor(malicious_storage_responder);
         oracle.add_external_processor(zk_proof_data_responder);
         oracle.add_external_processor(da_commitment_scheme_responder);
+        oracle.add_external_processor(interop_roots_responder);
 
         oracle
     }
