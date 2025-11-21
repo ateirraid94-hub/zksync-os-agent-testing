@@ -11,6 +11,7 @@ use basic_system::system_implementation::flat_storage_model::{
 };
 use ethers::signers::LocalWallet;
 use forward_system::run::result_keeper::ForwardRunningResultKeeper;
+use forward_system::run::result_keeper::ProverInputResultKeeper;
 use forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree, NoopTxCallback};
 use forward_system::system::bootloader::run_forward_no_panic;
 use forward_system::system::bootloader::run_prover_input_no_panic;
@@ -505,7 +506,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             tracer,
         )?;
 
-        let mut result_keeper_prover_input = ForwardRunningResultKeeper::new(NoopTxCallback);
+        let mut result_keeper_prover_input = ProverInputResultKeeper::new(NoopTxCallback);
 
         let copy_source = ReadWitnessSource::new(prover_input_oracle);
         let mut tracer = NopTracer::default();
