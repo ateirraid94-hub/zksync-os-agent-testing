@@ -113,6 +113,8 @@ mod tests {
 
     use zk_ee::{common_structs::interop_root::InteropRoot, utils::Bytes32};
 
+    use crate::bootloader::interop::MAX_ENCODABLE_AMOUNT_OF_ROOTS;
+
     use super::encode_interop_roots_setting_batch_call;
 
     // Define the Solidity types for comparison
@@ -192,6 +194,39 @@ mod tests {
                 sides: vec![[0x84; 32].into()],
             },
         ];
+
+        let alloy_encoded = addInteropRootsInBatchCall {
+            interopRootsInput: alloy_roots,
+        }
+        .abi_encode();
+
+        assert_eq!(our_encoded, alloy_encoded);
+    }
+
+    #[test]
+    fn test_check_encoding_max_roots() {
+        let mut roots = vec![];
+
+        for i in 0..MAX_ENCODABLE_AMOUNT_OF_ROOTS {
+            roots.push(InteropRoot {
+                chain_id: (i + 1) as u64,
+                block_or_batch_number: 100,
+                root: Bytes32::from([0x42; 32]),
+            });
+        }
+
+        let our_encoded = encode_interop_roots_setting_batch_call(&roots, Global);
+
+        // Create equivalent Alloy structs
+        let mut alloy_roots = vec![];
+
+        for i in 0..MAX_ENCODABLE_AMOUNT_OF_ROOTS {
+            alloy_roots.push(InteropRootSol {
+                chainId: U256::from(i + 1),
+                blockOrBatchNumber: U256::from(100),
+                sides: vec![[0x42; 32].into()],
+            });
+        }
 
         let alloy_encoded = addInteropRootsInBatchCall {
             interopRootsInput: alloy_roots,
