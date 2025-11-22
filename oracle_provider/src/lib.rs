@@ -176,7 +176,49 @@ impl ZkEENonDeterminismSource {
         low
     }
 
-    fn write_impl(&mut self, memory: &dyn U32Memory, value: u32) {
+    fn write_impl<R: U32Memory>(&mut self, memory: &R, value: u32) {
+        if self.current_query_id.is_some() {
+            println!(
+                "Current query ID = 0x{:08x} iterator is not consumed in full, but received value 0x{:08x}",
+                self.current_query_id.unwrap(),
+                value
+            );
+            self.current_query_id = None;
+        }
+
+        // may have something from remains
+        if self.current_iterator.is_some() {
+            if self.current_iterator.as_ref().unwrap().len() != 0 {
+                println!(
+                    "Current iterator is not consumed in full, but received value 0x{value:08x}"
+                );
+            }
+            self.current_iterator = None;
+        }
+        if self.iterator_len_to_indicate.is_some() {
+            self.iterator_len_to_indicate = None;
+        }
+        if self.high_half.is_some() {
+            self.high_half = None;
+        }
+
+        if let Some(query_buffer) = self.query_buffer.as_mut() {
+            let complete = query_buffer.write(value);
+            if complete {
+                self.process_buffered_query(memory);
+            }
+        } else {
+            if self.is_connected_to_external_oracle == false && value != UART_QUERY_ID {
+                // we are not interested in general to start another query
+                return;
+            }
+
+            let new_buffer = QueryBuffer::empty_for_query_type(value);
+            self.query_buffer = Some(new_buffer);
+        }
+    }
+
+    fn write_impl_dyn(&mut self, memory: &dyn U32Memory, value: u32) {
         if self.current_query_id.is_some() {
             println!(
                 "Current query ID = 0x{:08x} iterator is not consumed in full, but received value 0x{:08x}",
@@ -352,6 +394,11 @@ impl riscv_transpiler::vm::NonDeterminismCSRSource for ZkEENonDeterminismSource 
         let proxy = RamPeekProxy { inner: memory };
         self.write_impl(&proxy, value);
     }
+
+    fn write_with_memory_access_dyn(&mut self, ram: &dyn riscv_transpiler::vm::RamPeek, value: u32) {
+        let proxy = RamPeekProxy { inner: ram };
+        self.write_impl(&proxy, value);
+    }
 }
 
 /// Wraps the original source and remembers all the read accesses.
@@ -408,6 +455,14 @@ impl<T: 'static + Send + Sync + riscv_transpiler::vm::NonDeterminismCSRSource>
         riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access(
             &mut self.original_source,
             memory,
+            value,
+        );
+    }
+
+    fn write_with_memory_access_dyn(&mut self, ram: &dyn riscv_transpiler::vm::RamPeek, value: u32) {
+        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access_dyn(
+            &mut self.original_source,
+            ram,
             value,
         );
     }

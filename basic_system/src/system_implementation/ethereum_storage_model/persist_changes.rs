@@ -341,11 +341,11 @@ impl EthereumStoragePersister {
             counter = 1;
             active_address = addr.address;
 
-            let _ = logger.write_fmt(format_args!(
-                "Processing initial value for address 0x{:040x}, slot {:?}\n",
-                &addr.address.as_uint(),
-                &addr.key,
-            ));
+            // let _ = logger.write_fmt(format_args!(
+            //     "Processing initial value for address 0x{:040x}, slot {:?}\n",
+            //     &addr.address.as_uint(),
+            //     &addr.key,
+            // ));
 
             let entry = account_cache
                 .cache
@@ -358,11 +358,11 @@ impl EthereumStoragePersister {
                 "storage root can not be zero"
             );
 
-            let _ = logger.write_fmt(format_args!(
-                "Initial storage root for address 0x{:040x} is {:?}\n",
-                addr.address.as_uint(),
-                &initial_root,
-            ));
+            // let _ = logger.write_fmt(format_args!(
+            //     "Initial storage root for address 0x{:040x} is {:?}\n",
+            //     addr.address.as_uint(),
+            //     &initial_root,
+            // ));
 
             reusable_mpt = reusable_mpt.reinit_with_root(initial_root.as_u8_array());
 
@@ -381,11 +381,11 @@ impl EthereumStoragePersister {
                     &initial_expected_value
                 );
             } else {
-                let _ = logger.write_fmt(format_args!(
-                    "Value for address 0x{:040x}, slot {:?} is unobservable\n",
-                    &addr.address.as_uint(),
-                    &addr.key,
-                ));
+                // let _ = logger.write_fmt(format_args!(
+                //     "Value for address 0x{:040x}, slot {:?} is unobservable\n",
+                //     &addr.address.as_uint(),
+                //     &addr.key,
+                // ));
             }
         } else {
             // Nothing to do
@@ -398,11 +398,11 @@ impl EthereumStoragePersister {
         loop {
             match it_fill_initial.next() {
                 Some((addr, value)) => {
-                    let _ = logger.write_fmt(format_args!(
-                        "Processing initial value for address 0x{:040x}, slot {:?}\n",
-                        &addr.address.as_uint(),
-                        &addr.key,
-                    ));
+                    // let _ = logger.write_fmt(format_args!(
+                    //     "Processing initial value for address 0x{:040x}, slot {:?}\n",
+                    //     &addr.address.as_uint(),
+                    //     &addr.key,
+                    // ));
 
                     if active_address == addr.address {
                         counter += 1;
@@ -430,11 +430,11 @@ impl EthereumStoragePersister {
                                 &initial_expected_value
                             );
                         } else {
-                            let _ = logger.write_fmt(format_args!(
-                                "Value for address 0x{:040x}, slot {:?} is unobservable\n",
-                                &addr.address.as_uint(),
-                                &addr.key,
-                            ));
+                            // let _ = logger.write_fmt(format_args!(
+                            //     "Value for address 0x{:040x}, slot {:?} is unobservable\n",
+                            //     &addr.address.as_uint(),
+                            //     &addr.key,
+                            // ));
                         }
                     } else {
                         next_pair_to_read_check = Some((addr, value));
@@ -449,22 +449,22 @@ impl EthereumStoragePersister {
             if should_update {
                 should_update = false;
 
-                let _ = logger.write_fmt(format_args!(
-                    "Should process {} potential updates for address 0x{:040x}\n",
-                    counter,
-                    &active_address.as_uint()
-                ));
+                // let _ = logger.write_fmt(format_args!(
+                //     "Should process {} potential updates for address 0x{:040x}\n",
+                //     counter,
+                //     &active_address.as_uint()
+                // ));
 
                 let mut storage_is_observed = false;
                 let mut any_mutation = false;
                 for _ in 0..counter {
                     let (addr, v) = unsafe { it_set_final.next().unwrap_unchecked() };
 
-                    let _ = logger.write_fmt(format_args!(
-                        "Processing potential updates for address 0x{:040x}, slot {:?}\n",
-                        &addr.address.as_uint(),
-                        &addr.key,
-                    ));
+                    // let _ = logger.write_fmt(format_args!(
+                    //     "Processing potential updates for address 0x{:040x}, slot {:?}\n",
+                    //     &addr.address.as_uint(),
+                    //     &addr.key,
+                    // ));
 
                     if v.initial_value_used {
                         storage_is_observed |= true;
@@ -484,10 +484,10 @@ impl EthereumStoragePersister {
                             if v.initial_value.is_zero() {
                                 // insert
 
-                                let _ = logger.write_fmt(format_args!(
-                                    "Will insert value {:?} at slot {:?}\n",
-                                    &v.current_value, &addr.key
-                                ));
+                                // let _ = logger.write_fmt(format_args!(
+                                //     "Will insert value {:?} at slot {:?}\n",
+                                //     &v.current_value, &addr.key
+                                // ));
 
                                 // encode value
                                 let pre_encoded_value = Self::encode_slot_value(
@@ -508,10 +508,10 @@ impl EthereumStoragePersister {
                             } else if v.current_value.is_zero() {
                                 // delete
 
-                                let _ = logger.write_fmt(format_args!(
-                                    "Will delete value {:?} at slot {:?}\n",
-                                    &v.initial_value, &addr.key
-                                ));
+                                // let _ = logger.write_fmt(format_args!(
+                                //     "Will delete value {:?} at slot {:?}\n",
+                                //     &v.initial_value, &addr.key
+                                // ));
 
                                 reusable_mpt.delete(path).map_err(|_| {
                                     internal_error!("failed to get delete value from MPT")
@@ -519,10 +519,10 @@ impl EthereumStoragePersister {
                             } else {
                                 // update
 
-                                let _ = logger.write_fmt(format_args!(
-                                    "Will update slot {:?} as {:?} -> {:?}\n",
-                                    &addr.key, &v.initial_value, &v.current_value
-                                ));
+                                // let _ = logger.write_fmt(format_args!(
+                                //     "Will update slot {:?} as {:?} -> {:?}\n",
+                                //     &addr.key, &v.initial_value, &v.current_value
+                                // ));
 
                                 // encode value
                                 let pre_encoded_value = Self::encode_slot_value(
@@ -535,18 +535,18 @@ impl EthereumStoragePersister {
                                 })?;
                             }
                         } else {
-                            let _ = logger.write_fmt(format_args!(
-                                "Skipping updates for value for address 0x{:040x}, slot {:?} as there is no net update\n",
-                                &addr.address.as_uint(),
-                                &addr.key,
-                            ));
+                            // let _ = logger.write_fmt(format_args!(
+                            //     "Skipping updates for value for address 0x{:040x}, slot {:?} as there is no net update\n",
+                            //     &addr.address.as_uint(),
+                            //     &addr.key,
+                            // ));
                         }
                     } else {
-                        let _ = logger.write_fmt(format_args!(
-                            "Skipping updates for value for address 0x{:040x}, slot {:?} as it was not observed\n",
-                            &addr.address.as_uint(),
-                            &addr.key,
-                        ));
+                        // let _ = logger.write_fmt(format_args!(
+                        //     "Skipping updates for value for address 0x{:040x}, slot {:?} as it was not observed\n",
+                        //     &addr.address.as_uint(),
+                        //     &addr.key,
+                        // ));
                     }
                 }
                 if storage_is_observed {
@@ -559,10 +559,10 @@ impl EthereumStoragePersister {
 
                 // recompute new root
                 if any_mutation {
-                    let _ = logger.write_fmt(format_args!(
-                        "Will update storage root for 0x{:040x}\n",
-                        &active_address.as_uint()
-                    ));
+                    // let _ = logger.write_fmt(format_args!(
+                    //     "Will update storage root for 0x{:040x}\n",
+                    //     &active_address.as_uint()
+                    // ));
 
                     // NOTE: this is fast NOP if no mutations happened
                     reusable_mpt
@@ -575,11 +575,11 @@ impl EthereumStoragePersister {
                         .expect("account with storage address must be cached");
                     let new_root = Bytes32::from_array(reusable_mpt.root(&mut hasher));
 
-                    let _ = logger.write_fmt(format_args!(
-                        "New storage root for address 0x{:040x} is {:?}\n",
-                        active_address.as_uint(),
-                        &new_root,
-                    ));
+                    // let _ = logger.write_fmt(format_args!(
+                    //     "New storage root for address 0x{:040x} is {:?}\n",
+                    //     active_address.as_uint(),
+                    //     &new_root,
+                    // ));
 
                     assert_ne!(new_root, e.current().value().storage_root);
                     e.update(|v| {
@@ -590,20 +590,20 @@ impl EthereumStoragePersister {
                         })
                     })?;
                 } else {
-                    let _ = logger.write_fmt(format_args!(
-                        "Storage root of 0x{:040x} will remain unchanged\n",
-                        &active_address.as_uint(),
-                    ));
+                    // let _ = logger.write_fmt(format_args!(
+                    //     "Storage root of 0x{:040x} will remain unchanged\n",
+                    //     &active_address.as_uint(),
+                    // ));
                 }
 
                 if let Some((addr, value)) = next_pair_to_read_check.take() {
                     active_address = addr.address;
                     counter = 1;
 
-                    let _ = logger.write_fmt(format_args!(
-                        "Setting 0x{:040x} as new active address\n",
-                        &addr.address.as_uint()
-                    ));
+                    // let _ = logger.write_fmt(format_args!(
+                    //     "Setting 0x{:040x} as new active address\n",
+                    //     &addr.address.as_uint()
+                    // ));
 
                     // Now we should update MTP for next account, and reset counter
                     // reuse for the next account
@@ -646,11 +646,11 @@ impl EthereumStoragePersister {
                             &initial_expected_value
                         );
                     } else {
-                        let _ = logger.write_fmt(format_args!(
-                            "Value for address 0x{:040x}, slot {:?} is unobservable\n",
-                            &addr.address.as_uint(),
-                            &addr.key,
-                        ));
+                        // let _ = logger.write_fmt(format_args!(
+                        //     "Value for address 0x{:040x}, slot {:?} is unobservable\n",
+                        //     &addr.address.as_uint(),
+                        //     &addr.key,
+                        // ));
                     }
                 } else {
                     // break out of the loop
@@ -670,10 +670,10 @@ impl EthereumStoragePersister {
         for record in account_cache.cache.iter() {
             let addr = record.key();
 
-            let _ = logger.write_fmt(format_args!(
-                "Updating the state of address 0x{:040x}\n",
-                addr.0.as_uint()
-            ));
+            // let _ = logger.write_fmt(format_args!(
+            //     "Updating the state of address 0x{:040x}\n",
+            //     addr.0.as_uint()
+            // ));
 
             let initial_appearance = record.key_properties().initial_appearance();
             let current_appearance = record.key_properties().current_appearance();
@@ -803,20 +803,20 @@ impl EthereumStoragePersister {
                         debug_assert!(current.bytecode_hash.is_zero() == false);
 
                         if initial != current {
-                            let _ = logger.write_fmt(format_args!(
-                                "Will update account state at address 0x{:040x}\n",
-                                addr.0.as_uint()
-                            ));
+                            // let _ = logger.write_fmt(format_args!(
+                            //     "Will update account state at address 0x{:040x}\n",
+                            //     addr.0.as_uint()
+                            // ));
 
                             if current == &EthereumAccountProperties::EMPTY_ACCOUNT
                                 || current == &EthereumAccountProperties::EMPTY_BUT_EXISTING_ACCOUNT
                             {
                                 // we should delete it
 
-                                let _ = logger.write_fmt(format_args!(
-                                    "Will delete leaf for address 0x{:040x}",
-                                    addr.0.as_uint()
-                                ));
+                                // let _ = logger.write_fmt(format_args!(
+                                //     "Will delete leaf for address 0x{:040x}",
+                                //     addr.0.as_uint()
+                                // ));
 
                                 accounts_mpt.delete(path).map_err(|_| {
                                     internal_error!("failed to update account value in MPT")
