@@ -385,7 +385,7 @@ impl riscv_transpiler::vm::NonDeterminismCSRSource for ZkEENonDeterminismSource 
         value
     }
 
-    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek>(
         &mut self,
         memory: &R,
         value: u32,
@@ -447,7 +447,7 @@ impl<T: 'static + Send + Sync + riscv_transpiler::vm::NonDeterminismCSRSource>
         item
     }
 
-    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek>(
         &mut self,
         memory: &R,
         value: u32,
@@ -462,6 +462,57 @@ impl<T: 'static + Send + Sync + riscv_transpiler::vm::NonDeterminismCSRSource>
     fn write_with_memory_access_dyn(&mut self, ram: &dyn riscv_transpiler::vm::RamPeek, value: u32) {
         riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access_dyn(
             &mut self.original_source,
+            ram,
+            value,
+        );
+    }
+}
+
+/// Wraps the original source and remembers all the read accesses.
+pub struct ReadWitnessSourceDyn<'a> {
+    original_source: &'a mut (dyn riscv_transpiler::vm::NonDeterminismCSRSource + Sync + 'static),
+    read_items: Rc<RefCell<Vec<u32>>>,
+}
+
+impl<'a> ReadWitnessSourceDyn<'a> {
+    pub fn new(original_source: &'a mut (dyn riscv_transpiler::vm::NonDeterminismCSRSource + Sync + 'static)) -> Self {
+        Self {
+            original_source,
+            read_items: Rc::new(RefCell::new(vec![])),
+        }
+    }
+
+    pub fn get_read_items(&self) -> Rc<RefCell<Vec<u32>>> {
+        self.read_items.clone()
+    }
+}
+
+
+impl<'a>
+    riscv_transpiler::vm::NonDeterminismCSRSource for ReadWitnessSourceDyn<'a>
+{
+    fn read(&mut self) -> u32 {
+        let item = riscv_transpiler::vm::NonDeterminismCSRSource::read(self.original_source);
+        // on read - remember the items.
+        self.read_items.borrow_mut().push(item);
+        item
+    }
+
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek>(
+        &mut self,
+        memory: &R,
+        value: u32,
+    ) where Self: Sized {
+        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access_dyn(
+            self.original_source,
+            memory as &dyn riscv_transpiler::vm::RamPeek,
+            value,
+        );
+    } 
+
+    fn write_with_memory_access_dyn(&mut self, ram: &dyn riscv_transpiler::vm::RamPeek, value: u32) {
+        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access_dyn(
+            self.original_source,
             ram,
             value,
         );
