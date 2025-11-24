@@ -177,10 +177,10 @@ where
 
             // Although this can be called as a part of protocol upgrade,
             // we are checking the next invariants, just in case
-            // EIP-158: reject code of length > 24576.
+            // EIP-158: reject code of length > 65536.
             if bytecode_length as usize > MAX_CODE_SIZE {
                 return Ok(Err(
-                    "Contract deployer failure: setBytecodeDetailsEVM called with invalid bytecode(length > 24576)",
+                    "Contract deployer failure: setBytecodeDetailsEVM called with invalid bytecode(length > 65536)",
                 ));
             }
             // Also EIP-3541(reject code starting with 0xEF) should be validated by governance.
