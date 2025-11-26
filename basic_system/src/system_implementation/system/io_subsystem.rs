@@ -616,7 +616,7 @@ impl<
         O: IOOracle,
     > FinishIO for FullIO<A, R, P, SF, M, O, true>
 {
-    type FinalData = (O, Bytes32);
+    type FinalData = (O, Bytes32, public_input::BatchOutput);
     fn finish(
         mut self,
         block_metadata: BlockMetadataFromOracle,
@@ -751,9 +751,9 @@ impl<
             .expect("must disconnect an oracle before performing arbitrary CSR access");
 
         if cfg!(feature = "state-diffs-pi") {
-            (self.oracle, state_diffs_hash)
+            (self.oracle, state_diffs_hash, batch_output)
         } else {
-            (self.oracle, public_input_hash)
+            (self.oracle, public_input_hash, batch_output)
         }
     }
 }
