@@ -462,6 +462,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         // forward run
         let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);
 
+        // Avoid capturing markers from second round, it duplicate them
+        #[cfg(feature = "cycle_marker")]
+        let snapshot = cycle_marker::snapshot();
         // we use proving config here for benchmarking,
         // although sequencer can have extra optimizations
         run_forward_no_panic::<BasicBootloaderProvingExecutionConfig>(
@@ -469,6 +472,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             &mut result_keeper,
             tracer,
         )?;
+        #[cfg(feature = "cycle_marker")]
+        cycle_marker::revert(snapshot);
 
         let mut result_keeper_prover_input = ProverInputResultKeeper::new(NoopTxCallback);
 
