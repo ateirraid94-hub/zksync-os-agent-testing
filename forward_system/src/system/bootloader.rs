@@ -2,6 +2,7 @@ use crate::system::system::*;
 use basic_bootloader::bootloader::config::BasicBootloaderExecutionConfig;
 use basic_bootloader::bootloader::errors::BootloaderSubsystemError;
 use basic_bootloader::bootloader::result_keeper::ResultKeeperExt;
+use basic_system::system_implementation::system::BatchOutput;
 use oracle_provider::DummyMemorySource;
 use oracle_provider::ReadWitnessSource;
 use oracle_provider::ZkEENonDeterminismSource;
@@ -33,7 +34,7 @@ pub fn run_prover_input_no_panic<Config: BasicBootloaderExecutionConfig>(
     oracle: ReadWitnessSource<DummyMemorySource>,
     result_keeper: &mut impl ResultKeeperExt,
     tracer: &mut impl Tracer<ProverInputSystem>,
-) -> Result<Vec<u32>, BootloaderSubsystemError> {
+) -> Result<(Vec<u32>, BatchOutput), BootloaderSubsystemError> {
     ProverInputBootloader::run_prepared::<Config>(oracle, result_keeper, tracer)
-        .map(|o| o.0.get_read_items().borrow().clone())
+        .map(|o| (o.0.get_read_items().borrow().clone(), o.2))
 }

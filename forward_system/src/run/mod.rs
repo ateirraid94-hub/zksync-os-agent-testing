@@ -146,7 +146,7 @@ pub fn generate_proof_input<
     let mut tracer = NopTracer::default();
     let mut result_keeper = ProverInputResultKeeper::new(tx_result_callback);
 
-    let prover_input = run_prover_input_no_panic::<BasicBootloaderProvingExecutionConfig>(
+    let (prover_input, _) = run_prover_input_no_panic::<BasicBootloaderProvingExecutionConfig>(
         copy_source,
         &mut result_keeper,
         &mut tracer,

@@ -9,6 +9,7 @@ use basic_system::system_implementation::flat_storage_model::{
     address_into_special_storage_key, AccountProperties, ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
     TREE_HEIGHT,
 };
+use basic_system::system_implementation::system::BatchOutput as PIBatchOutput;
 use ethers::signers::LocalWallet;
 use forward_system::run::result_keeper::ForwardRunningResultKeeper;
 use forward_system::run::result_keeper::ProverInputResultKeeper;
@@ -355,14 +356,36 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         tracer: &mut impl Tracer<ForwardRunningSystem>,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
         let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
-        self.run_inner(
+        let (block_output, stats, prover_input, pubdata, _) = self.run_inner(
             transactions,
             block_context,
             da_commitment_scheme,
             run_config.unwrap_or_default(),
             &factory,
             tracer,
-        )
+        )?;
+        Ok((block_output, stats, prover_input, pubdata))
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn run_block_pi_output(
+        &mut self,
+        transactions: Vec<EncodedTx>,
+        block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
+        run_config: Option<RunConfig>,
+        tracer: &mut impl Tracer<ForwardRunningSystem>,
+    ) -> Result<(BlockOutput, PIBatchOutput), BootloaderSubsystemError> {
+        let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
+        let (block_output, _, _, _, pi) = self.run_inner(
+            transactions,
+            block_context,
+            da_commitment_scheme,
+            run_config.unwrap_or_default(),
+            &factory,
+            tracer,
+        )?;
+        Ok((block_output, pi))
     }
 
     #[allow(clippy::result_large_err)]
@@ -377,17 +400,18 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         tracer: &mut impl Tracer<ForwardRunningSystem>,
         oracle_factory: &OF,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
-        self.run_inner(
+        let (block_output, stats, prover_input, pubdata, _) = self.run_inner(
             transactions,
             block_context,
             da_commitment_scheme,
             run_config.unwrap_or_default(),
             oracle_factory,
             tracer,
-        )
+        )?;
+        Ok((block_output, stats, prover_input, pubdata))
     }
 
-    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err, clippy::type_complexity)]
     fn run_inner<OF: TestingOracleFactory<RANDOMIZED_TREE>>(
         &mut self,
         transactions: Vec<EncodedTx>,
@@ -396,7 +420,16 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         run_config: RunConfig,
         oracle_factory: &OF,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
-    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
+    ) -> Result<
+        (
+            BlockOutput,
+            BlockExtraStats,
+            Vec<u32>,
+            Vec<u8>,
+            PIBatchOutput,
+        ),
+        BootloaderSubsystemError,
+    > {
         let RunConfig {
             profiler_config,
             witness_output_file,
@@ -498,11 +531,12 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
 
         let copy_source = ReadWitnessSource::new(prover_input_oracle);
         let mut tracer = NopTracer::default();
-        let prover_input_forward = run_prover_input_no_panic::<
-            BasicBootloaderProvingExecutionConfig,
-        >(
-            copy_source, &mut result_keeper_prover_input, &mut tracer
-        )?;
+        let (prover_input_forward, pi_batch_output) =
+            run_prover_input_no_panic::<BasicBootloaderProvingExecutionConfig>(
+                copy_source,
+                &mut result_keeper_prover_input,
+                &mut tracer,
+            )?;
 
         if let Some(path) = witness_output_file {
             let mut file = File::create(&path).expect("should create file");
@@ -655,7 +689,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         } else {
             vec![]
         };
-        Ok((block_output, stats, proof_input, pubdata))
+        Ok((block_output, stats, proof_input, pubdata, pi_batch_output))
     }
 
     pub fn get_account_properties(&mut self, address: &B160) -> AccountProperties {
