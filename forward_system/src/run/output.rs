@@ -135,8 +135,6 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
             storage_writes,
             account_diffs,
             published_preimages,
-            // TODO: should we define 2 types of output?
-            pubdata: vec![],
             computaional_native_used: block_computaional_native_used,
         }
     }
@@ -144,9 +142,7 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
 
 impl<TR: TxResultCallback> From<ProverInputResultKeeper<TR>> for BlockOutput {
     fn from(value: ProverInputResultKeeper<TR>) -> Self {
-        let mut o = BlockOutput::from(value.forward_running_rk);
-        o.pubdata = value.pubdata;
-        o
+        BlockOutput::from(value.forward_running_rk)
     }
 }
 

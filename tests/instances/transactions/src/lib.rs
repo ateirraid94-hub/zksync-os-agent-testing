@@ -8,7 +8,7 @@ use alloy::signers::local::PrivateKeySigner;
 use rig::alloy::consensus::TxEip7702;
 use rig::alloy::primitives::{address, b256};
 use rig::alloy::rpc::types::{AccessList, AccessListItem, TransactionRequest};
-use rig::basic_system::system_implementation::system::pubdata::PUBDATA_ENCODING_VERSION;
+use rig::basic_system::system_implementation::system::pubdata::{self, PUBDATA_ENCODING_VERSION};
 use rig::ruint::aliases::{B160, U256};
 use rig::zksync_os_interface::error::InvalidTransaction;
 use rig::{alloy, zksync_web3_rs, Chain};
@@ -1319,11 +1319,12 @@ fn test_check_pubdata_encoding_version() {
         ..Default::default()
     };
     // Check tx succeeds
-    let result = chain.run_block(vec![tx], Some(block_context), None, run_config());
+    let (result, pubdata) =
+        chain.run_block_get_pubdata(vec![tx], Some(block_context), None, run_config());
     let res0 = result.tx_results.first().expect("Must have a tx result");
     assert!(res0.as_ref().is_ok(), "Tx should succeed");
 
-    assert_eq!(result.pubdata[0], PUBDATA_ENCODING_VERSION);
+    assert_eq!(pubdata[0], PUBDATA_ENCODING_VERSION);
 }
 
 #[test]
@@ -1363,12 +1364,13 @@ fn test_check_pubdata_has_timestamp() {
         ..Default::default()
     };
     // Check tx succeeds
-    let result = chain.run_block(vec![tx], Some(block_context), None, run_config());
+    let (result, pubdata) =
+        chain.run_block_get_pubdata(vec![tx], Some(block_context), None, run_config());
     let res0 = result.tx_results.first().expect("Must have a tx result");
     assert!(res0.as_ref().is_ok(), "Tx should succeed");
 
     // Pubdata format is [VERSION(1)][BLOCK_HASH(32)][TIMESTAMP(8)][DIFFS...]
-    let pubdata_timestamp_bytes = &result.pubdata.as_slice()[33..41];
+    let pubdata_timestamp_bytes = &pubdata.as_slice()[33..41];
     let pubdata_timestamp = u64::from_be_bytes(
         pubdata_timestamp_bytes
             .try_into()

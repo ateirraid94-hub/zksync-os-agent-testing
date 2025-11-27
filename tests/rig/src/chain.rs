@@ -280,6 +280,25 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         .0
     }
 
+    pub fn run_block_get_pubdata(
+        &mut self,
+        transactions: Vec<EncodedTx>,
+        block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
+        run_config: Option<RunConfig>,
+    ) -> (BlockOutput, Vec<u8>) {
+        let (r, _, _, pubdata) = self
+            .run_block_with_extra_stats(
+                transactions,
+                block_context,
+                da_commitment_scheme,
+                run_config,
+                &mut NopTracer::default(),
+            )
+            .unwrap();
+        (r, pubdata)
+    }
+
     ///
     /// Run block with given transactions, block context, and custom oracle factory.
     /// If block context is `None` default testing values will be used.
@@ -334,7 +353,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
-    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
+    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
         let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
         self.run_inner(
             transactions,
@@ -357,7 +376,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         run_config: Option<RunConfig>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
         oracle_factory: &OF,
-    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
+    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
         self.run_inner(
             transactions,
             block_context,
@@ -377,7 +396,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         run_config: RunConfig,
         oracle_factory: &OF,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
-    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
+    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
         let RunConfig {
             profiler_config,
             witness_output_file,
@@ -496,9 +515,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
                 .expect("should write to file");
         }
 
-        // We use the result keeper from prover input run, as this one has the right
-        // pubdata.
-        let block_output: BlockOutput = result_keeper_prover_input.into();
+        let block_output: BlockOutput = result_keeper.into();
+        let pubdata = result_keeper_prover_input.pubdata;
 
         trace!(
             "{}Block output:{} \n{:#?}",
@@ -637,7 +655,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         } else {
             vec![]
         };
-        Ok((block_output, stats, proof_input))
+        Ok((block_output, stats, proof_input, pubdata))
     }
 
     pub fn get_account_properties(&mut self, address: &B160) -> AccountProperties {

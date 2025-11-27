@@ -159,7 +159,7 @@ fn test_storage_hooks() {
     let result = chain.run_block_with_extra_stats(vec![encoded_tx], None, None, None, &mut tracer);
 
     assert!(result.is_ok(), "Block execution should succeed");
-    let (block_output, _, _) = result.unwrap();
+    let (block_output, _, _, _) = result.unwrap();
     assert!(
         block_output.tx_results[0].is_ok(),
         "Transaction should succeed with correct tracer calls. Result: {:?}",
