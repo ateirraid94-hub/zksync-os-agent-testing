@@ -352,6 +352,11 @@ impl riscv_transpiler::vm::NonDeterminismCSRSource for ZkEENonDeterminismSource 
         let proxy = RamPeekProxy { inner: memory };
         self.write_impl(&proxy, value);
     }
+
+    fn write_with_memory_access_dyn(&mut self, ram: &dyn riscv_transpiler::vm::RamPeek, value: u32) {
+        let proxy = RamPeekProxy { inner: ram };
+        self.write_impl(&proxy, value);
+    }
 }
 
 /// Wraps the original source and remembers all the read accesses.
@@ -400,7 +405,7 @@ impl<T: 'static + Send + Sync + riscv_transpiler::vm::NonDeterminismCSRSource>
         item
     }
 
-    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek + ?Sized>(
+    fn write_with_memory_access<R: riscv_transpiler::vm::RamPeek>(
         &mut self,
         memory: &R,
         value: u32,
@@ -408,6 +413,14 @@ impl<T: 'static + Send + Sync + riscv_transpiler::vm::NonDeterminismCSRSource>
         riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access(
             &mut self.original_source,
             memory,
+            value,
+        );
+    }
+
+    fn write_with_memory_access_dyn(&mut self, ram: &dyn riscv_transpiler::vm::RamPeek, value: u32) {
+        riscv_transpiler::vm::NonDeterminismCSRSource::write_with_memory_access_dyn(
+            &mut self.original_source,
+            ram,
             value,
         );
     }

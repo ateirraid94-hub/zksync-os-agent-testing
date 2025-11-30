@@ -5,15 +5,19 @@ use alloy_primitives::U256;
 use alloy_rlp::Encodable;
 use alloy_rpc_types_debug::ExecutionWitness;
 use anyhow::Context;
-use anyhow::Ok;
 
-use rig::log::info;
+use rig::log::{error, info, warn};
 use rig::*;
 use serde::Deserialize;
 use serde::Serialize;
 
-use std::thread::sleep;
-use std::time::Duration;
+use base64::Engine;
+use crossbeam::channel::unbounded;
+use execution_utils::unrolled::UnrolledProgramProof;
+use execution_utils::unrolled_gpu::{UnrolledProver, UnrolledProverLevel};
+use rig::chain::get_zksync_os_img_path;
+use std::thread::{sleep, spawn};
+use std::time::{Duration, Instant};
 
 const ETH_CHAIN_ID: u64 = 1;
 
@@ -117,7 +121,7 @@ pub fn ethproofs_run(
     )?;
     // compute time taken
     let duration = current_time.elapsed().unwrap();
-    println!("Time taken: {:?}", duration);
+    info!("Time taken: {:?}", duration);
     Ok((witness, duration.as_secs_f64()))
 }
 
@@ -141,7 +145,7 @@ pub fn ethproofs_get_proving_witness_from_rpc(
 
     // compute time taken
     let duration = current_time.elapsed().unwrap();
-    println!("RPC time taken: {:?}", duration);
+    info!("RPC time taken: {:?}", duration);
 
     Ok((block, witness))
 }
@@ -261,83 +265,111 @@ pub fn ethproofs_with_proofs(
     connector: Option<EthProofsConnector>,
     block_selector: (u64, u64),
 ) -> anyhow::Result<()> {
-    use base64::Engine;
-    use bincode::config::standard;
-
-    use execution_utils::unrolled_gpu::UnrolledProver;
-    use rig::chain::get_zksync_os_img_path;
     // For now, we just use the 'default' app.bin from zksync-os dir.
     let bin_path = get_zksync_os_img_path(&None);
     let path = &bin_path.into_os_string().into_string().unwrap();
     let path = path.strip_suffix(".bin").unwrap().to_string();
-
-    let pp = UnrolledProver::new(&path, 16);
-
-    let mut next = 0;
-
-    loop {
-        let head = rpc::get_block_number(reth_endpoint)?;
-        let head = if let Some(connector) = connector.as_ref() {
-            connector.select_block(head, block_selector)
-        } else {
-            head
-        };
-        if head > next {
-            println!("Generating proof for block {}", head);
-            if let Some(connector) = connector.as_ref() {
+    let prover = UnrolledProver::new(&path, 8, UnrolledProverLevel::RecursionUnified);
+    let (block_sender, block_receiver) = unbounded::<(u64, Block, ExecutionWitness)>();
+    let (proof_sender, proof_receiver) = unbounded::<(u64, UnrolledProgramProof, u64, f64)>();
+    let connector_clone = connector.clone();
+    spawn(move || {
+        for (block_number, block, witness) in block_receiver.iter() {
+            if !block_receiver.is_empty() {
+                info!("Skipping stale block {}", block_number);
+                continue;
+            }
+            info!("Prover: Generating proof for block {}", block_number);
+            if let Some(connector) = connector_clone.clone() {
                 // Tell ethproofs we're ready for this proof.
-                let _ = connector.queue_proof(head);
+                spawn(move || connector.queue_proof(block_number));
             }
-            let (block, reth_witness) =
-                ethproofs_get_proving_witness_from_rpc(head, reth_endpoint)?;
-
-            if let Some(connector) = connector.as_ref() {
-                // Tell ethproofs we're starting actual proving.
-                let _ = connector.proving_proof(head);
-            }
-            let mut total_proof_time = Some(0f64);
-
-            let start_time = std::time::SystemTime::now();
-            // prepare an "oracle"
-
-            let block_header = block.result.header.clone().into();
+            let start_time = Instant::now();
+            let header: Header = block.result.header.clone().into();
             let withdrawals_encoding = if let Some(withdrawals) = block.result.withdrawals.clone() {
                 let mut buff = vec![];
                 withdrawals.encode(&mut buff);
-
                 buff
             } else {
                 Vec::new()
             };
             let transactions = block.get_all_raw_transactions();
-
             let oracle = rig::Chain::<false>::make_eth_block_oracle(
                 transactions,
-                reth_witness,
-                block_header,
+                witness,
+                header,
                 withdrawals_encoding,
             );
-
-            let (proof, cycles) = pp.prove(oracle);
-            total_proof_time =
-                total_proof_time.map(|t| t + start_time.elapsed().unwrap().as_secs_f64()); // Placeholder for actual proof data.
-
-            // Bincode serialize and then base64 encode the proof.
-            let serialized_proof = bincode::serde::encode_to_vec(&proof, standard())
-                .context("Failed to serialize the program proof")?;
-            let encoded_proof = base64::engine::general_purpose::STANDARD.encode(&serialized_proof);
-
-            if let Some(connector) = connector.as_ref() {
-                connector.send_proof(head, &encoded_proof, total_proof_time.unwrap(), cycles)?;
+            if let Some(connector) = connector_clone.clone() {
+                // Tell ethproofs we're starting actual proving.
+                spawn(move || connector.proving_proof(block_number));
             }
+            let (proof, cycles) = prover.prove(block_number, oracle);
+            let total_proof_time = start_time.elapsed().as_secs_f64();
+            info!("Prover: Generated proof for block {block_number} in {total_proof_time}s, cycles: {cycles}");
+            proof_sender
+                .send((block_number, proof, cycles, total_proof_time))
+                .unwrap();
+        }
+    });
 
-            next = head;
+    let connector_clone = connector.clone();
+    spawn(move || {
+        for (block_number, proof, cycles, total_proof_time) in proof_receiver.iter() {
+            if let Some(connector) = connector_clone.as_ref() {
+                // Bincode serialize, compress and then base64 encode the proof.
+                let mut compression_writer =
+                    flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+                bincode::serde::encode_into_std_write(
+                    &proof,
+                    &mut compression_writer,
+                    bincode::config::standard(),
+                )
+                .context("Failed to serialize the program proof")
+                .unwrap();
+                let encoded_proof = base64::engine::general_purpose::STANDARD
+                    .encode(compression_writer.finish().unwrap());
+                if let Err(error) =
+                    connector.send_proof(block_number, &encoded_proof, total_proof_time, cycles)
+                {
+                    warn!("Failed to send proof for block {block_number}: {error}");
+                }
+            }
+        }
+    });
+
+    let mut previous_head = 0;
+    loop {
+        let head = match rpc::get_block_number(reth_endpoint) {
+            Ok(head) => head,
+            Err(error) => {
+                error!("Error fetching block number: {error}");
+                continue;
+            }
+        };
+        let head = if let Some(connector) = connector.as_ref() {
+            connector.select_block(head, block_selector)
+        } else {
+            head
+        };
+        if head > previous_head {
+            let (block, reth_witness) =
+                match ethproofs_get_proving_witness_from_rpc(head, reth_endpoint) {
+                    Ok(data) => data,
+                    Err(error) => {
+                        error!("Error fetching block or witness for block {head}: {error}");
+                        continue;
+                    }
+                };
+            block_sender.send((head, block, reth_witness))?;
+            previous_head = head;
         } else {
             sleep(POLL_INTERVAL);
         }
     }
 }
 
+#[derive(Clone)]
 pub struct EthProofsConnector {
     pub staging: bool,
     pub auth_token: String,
@@ -382,7 +414,7 @@ impl EthProofsConnector {
             self.auth_token.clone(),
             payload,
         )?;
-        println!("Response from server: {}", response);
+        info!("Response from server: {}", response);
         Ok(())
     }
     pub fn proving_proof(&self, block_number: u64) -> anyhow::Result<()> {
@@ -395,7 +427,7 @@ impl EthProofsConnector {
             self.auth_token.clone(),
             payload,
         )?;
-        println!("Response from server: {}", response);
+        info!("Response from server: {}", response);
         Ok(())
     }
     pub fn send_proof(
@@ -405,7 +437,7 @@ impl EthProofsConnector {
         time_spent: f64,
         cycles: u64,
     ) -> anyhow::Result<()> {
-        println!(
+        info!(
             "Sending proof for block {} to ethproofs server, time spent: {}s , proof size: {} bytes",
             block_number, time_spent, serialized_proof.len()
         );
@@ -422,7 +454,7 @@ impl EthProofsConnector {
             self.auth_token.clone(),
             payload,
         )?;
-        println!("Response from server: {}", response);
+        info!("Response from server: {}", response);
         Ok(())
     }
 }

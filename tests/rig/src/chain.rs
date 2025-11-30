@@ -548,7 +548,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             }
         }
 
-        println!("Will try to run {} transactions", transactions.len());
+        info!("Will try to run {} transactions", transactions.len());
 
         let tx_source = TxListSource {
             transactions: transactions.into(),
@@ -701,7 +701,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             }
         }
 
-        println!("Will try to run {} transactions", transactions.len());
+        info!("Will try to run {} transactions", transactions.len());
 
         let tx_source = TxListSource {
             transactions: transactions.into(),

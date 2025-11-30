@@ -4,7 +4,7 @@
 
 use clap::{Parser, Subcommand};
 use ethproofs::ethproofs_live_run;
-
+use rig::env_logger;
 use crate::ethproofs::EthProofsConnector;
 mod block;
 mod block_hashes;
@@ -139,8 +139,17 @@ enum Command {
     },
 }
 
+fn init_logger() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .target(env_logger::Target::Stdout)
+        .format_timestamp_millis()
+        .format_module_path(false)
+        .format_target(false)
+        .init();
+}
+
 fn main() -> anyhow::Result<()> {
-    rig::init_logger();
+    init_logger();
     let cli = Cli::parse();
     match cli.command {
         Command::SingleRun {
