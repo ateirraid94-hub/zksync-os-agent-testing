@@ -16,6 +16,7 @@ pub use self::account_cache_entry::*;
 pub use self::preimage_cache::*;
 pub use self::simple_growable_storage::*;
 pub use self::storage_cache::*;
+use alloc::collections::BTreeMap;
 use core::alloc::Allocator;
 use crypto::MiniDigest;
 use ruint::aliases::B160;
@@ -114,23 +115,31 @@ impl<
         }
     }
 
-    fn pubdata_used_by_tx(&self) -> u32 {
-        self.account_data_cache.calculate_pubdata_used_by_tx()
-            + self.storage_cache.calculate_pubdata_used_by_tx()
+    fn pubdata_used_by_tx(&self, repeated_write_index_encoding_length: u8) -> u32 {
+        self.account_data_cache
+            .calculate_pubdata_used_by_tx(repeated_write_index_encoding_length)
+            + self
+                .storage_cache
+                .calculate_pubdata_used_by_tx(repeated_write_index_encoding_length)
     }
 
     /// Standard finish method that completes storage model processing.
     fn finish<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
-        state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut T,
+        state_commitment_and_pubdata_dst: Option<(&mut Self::StorageCommitment, &mut T)>,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+        repeated_write_index_encoding_length: u8,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError> {
         // Complete the finalization but discard the returned storage cache
-        let _ =
-            self.finish_internal(oracle, state_commitment, pubdata_dst, result_keeper, logger)?;
+        let _ = self.finish_internal(
+            oracle,
+            state_commitment_and_pubdata_dst,
+            result_keeper,
+            repeated_write_index_encoding_length,
+            logger,
+        )?;
 
         Ok(())
     }
@@ -142,14 +151,19 @@ impl<
     fn finish_and_calculate_state_diffs_hash<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
-        state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut T,
+        state_commitment_and_pubdata_dst: Option<(&mut Self::StorageCommitment, &mut T)>,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+        repeated_write_index_encoding_length: u8,
         logger: &mut impl Logger,
     ) -> Result<Bytes32, InternalError> {
         // First complete the normal storage finalization process
-        let storage_cache =
-            self.finish_internal(oracle, state_commitment, pubdata_dst, result_keeper, logger)?;
+        let storage_cache = self.finish_internal(
+            oracle,
+            state_commitment_and_pubdata_dst,
+            result_keeper,
+            repeated_write_index_encoding_length,
+            logger,
+        )?;
 
         let mut hasher = crypto::blake2s::Blake2s256::new();
         let mut state_diffs_hasher = crypto::blake2s::Blake2s256::new();
@@ -507,21 +521,188 @@ impl<
         const PROOF_ENV: bool,
     > FlatTreeWithAccountsUnderHashesStorageModel<A, R, P, SF, M, PROOF_ENV>
 {
+    fn is_account_write(key: &WarmStorageKey) -> bool {
+        key.address == ACCOUNT_PROPERTIES_STORAGE_ADDRESS
+    }
+
+    fn is_slot_write(key: &WarmStorageKey) -> bool {
+        key.address != ACCOUNT_PROPERTIES_STORAGE_ADDRESS
+    }
+
+    ///
+    /// Adds storage diffs header to pubdata.
+    /// The format is:
+    /// - total number of diffs (u32, big-endian)
+    /// - number of initial account writes (u32, big-endian)
+    /// - number of initial slot writes (u32, big-endian)
+    /// - encoding length for indices for repeated writes (u8)
+    ///
+    fn add_diffs_header_to_pubdata<T: WriteBytes + ?Sized>(
+        pubdata_dst: &mut T,
+        result_keeper: &mut impl IOResultKeeper<<Self as StorageModel>::IOTypes>,
+        storage_cache: &NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>,
+        repeated_write_index_encoding_length: u8,
+    ) -> Result<(), InternalError> {
+        let encoded_state_diffs_count =
+            (storage_cache.net_diffs_iter().count() as u32).to_be_bytes();
+        let encoded_initial_account_wirtes_count = (storage_cache
+            .net_diffs_iter()
+            .filter(|(k, v)| Self::is_account_write(k) && v.is_new_storage_slot)
+            .count() as u32)
+            .to_be_bytes();
+        let encoded_initial_slot_writes_count = (storage_cache
+            .net_diffs_iter()
+            .filter(|(k, v)| Self::is_slot_write(k) && v.is_new_storage_slot)
+            .count() as u32)
+            .to_be_bytes();
+        pubdata_dst.write(&encoded_state_diffs_count);
+        result_keeper.pubdata(&encoded_state_diffs_count);
+        pubdata_dst.write(&encoded_initial_account_wirtes_count);
+        result_keeper.pubdata(&encoded_initial_account_wirtes_count);
+        pubdata_dst.write(&encoded_initial_slot_writes_count);
+        result_keeper.pubdata(&encoded_initial_slot_writes_count);
+        pubdata_dst.write(&[repeated_write_index_encoding_length]);
+        result_keeper.pubdata(&[repeated_write_index_encoding_length]);
+        Ok(())
+    }
+
+    ///
+    /// Add storage diffs to pubdata with optimal compression.
+    /// The order of adding diffs is:
+    /// 1. Initial account writes
+    /// 2. Initial slot writes
+    /// 3. Repeated writes (both account and slot writes)
+    ///
+    fn filter_and_add_diffs_to_pubdata<T: WriteBytes + ?Sized>(
+        account_data_cache: &mut NewModelAccountCache<A, R, P, SF, M>,
+        storage_cache: &mut NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>,
+        preimages_cache: &mut BytecodeAndAccountDataPreimagesStorage<R, A>,
+        oracle: &mut impl IOOracle,
+        pubdata_dst: &mut T,
+        result_keeper: &mut impl IOResultKeeper<<Self as StorageModel>::IOTypes>,
+        repeated_write_index_encoding_length: u8,
+        key_to_index_cache: &BTreeMap<Bytes32, u64, A>,
+    ) -> Result<(), ()> {
+        let mut hasher = crypto::blake2s::Blake2s256::new();
+
+        // First, add diffs for initial account writes
+        for (k, v) in storage_cache.net_diffs_iter() {
+            if Self::is_account_write(&k) && v.is_new_storage_slot {
+                // Add address to pubdata
+                let address = B160::try_from_be_slice(&k.key.as_u8_ref()[12..]).unwrap();
+                let address_bytes = address.to_be_bytes::<{ B160::BYTES }>();
+                pubdata_dst.write(&address_bytes);
+                result_keeper.pubdata(&address_bytes);
+
+                // Add diff itself
+                let account_address = address.into();
+                let cache_item = account_data_cache.cache.get(&account_address).ok_or(())?;
+                let (l, r) = cache_item.get_initial_and_last_values().ok_or(())?;
+                AccountProperties::diff_compression::<PROOF_ENV, _, _, _>(
+                    l.value(),
+                    r.value(),
+                    r.metadata().not_publish_bytecode,
+                    pubdata_dst,
+                    result_keeper,
+                    preimages_cache,
+                    oracle,
+                )
+                .map_err(|_| ())?;
+            }
+        }
+
+        // Second, add diffs for initial slot writes
+        for (k, v) in storage_cache.net_diffs_iter() {
+            if Self::is_slot_write(&k) && v.is_new_storage_slot {
+                // Add key to pubdata
+                let derived_key =
+                    derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
+                pubdata_dst.write(&derived_key.as_u8_ref());
+                result_keeper.pubdata(&derived_key.as_u8_ref());
+
+                // Add diff itself
+                ValueDiffCompressionStrategy::optimal_compression(
+                    &v.initial_value,
+                    &v.current_value,
+                    pubdata_dst,
+                    result_keeper,
+                );
+            }
+        }
+
+        // Third, add diffs for repeated writes
+        for (k, v) in storage_cache.net_diffs_iter() {
+            if !v.is_new_storage_slot {
+                if Self::is_account_write(&k) {
+                    // Add index to pubdata
+                    let derived_key =
+                        derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
+                    let index = key_to_index_cache.get(&derived_key).ok_or(())?;
+                    write_index_fixed_width(
+                        index,
+                        repeated_write_index_encoding_length,
+                        pubdata_dst,
+                        result_keeper,
+                    )?;
+
+                    // Add diff itself
+                    let address = B160::try_from_be_slice(&k.key.as_u8_ref()[12..]).unwrap();
+                    let account_address = address.into();
+                    let cache_item = account_data_cache.cache.get(&account_address).ok_or(())?;
+                    let (l, r) = cache_item.get_initial_and_last_values().ok_or(())?;
+                    AccountProperties::diff_compression::<PROOF_ENV, _, _, _>(
+                        l.value(),
+                        r.value(),
+                        r.metadata().not_publish_bytecode,
+                        pubdata_dst,
+                        result_keeper,
+                        preimages_cache,
+                        oracle,
+                    )
+                    .map_err(|_| ())?;
+                } else {
+                    // Add index to pubdata
+                    let derived_key =
+                        derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
+                    let index = key_to_index_cache.get(&derived_key).ok_or(())?;
+                    write_index_fixed_width(
+                        index,
+                        repeated_write_index_encoding_length,
+                        pubdata_dst,
+                        result_keeper,
+                    )?;
+
+                    // Add diff itself
+                    ValueDiffCompressionStrategy::optimal_compression(
+                        &v.initial_value,
+                        &v.current_value,
+                        pubdata_dst,
+                        result_keeper,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Internal implementation shared by both `finish` and `finish_state_diffs_hash`.
     ///
     /// This method performs the complete storage finalization process:
     /// 1. Persists account changes to storage cache
     /// 2. Returns uncompressed state diffs to the result keeper
-    /// 3. Computes and commits compressed pubdata
-    /// 4. Verifies and applies all storage reads/writes to the state commitment
+    /// 3. Verifies and applies all storage reads/writes to the state commitment
+    /// 4. Computes and commits compressed pubdata
     ///
     /// Returns the final storage cache for further processing by the caller.
     fn finish_internal<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
-        state_commitment: Option<&mut <Self as StorageModel>::StorageCommitment>,
-        pubdata_dst: &mut T,
+        state_commitment_and_pubdata_dst: Option<(
+            &mut <Self as StorageModel>::StorageCommitment,
+            &mut T,
+        )>,
         result_keeper: &mut impl IOResultKeeper<<Self as StorageModel>::IOTypes>,
+        repeated_write_index_encoding_length: u8,
         logger: &mut impl Logger,
     ) -> Result<NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>, InternalError> {
         let Self {
@@ -530,7 +711,7 @@ impl<
             mut account_data_cache,
             allocator,
         } = self;
-        // flush accounts into storage
+        // 1. flush accounts into storage
         account_data_cache
             .persist_changes(
                 &mut storage_cache,
@@ -540,7 +721,7 @@ impl<
             )
             .expect("must persist changes from account cache");
 
-        // 1. Return uncompressed state diffs for sequencer
+        // 2. Return uncompressed state diffs for sequencer
         result_keeper.storage_diffs(storage_cache.net_diffs_iter().map(|(k, v)| {
             let WarmStorageKey { address, key } = k;
             let value = v.current_value;
@@ -548,65 +729,35 @@ impl<
         }));
         preimages_cache.report_new_preimages(result_keeper)?;
 
-        // 2. Commit to/return compressed pubdata
-        let encdoded_state_diffs_count =
-            (storage_cache.net_diffs_iter().count() as u32).to_be_bytes();
-        pubdata_dst.write(&encdoded_state_diffs_count);
-        result_keeper.pubdata(&encdoded_state_diffs_count);
-
-        let mut hasher = crypto::blake2s::Blake2s256::new();
-        storage_cache
-            .0
-            .cache
-            .apply_to_all_updated_elements::<_, ()>(|l, r, k| {
-                // Skip on empty diff
-                if l.value() == r.value() {
-                    return Ok(());
-                }
-                // TODO(EVM-1074): use tree index instead of key for repeated writes
-                let derived_key =
-                    derive_flat_storage_key_with_hasher(&k.address, &k.key, &mut hasher);
-                pubdata_dst.write(derived_key.as_u8_ref());
-                result_keeper.pubdata(derived_key.as_u8_ref());
-
-                // we publish preimages for account details
-                if k.address == ACCOUNT_PROPERTIES_STORAGE_ADDRESS {
-                    let account_address = B160::try_from_be_slice(&k.key.as_u8_ref()[12..])
-                        .unwrap()
-                        .into();
-                    let cache_item = account_data_cache.cache.get(&account_address).ok_or(())?;
-                    let (l, r) = cache_item.get_initial_and_last_values().ok_or(())?;
-                    AccountProperties::diff_compression::<PROOF_ENV, _, _, _>(
-                        l.value(),
-                        r.value(),
-                        r.metadata().not_publish_bytecode,
-                        pubdata_dst,
-                        result_keeper,
-                        &mut preimages_cache,
-                        oracle,
-                    )
-                    .map_err(|_| ())?;
-                } else {
-                    ValueDiffCompressionStrategy::optimal_compression(
-                        l.value(),
-                        r.value(),
-                        pubdata_dst,
-                        result_keeper,
-                    );
-                }
-                Ok(())
-            })
-            .map_err(|_| internal_error!("Failed to compute pubdata"))?;
-
-        // 3. Verify/apply reads and writes
-        cycle_marker::wrap!("verify_and_apply_batch", {
-            if let Some(state_commitment) = state_commitment {
+        if let Some((state_commitment, pubdata_dst)) = state_commitment_and_pubdata_dst {
+            // 3. Verify/apply reads and writes
+            let key_to_index_cache = cycle_marker::wrap!("verify_and_apply_batch", {
                 let it = storage_cache.net_accesses_iter();
                 state_commitment.verify_and_apply_batch(oracle, it, allocator, logger)
-            } else {
-                Ok(())
-            }
-        })?;
+            })?;
+
+            // 4. Commit to/return compressed pubdata
+            // Header contains counts for total diffs, initial account writes and initial slot writes
+            Self::add_diffs_header_to_pubdata(
+                pubdata_dst,
+                result_keeper,
+                &storage_cache,
+                repeated_write_index_encoding_length,
+            )?;
+
+            // Add diffs themselves
+            Self::filter_and_add_diffs_to_pubdata(
+                &mut account_data_cache,
+                &mut storage_cache,
+                &mut preimages_cache,
+                oracle,
+                pubdata_dst,
+                result_keeper,
+                repeated_write_index_encoding_length,
+                &key_to_index_cache,
+            )
+            .map_err(|_| internal_error!("Failed to compute pubdata"))?;
+        }
 
         Ok(storage_cache)
     }
@@ -660,4 +811,36 @@ impl<
 
         Ok(())
     }
+}
+
+#[inline]
+const fn required_be_len_u64(x: &u64) -> u8 {
+    let bits = 64 - x.leading_zeros();
+    ((bits + 7) / 8) as u8
+}
+
+/// Write a single index using a fixed big-endian width (no metadata).
+/// Fails if `width < required_be_len_u64(index)` (would truncate).
+#[inline]
+fn write_index_fixed_width<IOTypes: SystemIOTypesConfig, T: WriteBytes + ?Sized>(
+    index: &u64,
+    repeated_write_index_encoding_length: u8, // 0..=8; 0 means write nothing
+    pubdata_dst: &mut T,
+    result_keeper: &mut impl IOResultKeeper<IOTypes>,
+) -> Result<(), ()> {
+    if repeated_write_index_encoding_length > 8 {
+        return Err(());
+    }
+    let need = required_be_len_u64(index);
+    if need > repeated_write_index_encoding_length {
+        return Err(());
+    } // would lose high bits
+
+    let be = index.to_be_bytes();
+    let start = 8usize.saturating_sub(repeated_write_index_encoding_length as usize);
+    let tail = &be[start..];
+
+    pubdata_dst.write(tail);
+    result_keeper.pubdata(tail);
+    Ok(())
 }

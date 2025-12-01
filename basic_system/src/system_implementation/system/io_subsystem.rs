@@ -360,8 +360,13 @@ impl<
         )
     }
 
-    fn net_pubdata_used(&self) -> Result<u64, InternalError> {
-        Ok(self.storage.pubdata_used_by_tx() as u64
+    fn net_pubdata_used(
+        &self,
+        repeated_write_index_encoding_length: u8,
+    ) -> Result<u64, InternalError> {
+        Ok(self
+            .storage
+            .pubdata_used_by_tx(repeated_write_index_encoding_length) as u64
             + self.logs_storage.calculate_pubdata_used_by_tx()? as u64)
     }
 
@@ -466,13 +471,12 @@ impl<
         result_keeper.pubdata(&block_metadata.timestamp.to_be_bytes());
         // dump pubdata and state diffs
         self.storage
-            .finish(
+            .finish::<NopCommitmentGenerator>(
                 &mut self.oracle,
-                // no storage commitment
+                // no storage commitment or pubdata (hash) destination needed
                 None,
-                // we don't need to append pubdata to the hash
-                &mut NopCommitmentGenerator,
                 result_keeper,
+                block_metadata.repeated_write_index_encoding_length,
                 &mut logger,
             )
             .expect("Failed to finish storage");
@@ -543,9 +547,9 @@ impl<
         self.storage
             .finish(
                 &mut self.oracle,
-                Some(&mut state_commitment),
-                &mut da_commitment_generator,
+                Some((&mut state_commitment, &mut da_commitment_generator)),
                 result_keeper,
+                block_metadata.repeated_write_index_encoding_length,
                 &mut logger,
             )
             .expect("Failed to finish storage");
@@ -667,9 +671,9 @@ impl<
             self.storage
                 .finish_and_calculate_state_diffs_hash(
                     &mut self.oracle,
-                    Some(&mut state_commitment),
-                    da_commitment_generator.as_mut(),
+                    Some((&mut state_commitment, da_commitment_generator.as_mut())),
                     result_keeper,
+                    block_metadata.repeated_write_index_encoding_length,
                     &mut logger,
                 )
                 .expect("Failed to finish storage")
@@ -677,9 +681,9 @@ impl<
             self.storage
                 .finish(
                     &mut self.oracle,
-                    Some(&mut state_commitment),
-                    da_commitment_generator.as_mut(),
+                    Some((&mut state_commitment, da_commitment_generator.as_mut())),
                     result_keeper,
+                    block_metadata.repeated_write_index_encoding_length,
                     &mut logger,
                 )
                 .expect("Failed to finish storage");
@@ -865,8 +869,10 @@ where
         self.storage
             .finish(
                 &mut self.oracle,
-                Some(&mut state_commitment),
-                builder.da_commitment_generator.as_mut().unwrap().as_mut(),
+                Some((
+                    &mut state_commitment,
+                    builder.da_commitment_generator.as_mut().unwrap().as_mut(),
+                )),
                 &mut NopResultKeeper,
                 &mut NullLogger,
             )

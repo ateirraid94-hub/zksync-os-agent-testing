@@ -137,13 +137,41 @@ Pubdata is the data we should publish with the chain DA, for rollups it should b
 Also, in the future, it can be a third-party DA solution such as Celestia, Avail, etc. Or validiums shouldn't post any data at all.
 
 Pubdata includes data needed to restore the full chain state(everything under commitment mentioned in the public input section) and data for messaging.
-Now it includes(for each block):
-- pubdata encoding version (currently 0x01)
+
+The first byte of pubdata is reserved for versioning. Current version is 2.
+
+### Version 1
+
+For every block, the pubdata is:
+
+- pubdata encoding version (0x01)
 - block hash
 - block timestamp (8 bytes, BE)
-- state diffs, for the current storage model it's:
+- state diffs:
   - compressed diffs for contracts storage slots changed during block execution
   - accounts changes(nonce, balance, bytecode)
+- l2 -> l1 logs
+- l2 -> l1 messages
+
+Block number can be derived from pubdata implicitly.
+
+### Version 2
+
+For every block, the pubdata is:
+
+- pubdata encoding version (0x02)
+- block hash
+- block timestamp (8 bytes, BE)
+- state diffs:
+  - header:
+    - total_diffs (4 bytes, BE)
+    - initial account writes (4 bytes, BE): number of new accounts written to,
+    - initial slot writes (4 bytes, BE): number of new storage slots written to (not including those used to store account properties)
+    - repeated write index encoding length (1 byte): fixed width (in the range 0..=8 for indices used in repeated writes).
+  - diffs body:
+    - initial account writes: each write has a 20 byte address followed by account changes (nonce, balance, bytecode)
+    - initial contract storage slot writes: each write has a 32 byte key followed by the compressed value diff
+    - repeated writes: each write has an index in the tree (encoded using the fixed length from the header in BE) and the diff for either slot or account diff
 - l2 -> l1 logs
 - l2 -> l1 messages
 

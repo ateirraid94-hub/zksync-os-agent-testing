@@ -215,15 +215,15 @@ pub trait StorageModel: Sized + SnapshottableIo {
     fn construct(init_data: Self::InitData, allocator: Self::Allocator) -> Self;
 
     /// Get amount of pubdata needed to encode current tx diff in bytes.
-    fn pubdata_used_by_tx(&self) -> u32;
+    fn pubdata_used_by_tx(&self, repeated_write_index_encoding_length: u8) -> u32;
 
     /// Used for testing to compare state diffs between forwards and proving runs.
     fn finish_and_calculate_state_diffs_hash<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle,
-        state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut T,
+        state_commitment_and_pubdata_dst: Option<(&mut Self::StorageCommitment, &mut T)>,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+        repeated_write_index_encoding_length: u8,
         logger: &mut impl Logger,
     ) -> Result<Bytes32, InternalError>;
 
@@ -238,9 +238,9 @@ pub trait StorageModel: Sized + SnapshottableIo {
     fn finish<T: WriteBytes + ?Sized>(
         self,
         oracle: &mut impl IOOracle, // oracle is needed here to prove tree
-        state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut T,
+        state_commitment_and_pubdata_dst: Option<(&mut Self::StorageCommitment, &mut T)>,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+        repeated_write_index_encoding_length: u8,
         logger: &mut impl Logger,
     ) -> Result<(), InternalError>;
 

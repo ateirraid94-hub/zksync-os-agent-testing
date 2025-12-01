@@ -641,7 +641,7 @@ impl<
             .filter(|(_, v)| v.current_value != v.initial_value)
     }
 
-    pub fn calculate_pubdata_used_by_tx(&self) -> u32 {
+    pub fn calculate_pubdata_used_by_tx(&self, repeated_write_index_encoding_length: u8) -> u32 {
         let mut visited_elements = BTreeSet::new_in(self.0.alloc.clone());
 
         let mut pubdata_used = 0u32;
@@ -672,10 +672,15 @@ impl<
             if current_value == initial_value {
                 continue;
             }
+            let is_initial_write = element_history.initial().appearance() == Appearance::Unset;
 
             if at_tx_start_value != current_value {
-                // TODO(EVM-1074): use tree index instead of key for repeated writes
-                pubdata_used += 32; // key
+                pubdata_used += if is_initial_write {
+                    // Full key
+                    32
+                } else {
+                    repeated_write_index_encoding_length as u32
+                };
                 pubdata_used += ValueDiffCompressionStrategy::optimal_compression_length(
                     at_tx_start_value,
                     current_value,

@@ -1,6 +1,7 @@
 use constants::{CALLDATA_NON_ZERO_BYTE_GAS_COST, CALLDATA_ZERO_BYTE_GAS_COST};
 use evm_interpreter::native_resource_constants::COPY_BYTE_NATIVE_COST;
 use evm_interpreter::ERGS_PER_GAS;
+use metadata::basic_metadata::ZkSpecificPricingMetadata;
 use zk_ee::internal_error;
 use zk_ee::system::errors::internal::InternalError;
 use zk_ee::system::{Computational, Resources};
@@ -156,9 +157,12 @@ pub fn get_resources_to_charge_for_pubdata<S: EthereumLikeTypes>(
     system: &mut System<S>,
     native_per_pubdata: U256,
     base_pubdata: Option<u64>,
-) -> Result<(u64, S::Resources), InternalError> {
+) -> Result<(u64, S::Resources), InternalError>
+where
+    S::Metadata: ZkSpecificPricingMetadata,
+{
     let current_pubdata_spent = system
-        .net_pubdata_used()?
+        .net_pubdata_used(system.repeated_write_index_encoding_length())?
         .saturating_sub(base_pubdata.unwrap_or(0));
     let native_per_pubdata = u256_to_u64_saturated(&native_per_pubdata);
     let native = current_pubdata_spent
@@ -181,7 +185,10 @@ pub fn check_enough_resources_for_pubdata<S: EthereumLikeTypes>(
     native_per_pubdata: U256,
     resources: &S::Resources,
     base_pubdata: Option<u64>,
-) -> Result<(bool, S::Resources, u64), InternalError> {
+) -> Result<(bool, S::Resources, u64), InternalError>
+where
+    S::Metadata: ZkSpecificPricingMetadata,
+{
     let (pubdata_used, resources_for_pubdata) =
         get_resources_to_charge_for_pubdata(system, native_per_pubdata, base_pubdata)?;
     let _ = system.get_logger().write_fmt(format_args!(

@@ -405,7 +405,7 @@ impl<
         })
     }
 
-    pub fn calculate_pubdata_used_by_tx(&self) -> u32 {
+    pub fn calculate_pubdata_used_by_tx(&self, repeated_write_index_encoding_length: u8) -> u32 {
         let mut visited_elements = BTreeSet::new_in(self.alloc.clone());
 
         let mut pubdata_used = 0u32;
@@ -432,8 +432,15 @@ impl<
                 continue;
             }
 
+            let is_initial_write = initial.appearance() == Appearance::Unset;
+
             if current.value() != at_tx_start.value() {
-                pubdata_used += 32; // key
+                pubdata_used += if is_initial_write {
+                    // Address
+                    20
+                } else {
+                    repeated_write_index_encoding_length as u32
+                };
                 pubdata_used += AccountProperties::diff_compression_length(
                     at_tx_start.value(),
                     current.value(),

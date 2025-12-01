@@ -1,7 +1,9 @@
 use crate::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
 use crate::system::errors::internal::InternalError;
 use crate::system::logger::Logger;
+use crate::utils::Bytes32;
 use crate::{oracle::IOOracle, types_config::SystemIOTypesConfig};
+use alloc::collections::BTreeMap;
 use core::alloc::Allocator;
 
 #[derive(Clone, Copy, Debug)]
@@ -30,5 +32,5 @@ pub trait StateRootView<IOTypes: SystemIOTypesConfig>:
         source: impl Iterator<Item = (WarmStorageKey, WarmStorageValue)> + Clone,
         allocator: A,
         logger: &mut impl Logger,
-    ) -> Result<(), InternalError>;
+    ) -> Result<BTreeMap<Bytes32, u64, A>, InternalError>;
 }
