@@ -545,7 +545,7 @@ impl<
     ) -> Result<(), InternalError> {
         let encoded_state_diffs_count =
             (storage_cache.net_diffs_iter().count() as u32).to_be_bytes();
-        let encoded_initial_account_wirtes_count = (storage_cache
+        let encoded_initial_account_writes_count = (storage_cache
             .net_diffs_iter()
             .filter(|(k, v)| Self::is_account_write(k) && v.is_new_storage_slot)
             .count() as u32)
@@ -557,8 +557,8 @@ impl<
             .to_be_bytes();
         pubdata_dst.write(&encoded_state_diffs_count);
         result_keeper.pubdata(&encoded_state_diffs_count);
-        pubdata_dst.write(&encoded_initial_account_wirtes_count);
-        result_keeper.pubdata(&encoded_initial_account_wirtes_count);
+        pubdata_dst.write(&encoded_initial_account_writes_count);
+        result_keeper.pubdata(&encoded_initial_account_writes_count);
         pubdata_dst.write(&encoded_initial_slot_writes_count);
         result_keeper.pubdata(&encoded_initial_slot_writes_count);
         pubdata_dst.write(&[repeated_write_index_encoding_length]);
