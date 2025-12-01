@@ -874,6 +874,7 @@ where
                     builder.da_commitment_generator.as_mut().unwrap().as_mut(),
                 )),
                 &mut NopResultKeeper,
+                block_metadata.repeated_write_index_encoding_length,
                 &mut NullLogger,
             )
             .expect("Failed to finish storage");

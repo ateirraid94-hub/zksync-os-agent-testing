@@ -222,6 +222,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             gas_limit: block_context.gas_limit,
             pubdata_limit: block_context.pubdata_limit,
             mix_hash: block_context.mix_hash,
+            repeated_write_index_encoding_length: 5,
         };
         let tx_source = TxListSource {
             transactions: transactions.into(),
@@ -417,6 +418,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             gas_limit: block_context.gas_limit,
             pubdata_limit: block_context.pubdata_limit,
             mix_hash: block_context.mix_hash,
+            repeated_write_index_encoding_length: 5,
         };
         let state_commitment = FlatStorageCommitment::<{ TREE_HEIGHT }> {
             root: *self.state_tree.storage_tree.root(),
