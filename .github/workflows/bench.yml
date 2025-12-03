@@ -64,6 +64,7 @@ jobs:
           rustup component add rust-src
           ./dump_bin.sh --type for-tests
           ./dump_bin.sh --type evm-replay-benchmarking
+          ./dump_bin.sh --type multiblock-batch
 
 
       - name: run benchmarks on base branch
