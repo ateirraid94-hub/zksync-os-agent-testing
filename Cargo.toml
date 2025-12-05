@@ -30,11 +30,11 @@ members = [
     "tests/instances/multiblock_batch",
     "tests/instances/header",
     "tests/instances/evm",
-    "cycle_marker",
     "tests/binary_checker",
+    "supporting_crates/cycle_marker",
     "supporting_crates/delegated_u256",
     "supporting_crates/u256",
-    "scripts"
+    "tools/scripts"
 ]
 
 exclude = [
