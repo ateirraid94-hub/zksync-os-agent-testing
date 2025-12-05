@@ -31,6 +31,7 @@ members = [
     "tests/instances/header",
     "tests/instances/evm",
     "tests/binary_checker",
+    "tools/zksync_os_revm",
     "supporting_crates/cycle_marker",
     "supporting_crates/delegated_u256",
     "supporting_crates/u256",

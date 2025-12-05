@@ -1,0 +1,18 @@
+[package]
+name = "zksync-os-revm"
+edition = "2024"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+revm = { version = "=29.0.0", features = ["optional_balance_check"] }
+auto_impl = "1.3.0"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_derive = "1.0"
+
