@@ -285,7 +285,7 @@ where
             let caller_account = journal.load_account_code(tx.caller())?.data;
             if tx.kind().is_create() {
                 // Bump the nonce for creates, because usually it is handled in `handle_create`.
-                // And force faillure doesn't call the actual execution.
+                // And force failure doesn't call the actual execution.
                 caller_account.info.nonce = caller_account.info.nonce.saturating_add(1);
             }
             // Synthesize a top-level REVERT frame result (no state changes).
