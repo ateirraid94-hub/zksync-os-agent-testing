@@ -4,11 +4,10 @@
 #![cfg(test)]
 
 use alloy::signers::local::PrivateKeySigner;
-use rig::alloy_sol_types::sol;
-use rig::alloy_sol_types::SolCall;
 use rig::crypto::MiniDigest;
 use rig::ruint::aliases::{B160, U256};
 use rig::system_hooks::addresses_constants::L2_INTEROP_ROOT_STORAGE_ADDRESS;
+use rig::utils::encode_interop_root_import_calldata;
 use rig::zk_ee::common_structs::interop_root_storage::InteropRoot as StoredInteropRoot;
 use rig::zk_ee::system::tracer::NopTracer;
 use rig::zk_ee::utils::Bytes32;
@@ -116,17 +115,6 @@ fn run_test_inner(interop_roots: Vec<StoredInteropRoot>) {
     let bytecode = hex::decode(L2_INTEROP_ROOT_STORAGE_BYTECODE).unwrap();
     chain.set_evm_bytecode(L2_INTEROP_ROOT_STORAGE_ADDRESS, &bytecode);
 
-    // Declare sol interface
-    sol! {
-      struct InteropRoot {
-          uint256 chainId;
-          uint256 blockOrBatchNumber;
-          bytes32[] sides;
-      }
-
-      function addInteropRootsInBatch(InteropRoot[] calldata interopRootsInput);
-    }
-
     // Compute expected rolling hash
     let expected_rolling_hash = rig::basic_system::system_implementation::system::interop_roots::calculate_interop_roots_rolling_hash(
         Bytes32::ZERO,
@@ -136,21 +124,7 @@ fn run_test_inner(interop_roots: Vec<StoredInteropRoot>) {
 
     // Construct calldata
     let n_interop_roots = interop_roots.len();
-    let interop_roots: Vec<InteropRoot> = interop_roots
-        .into_iter()
-        .map(|r: StoredInteropRoot| {
-            let root_b256 = alloy::primitives::B256::from_slice(r.root.as_u8_ref());
-            InteropRoot {
-                chainId: r.chain_id,
-                blockOrBatchNumber: r.block_or_batch_number,
-                sides: vec![root_b256],
-            }
-        })
-        .collect();
-    let calldata: Vec<u8> = addInteropRootsInBatchCall {
-        interopRootsInput: interop_roots,
-    }
-    .abi_encode();
+    let calldata = encode_interop_root_import_calldata(interop_roots);
 
     let tx = rig::utils::encode_service_tx(
         0,
