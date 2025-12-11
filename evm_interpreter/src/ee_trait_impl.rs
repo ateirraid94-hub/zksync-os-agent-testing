@@ -46,7 +46,7 @@ impl<'ee, S: EthereumLikeTypes> ExecutionEnvironment<'ee, S, EvmErrors> for Inte
             call_value: U256::ZERO,
             is_constructor: false,
             pending_os_request: None,
-            code_size_limit: DEFAULT_MAX_CODE_SIZE,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE as usize,
         })
     }
 
