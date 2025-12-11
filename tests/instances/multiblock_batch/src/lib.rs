@@ -7,15 +7,12 @@ use alloy::consensus::{TxEip1559, TxLegacy};
 use alloy::primitives::TxKind;
 use alloy::signers::local::PrivateKeySigner;
 use rig::alloy::primitives::address;
-use rig::forward_system::run::generate_batch_proof_input;
-use rig::log::debug;
+use rig::chain::BlockToRun;
 use rig::ruint::aliases::{B160, U256};
 use rig::utils::{ERC_20_BYTECODE, ERC_20_MINT_CALLDATA, ERC_20_TRANSFER_CALLDATA};
 use rig::zk_ee::common_structs::DACommitmentScheme;
-use rig::zk_ee::system::tracer::NopTracer;
 use rig::{alloy, zksync_web3_rs, Chain};
-use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
-use std::path::PathBuf;
+
 use std::str::FromStr;
 use zksync_web3_rs::signers::{LocalWallet, Signer};
 
@@ -51,15 +48,11 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
     };
 
-    let block1_result = chain
-        .run_block_with_extra_stats(
-            vec![encoded_mint_tx],
-            None,
-            Some(da_commitment_scheme),
-            None,
-            &mut NopTracer::default(),
-        )
-        .unwrap();
+    let block1 = BlockToRun {
+        transactions: vec![encoded_mint_tx],
+        block_context: None,
+    };
+
     let encoded_transfer_tx = {
         let transfer_tx = TxEip1559 {
             chain_id: 37u64,
@@ -74,41 +67,12 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         };
         rig::utils::sign_and_encode_alloy_tx(transfer_tx, &wallet)
     };
+    let block2 = BlockToRun {
+        transactions: vec![encoded_transfer_tx],
+        block_context: None,
+    };
 
-    let block2_result = chain
-        .run_block_with_extra_stats(
-            vec![encoded_transfer_tx],
-            None,
-            Some(da_commitment_scheme),
-            None,
-            &mut NopTracer::default(),
-        )
-        .unwrap();
-
-    let batch_input = generate_batch_proof_input(
-        vec![block1_result.2.as_slice(), block2_result.2.as_slice()],
-        da_commitment_scheme,
-        vec![block1_result.3.as_slice(), block2_result.3.as_slice()],
-    );
-
-    let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
-        .join("zksync_os")
-        .join("multiblock_batch.bin");
-
-    let proof_output = zksync_os_runner::run(
-        multinblock_program_path,
-        None,
-        1 << 36,
-        QuasiUARTSource::new_with_reads(batch_input),
-    );
-
-    debug!("Proof running output = 0x",);
-    for word in proof_output.into_iter() {
-        debug!("{word:08x}");
-    }
-
-    // Ensure that proof running didn't fail: check that output is not zero
-    assert!(proof_output.into_iter().any(|word| word != 0));
+    chain.run_multiblock_batch_proof_run_on_two_blocks(block1, block2, da_commitment_scheme)
 }
 
 #[test]

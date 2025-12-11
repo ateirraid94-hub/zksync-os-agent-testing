@@ -11,6 +11,7 @@ use basic_system::system_implementation::flat_storage_model::{
 };
 use basic_system::system_implementation::system::BatchOutput as PIBatchOutput;
 use ethers::signers::LocalWallet;
+use forward_system::run::generate_batch_proof_input;
 use forward_system::run::result_keeper::ForwardRunningResultKeeper;
 use forward_system::run::result_keeper::ProverInputResultKeeper;
 use forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree, NoopTxCallback};
@@ -20,6 +21,7 @@ use forward_system::system::system::ForwardRunningSystem;
 use log::{debug, info, trace};
 use oracle_provider::MemorySource;
 use oracle_provider::{ReadWitnessSource, ZkEENonDeterminismSource};
+use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
 use risc_v_simulator::sim::{DiagnosticsConfig, ProfilerConfig};
 use ruint::aliases::{B160, B256, U256};
 use std::collections::HashMap;
@@ -864,6 +866,63 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         info!("Generated wallet: {r:0x?}");
         r
     }
+
+    pub fn run_multiblock_batch_proof_run_on_two_blocks(
+        &mut self,
+        first: BlockToRun,
+        second: BlockToRun,
+        da_commitment_scheme: DACommitmentScheme,
+    ) {
+        let block1_result = self
+            .run_block_with_extra_stats(
+                first.transactions,
+                first.block_context,
+                Some(da_commitment_scheme),
+                None,
+                &mut NopTracer::default(),
+            )
+            .unwrap();
+
+        let block2_result = self
+            .run_block_with_extra_stats(
+                second.transactions,
+                second.block_context,
+                Some(da_commitment_scheme),
+                None,
+                &mut NopTracer::default(),
+            )
+            .unwrap();
+
+        let batch_input = generate_batch_proof_input(
+            vec![block1_result.2.as_slice(), block2_result.2.as_slice()],
+            da_commitment_scheme,
+            vec![block1_result.3.as_slice(), block2_result.3.as_slice()],
+        );
+
+        let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
+            .join("zksync_os")
+            .join("multiblock_batch.bin");
+
+        let proof_output = zksync_os_runner::run(
+            multinblock_program_path,
+            None,
+            1 << 36,
+            QuasiUARTSource::new_with_reads(batch_input),
+        );
+
+        debug!("Proof running output = 0x",);
+        for word in proof_output.into_iter() {
+            debug!("{word:08x}");
+        }
+
+        // Ensure that proof running didn't fail: check that output is not zero
+        assert!(proof_output.into_iter().any(|word| word != 0));
+    }
+}
+
+pub struct BlockToRun {
+    pub transactions: Vec<EncodedTx>,
+    pub block_context: Option<BlockContext>,
 }
 
 // bunch of internal utility methods
