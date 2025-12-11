@@ -697,7 +697,7 @@ where
     let code_size_limit = system
         .evm_code_size_limit()
         .map(|limit| limit as usize)
-        .unwrap_or(DEFAULT_MAX_CODE_SIZE);
+        .unwrap_or(DEFAULT_MAX_CODE_SIZE as usize);
 
     let external_call_launch_params = ExecutionEnvironmentLaunchParams {
         external_call: ExternalCallRequest {

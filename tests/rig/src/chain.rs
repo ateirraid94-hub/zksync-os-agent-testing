@@ -101,7 +101,7 @@ pub struct BlockContext {
     pub gas_limit: u64,
     pub pubdata_limit: u64,
     pub mix_hash: U256,
-    pub code_size_limit: Option<u32>,
+    pub code_size_limit: u32,
 }
 
 impl Default for BlockContext {
@@ -115,7 +115,7 @@ impl Default for BlockContext {
             gas_limit: MAX_BLOCK_GAS_LIMIT,
             pubdata_limit: u64::MAX,
             mix_hash: U256::ONE,
-            code_size_limit: None,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE,
         }
     }
 }
@@ -256,9 +256,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             gas_limit: block_context.gas_limit,
             pubdata_limit: block_context.pubdata_limit,
             mix_hash: block_context.mix_hash,
-            code_size_limit: block_context
-                .code_size_limit
-                .unwrap_or(DEFAULT_MAX_CODE_SIZE as u32),
+            code_size_limit: block_context.code_size_limit,
         };
         let tx_source = TxListSource {
             transactions: transactions.into(),
@@ -435,9 +433,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             gas_limit: block_context.gas_limit,
             pubdata_limit: block_context.pubdata_limit,
             mix_hash: block_context.mix_hash,
-            code_size_limit: block_context
-                .code_size_limit
-                .unwrap_or(DEFAULT_MAX_CODE_SIZE as u32),
+            code_size_limit: block_context.code_size_limit,
         };
         let state_commitment = FlatStorageCommitment::<{ TREE_HEIGHT }> {
             root: *self.state_tree.storage_tree.root(),

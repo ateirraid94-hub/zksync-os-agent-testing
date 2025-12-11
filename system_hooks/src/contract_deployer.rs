@@ -182,7 +182,7 @@ where
             let code_size_limit = system
                 .evm_code_size_limit()
                 .map(|limit| limit as usize)
-                .unwrap_or(DEFAULT_MAX_CODE_SIZE);
+                .unwrap_or(DEFAULT_MAX_CODE_SIZE as usize);
             if bytecode_length as usize > code_size_limit {
                 return Ok(Err(
                     "Contract deployer failure: setBytecodeDetailsEVM called with the bytecode size that exceeds the limit",

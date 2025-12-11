@@ -221,7 +221,7 @@ impl BlockMetadataFromOracle {
             coinbase: B160::ZERO,
             block_hashes: BlockHashes::default(),
             mix_hash: U256::ONE,
-            code_size_limit: DEFAULT_MAX_CODE_SIZE as u32,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE,
         }
     }
 }
