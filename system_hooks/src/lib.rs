@@ -33,6 +33,7 @@ use crate::contract_deployer::contract_deployer_hook;
 use crate::interop_root_reporter::interop_root_reporter_event_hook;
 use crate::l1_messenger::l1_messenger_hook;
 use crate::l2_base_token::l2_base_token_hook;
+use crate::new_sl_chain_id_reporter::system_context_event_hook;
 use core::marker::PhantomData;
 use core::{alloc::Allocator, mem::MaybeUninit};
 use evm_interpreter::ERGS_PER_GAS;
@@ -62,6 +63,7 @@ pub mod contract_deployer;
 pub mod interop_root_reporter;
 pub mod l1_messenger;
 pub mod l2_base_token;
+pub mod new_sl_chain_id_reporter;
 mod precompiles;
 
 pub trait SystemFunctionInvocation<S: SystemTypes, E: Subsystem>
@@ -240,6 +242,15 @@ pub fn add_interop_root_reporter<S: EthereumLikeTypes, A: Allocator + Clone>(
     hooks.add_event_hook(
         L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW,
         SystemEventHook::new(interop_root_reporter_event_hook),
+    )
+}
+
+pub fn add_system_context_reporter<S: EthereumLikeTypes, A: Allocator + Clone>(
+    hooks: &mut HooksStorage<S, A>,
+) {
+    hooks.add_event_hook(
+        SYSTEM_CONTEXT_ADDRESS_LOW,
+        SystemEventHook::new(system_context_event_hook),
     )
 }
 
