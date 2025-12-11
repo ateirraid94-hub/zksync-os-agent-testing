@@ -13,7 +13,6 @@ use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::interface_error;
 use zk_ee::memory::slice_vec::SliceVec;
 use zk_ee::out_of_return_memory;
-use zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 use zk_ee::system::errors::context::contextualized::Contextualized as _;
 use zk_ee::system::errors::root_cause::GetRootCause;
 use zk_ee::system::errors::root_cause::RootCause;
@@ -706,11 +705,7 @@ where
         callee_account_properties.ee_type
     };
 
-    let code_size_limit = system
-        .evm_code_size_limit()
-        .map(|limit| limit as usize)
-        .unwrap_or(DEFAULT_MAX_CODE_SIZE as usize);
-
+    let code_size_limit = system.evm_code_size_limit() as usize;
     let external_call_launch_params = ExecutionEnvironmentLaunchParams {
         external_call: ExternalCallRequest {
             available_resources: resources_for_callee_frame,

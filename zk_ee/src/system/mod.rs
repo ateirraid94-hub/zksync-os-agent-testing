@@ -226,7 +226,7 @@ where
     S::Metadata: EvmCodeSizeLimitMetadata,
 {
     /// Returns the optional override for the maximum deployed EVM bytecode size (in bytes).
-    pub fn evm_code_size_limit(&self) -> Option<u32> {
+    pub fn evm_code_size_limit(&self) -> u32 {
         self.metadata.evm_code_size_limit()
     }
 }

@@ -121,7 +121,7 @@ impl<
         TX: BasicTransactionMetadata<IOTypes>,
     > EvmCodeSizeLimitMetadata for SystemMetadata<IOTypes, B, TX>
 {
-    fn evm_code_size_limit(&self) -> Option<u32> {
+    fn evm_code_size_limit(&self) -> u32 {
         self.block_level.evm_code_size_limit()
     }
 }

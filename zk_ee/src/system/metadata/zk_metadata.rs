@@ -131,8 +131,8 @@ pub struct BlockMetadataFromOracle {
 }
 
 impl EvmCodeSizeLimitMetadata for BlockMetadataFromOracle {
-    fn evm_code_size_limit(&self) -> Option<u32> {
-        Some(self.code_size_limit)
+    fn evm_code_size_limit(&self) -> u32 {
+        self.code_size_limit
     }
 }
 
