@@ -3,6 +3,7 @@ use crate::utils::*;
 use alloy::primitives::*;
 use std::cmp::min;
 use std::str::FromStr;
+use zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 use zk_ee::utils::u256_to_u64_saturated;
 use zk_ee::utils::Bytes32;
 use zksync_os_basic_bootloader::bootloader::constants::MAX_BLOCK_GAS_LIMIT;
@@ -92,7 +93,7 @@ impl ZKsyncOS {
             coinbase: ruint::Bits::try_from_be_slice(system_context.coinbase.as_slice())
                 .expect("Invalid coinbase"),
             mix_hash: system_context.mix_hash,
-            code_size_limit: None,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE,
         };
 
         let run_config = RunConfig {
@@ -101,9 +102,9 @@ impl ZKsyncOS {
             check_storage_diff_hashes: proof_run,
             ..Default::default()
         };
-        let result = self
-            .chain
-            .run_block_no_panic(encoded_txs, Some(context), None, Some(run_config));
+        let result =
+            self.chain
+                .run_block_no_panic(encoded_txs, Some(context), None, Some(run_config));
 
         self.get_block_execution_result(result)
     }
