@@ -41,7 +41,9 @@ use zk_ee::system::errors::root_cause::{GetRootCause, RootCause};
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::{internal::InternalError, system::SystemError};
 use zk_ee::system::evm::{EvmFrameInterface, EvmStackInterface};
-use zk_ee::system::{Ergs, EthereumLikeTypes, Resource, Resources, System, SystemTypes};
+use zk_ee::system::{
+    Ergs, EthereumLikeTypes, Resource, Resources, System, SystemTypes, DEFAULT_MAX_CODE_SIZE,
+};
 
 use alloc::vec::Vec;
 use zk_ee::utils::*;
@@ -109,6 +111,8 @@ pub struct Interpreter<'a, S: SystemTypes> {
     pub is_constructor: bool,
     /// Indicating that EE is waiting for the result of some operation from the OS. `continue_after_preemption` will panic if this is None
     pub pending_os_request: Option<PendingOsRequest<S>>,
+    /// Maximum allowed deployed bytecode size for the current execution context.
+    pub code_size_limit: usize,
 }
 
 /// Wrapper to provide external access to EVM frame state
@@ -183,8 +187,7 @@ impl<'ee, S: EthereumLikeTypes> EvmFrameInterface<S> for InterpreterExternal<'ee
 }
 
 pub const STACK_SIZE: usize = 1024;
-pub const MAX_CODE_SIZE: usize = 0x6000;
-pub const MAX_INITCODE_SIZE: usize = MAX_CODE_SIZE * 2;
+pub const MAX_INITCODE_SIZE: usize = DEFAULT_MAX_CODE_SIZE * 2;
 pub const ERGS_PER_GAS: u64 = 256;
 pub const ERGS_PER_GAS_U256: U256 = U256::from_limbs([ERGS_PER_GAS, 0, 0, 0]);
 pub const BYTECODE_ALIGNMENT: usize = core::mem::size_of::<u64>();

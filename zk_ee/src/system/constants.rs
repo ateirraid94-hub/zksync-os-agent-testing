@@ -26,3 +26,6 @@ macro_rules! native_with_delegations {
 pub const MAX_NATIVE_COMPUTATIONAL: u64 = 1 << 35;
 
 pub const EIP7702_DELEGATION_MARKER: [u8; 3] = [0xef, 0x01, 0x00];
+
+/// Default limit for the size of deployed bytecode in bytes. Enforced by EIP-158.
+pub const DEFAULT_MAX_CODE_SIZE: usize = 0x6000;

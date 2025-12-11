@@ -4,6 +4,7 @@ use errors::BootloaderSubsystemError;
 use system_hooks::HooksStorage;
 use zk_ee::system::errors::subsystem::SubsystemError;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
+use zk_ee::system::metadata::basic_metadata::EvmCodeSizeLimitMetadata;
 use zk_ee::system::CallModifier;
 use zk_ee::system::{EthereumLikeTypes, System};
 use zk_ee::{interface_error, internal_error, wrap_error};
@@ -13,6 +14,7 @@ use super::*;
 impl<S: EthereumLikeTypes, F: BasicTransactionFlow<S>> BasicBootloader<S, F>
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     ///
     /// Mints [value] to address [to].

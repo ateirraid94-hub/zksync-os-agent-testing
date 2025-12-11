@@ -5,6 +5,7 @@
 
 use arbitrary::{Arbitrary, Unstructured};
 use basic_bootloader::bootloader::supported_ees::SupportedEEVMState;
+use zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 use libfuzzer_sys::fuzz_target;
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::forward_system::system::system::ForwardRunningSystem;
@@ -147,6 +148,7 @@ fn fuzz(input: FuzzInput) {
                         scratch_space_len: 0,
                         callee_account_properties,
                         callstack_depth: 1, // To not trigger any special cases
+                        code_size_limit: DEFAULT_MAX_CODE_SIZE,
                     },
                     external_call: ExternalCallRequest {
                         available_resources: inf_resources.clone(),

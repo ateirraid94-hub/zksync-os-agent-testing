@@ -2,10 +2,12 @@
 //! We will move it in future PRs.
 
 use super::basic_metadata::{
-    BasicBlockMetadata, BasicTransactionMetadata, ZkSpecificPricingMetadata,
+    BasicBlockMetadata, BasicTransactionMetadata, EvmCodeSizeLimitMetadata,
+    ZkSpecificPricingMetadata,
 };
 use super::system_metadata::SystemMetadata;
 use crate::system::errors::internal::InternalError;
+use crate::system::DEFAULT_MAX_CODE_SIZE;
 use crate::types_config::{EthereumIOTypesConfig, SystemIOTypesConfig};
 use crate::utils::Bytes32;
 use crate::{
@@ -124,6 +126,14 @@ pub struct BlockMetadataFromOracle {
     /// Source of randomness, currently holds the value
     /// of prevRandao.
     pub mix_hash: U256,
+    /// Deployed bytecode size limit (in bytes).
+    pub code_size_limit: u32,
+}
+
+impl EvmCodeSizeLimitMetadata for BlockMetadataFromOracle {
+    fn evm_code_size_limit(&self) -> Option<u32> {
+        Some(self.code_size_limit)
+    }
 }
 
 impl BasicBlockMetadata<EthereumIOTypesConfig> for BlockMetadataFromOracle {
@@ -186,14 +196,14 @@ impl BasicBlockMetadata<EthereumIOTypesConfig> for BlockMetadataFromOracle {
 }
 
 impl ZkSpecificPricingMetadata for BlockMetadataFromOracle {
-    fn get_pubdata_price(&self) -> U256 {
-        self.pubdata_price
-    }
     fn native_price(&self) -> U256 {
         self.native_price
     }
     fn get_pubdata_limit(&self) -> u64 {
         self.pubdata_limit
+    }
+    fn get_pubdata_price(&self) -> U256 {
+        self.pubdata_price
     }
 }
 
@@ -211,6 +221,7 @@ impl BlockMetadataFromOracle {
             coinbase: B160::ZERO,
             block_hashes: BlockHashes::default(),
             mix_hash: U256::ONE,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE as u32,
         }
     }
 }
@@ -219,7 +230,8 @@ impl UsizeSerializable for BlockMetadataFromOracle {
     const USIZE_LEN: usize = <U256 as UsizeSerializable>::USIZE_LEN
         * (4 + BLOCK_HASHES_WINDOW_SIZE)
         + <u64 as UsizeSerializable>::USIZE_LEN * 5
-        + <B160 as UsizeDeserializable>::USIZE_LEN;
+        + <B160 as UsizeDeserializable>::USIZE_LEN
+        + <u32 as UsizeSerializable>::USIZE_LEN;
 
     fn iter(&self) -> impl ExactSizeIterator<Item = usize> {
         ExactSizeChain::new(
@@ -247,11 +259,11 @@ impl UsizeSerializable for BlockMetadataFromOracle {
                         ),
                         UsizeSerializable::iter(&self.pubdata_limit),
                     ),
-                    UsizeSerializable::iter(&self.coinbase),
+                    UsizeSerializable::iter(&self.code_size_limit),
                 ),
-                UsizeSerializable::iter(&self.block_hashes),
+                UsizeSerializable::iter(&self.coinbase),
             ),
-            UsizeSerializable::iter(&self.mix_hash),
+            UsizeSerializable::iter(&self.block_hashes),
         )
     }
 }
@@ -271,6 +283,7 @@ impl UsizeDeserializable for BlockMetadataFromOracle {
         let coinbase = UsizeDeserializable::from_iter(src)?;
         let block_hashes = UsizeDeserializable::from_iter(src)?;
         let mix_hash = UsizeDeserializable::from_iter(src)?;
+        let code_size_limit = UsizeDeserializable::from_iter(src)?;
 
         let new = Self {
             eip1559_basefee,
@@ -284,6 +297,7 @@ impl UsizeDeserializable for BlockMetadataFromOracle {
             coinbase,
             block_hashes,
             mix_hash,
+            code_size_limit,
         };
 
         Ok(new)

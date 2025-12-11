@@ -45,6 +45,7 @@ impl<'ee, S: EthereumLikeTypes> ExecutionEnvironment<'ee, S, EvmErrors> for Inte
             call_value: U256::ZERO,
             is_constructor: false,
             pending_os_request: None,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE,
         })
     }
 
@@ -79,6 +80,7 @@ impl<'ee, S: EthereumLikeTypes> ExecutionEnvironment<'ee, S, EvmErrors> for Inte
             scratch_space_len: _,
             callstack_depth: _,
             callee_account_properties,
+            code_size_limit,
         } = environment_parameters;
 
         let mut is_static = false;
@@ -197,6 +199,7 @@ impl<'ee, S: EthereumLikeTypes> ExecutionEnvironment<'ee, S, EvmErrors> for Inte
         self.calldata = calldata;
         self.heap = heap;
         self.call_value = nominal_token_value;
+        self.code_size_limit = code_size_limit;
 
         self.execute_till_yield_point(system, tracer)
     }

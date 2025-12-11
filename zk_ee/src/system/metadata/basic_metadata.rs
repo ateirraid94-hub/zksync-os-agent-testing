@@ -84,6 +84,13 @@ pub trait ZkSpecificPricingMetadata {
     fn get_pubdata_price(&self) -> U256;
 }
 
+/// Optional hook for block metadata to expose custom code size limits for EVM deployments.
+pub trait EvmCodeSizeLimitMetadata {
+    /// Returns the maximum allowed deployed bytecode size in bytes.
+    /// Returning `None` means that the default protocol limit should be enforced.
+    fn evm_code_size_limit(&self) -> Option<u32>;
+}
+
 /// Convenience super-trait for environments that expose both block- and tx-level
 /// metadata, plus a pluggable transaction metadata payload.
 pub trait BasicMetadata<IOTypes: SystemIOTypesConfig>:

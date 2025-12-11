@@ -12,6 +12,7 @@ use rig::ruint::aliases::{B160, U256};
 use zk_ee::common_structs::CalleeAccountProperties;
 use zk_ee::memory::slice_vec::SliceVec;
 use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
+use zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::CallModifier;
 use zk_ee::system::ExecutionEnvironmentLaunchParams;
@@ -93,6 +94,7 @@ fn fuzz(input: FuzzInput) {
                 scratch_space_len: 0,
                 callstack_depth: 1, // to not trigger any special cases for root frame
                 callee_account_properties,
+                code_size_limit: DEFAULT_MAX_CODE_SIZE,
             },
             external_call: ExternalCallRequest {
                 available_resources: inf_resources.clone(),

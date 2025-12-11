@@ -13,11 +13,13 @@ use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::interface_error;
 use zk_ee::memory::slice_vec::SliceVec;
 use zk_ee::out_of_return_memory;
+use zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 use zk_ee::system::errors::context::contextualized::Contextualized as _;
 use zk_ee::system::errors::root_cause::GetRootCause;
 use zk_ee::system::errors::root_cause::RootCause;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
+use zk_ee::system::metadata::basic_metadata::EvmCodeSizeLimitMetadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{errors::system::SystemError, logger::Logger, *};
 use zk_ee::wrap_error;
@@ -38,6 +40,7 @@ pub fn run_till_completion<'a, S: EthereumLikeTypes>(
 ) -> Result<CompletedExecution<'a, S>, BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     let heap = SliceVec::new(memories.heaps);
 
@@ -86,7 +89,10 @@ struct ExecutionContext<'a, 'm, S: EthereumLikeTypes> {
 
 const SPECIAL_ADDRESS_BOUND: B160 = B160::from_limbs([SPECIAL_ADDRESS_SPACE_BOUND, 0, 0]);
 
-impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
+impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S>
+where
+    S::Metadata: EvmCodeSizeLimitMetadata,
+{
     fn copy_into_return_memory<'a>(
         &mut self,
         return_values: ReturnValues<'a, S>,
@@ -605,6 +611,7 @@ fn read_callee_and_prepare_frame_state<'a, S: EthereumLikeTypes, const IS_ENTRY_
 ) -> Result<CallPreparationResult<'a, S>, BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     let mut resources_in_caller_frame = call_request.available_resources.take();
 
@@ -687,6 +694,11 @@ where
         callee_account_properties.ee_type
     };
 
+    let code_size_limit = system
+        .evm_code_size_limit()
+        .map(|limit| limit as usize)
+        .unwrap_or(DEFAULT_MAX_CODE_SIZE);
+
     let external_call_launch_params = ExecutionEnvironmentLaunchParams {
         external_call: ExternalCallRequest {
             available_resources: resources_for_callee_frame,
@@ -696,6 +708,7 @@ where
             scratch_space_len: 0,
             callstack_depth,
             callee_account_properties,
+            code_size_limit,
         },
     };
 

@@ -5,10 +5,10 @@
 //!
 use super::*;
 use core::fmt::Write;
-use evm_interpreter::MAX_CODE_SIZE;
 use ruint::aliases::{B160, U256};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
+use zk_ee::system::metadata::basic_metadata::EvmCodeSizeLimitMetadata;
 use zk_ee::utils::Bytes32;
 use zk_ee::{internal_error, out_of_return_memory};
 
@@ -20,6 +20,7 @@ pub fn contract_deployer_hook<'a, S: EthereumLikeTypes>(
 ) -> Result<(CompletedExecution<'a, S>, &'a mut [MaybeUninit<u8>]), SystemError>
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     let ExternalCallRequest {
         available_resources,
@@ -114,6 +115,7 @@ fn contract_deployer_hook_inner<S: EthereumLikeTypes>(
 ) -> Result<Result<&'static [u8], &'static str>, SystemError>
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     evm_interpreter::charge_native_and_ergs::<S::Resources>(
         resources,
@@ -177,10 +179,13 @@ where
 
             // Although this can be called as a part of protocol upgrade,
             // we are checking the next invariants, just in case
-            // EIP-158: reject code of length > 24576.
-            if bytecode_length as usize > MAX_CODE_SIZE {
+            let code_size_limit = system
+                .evm_code_size_limit()
+                .map(|limit| limit as usize)
+                .unwrap_or(DEFAULT_MAX_CODE_SIZE);
+            if bytecode_length as usize > code_size_limit {
                 return Ok(Err(
-                    "Contract deployer failure: setBytecodeDetailsEVM called with invalid bytecode(length > 24576)",
+                    "Contract deployer failure: setBytecodeDetailsEVM called with the bytecode size that exceeds the limit",
                 ));
             }
             // Also EIP-3541(reject code starting with 0xEF) should be validated by governance.

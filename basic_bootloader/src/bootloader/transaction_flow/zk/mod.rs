@@ -22,6 +22,7 @@ use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::memory::ArrayBuilder;
 use zk_ee::system::errors::interface::InterfaceError;
 use zk_ee::system::errors::subsystem::SubsystemError;
+use zk_ee::system::metadata::basic_metadata::EvmCodeSizeLimitMetadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{
     errors::{runtime::RuntimeError, system::SystemError},
@@ -35,6 +36,7 @@ pub struct ZkTransactionFlowOnlyEOA;
 impl<S: EthereumLikeTypes> BasicTransactionFlow<S> for ZkTransactionFlowOnlyEOA
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     fn validate<Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
@@ -438,6 +440,7 @@ fn process_deployment<'a, S: EthereumLikeTypes>(
 ) -> Result<TxExecutionResult<'a, S>, BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
+    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     // Next check max initcode size
     if main_calldata.len() > MAX_INITCODE_SIZE {
