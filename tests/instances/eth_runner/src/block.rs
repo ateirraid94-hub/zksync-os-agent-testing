@@ -6,6 +6,7 @@ use rig::utils::encode_alloy_rpc_tx;
 use rig::{log::warn, zksync_os_interface::traits::EncodedTx};
 use ruint::aliases::{B160, U256};
 use serde::{Deserialize, Serialize};
+use zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Block {
@@ -24,7 +25,7 @@ impl Block {
             gas_limit: self.result.header.gas_limit,
             pubdata_limit: u64::MAX,
             mix_hash: U256::from_be_bytes(self.result.header.mix_hash.0),
-            code_size_limit: None,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE,
         }
     }
 
