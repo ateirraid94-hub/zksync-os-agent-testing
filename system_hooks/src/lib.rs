@@ -40,7 +40,6 @@ use precompiles::{pure_system_function_hook_impl, IdentityPrecompile, IdentityPr
 use zk_ee::common_traits::TryExtend;
 use zk_ee::system::errors::subsystem::SubsystemError;
 use zk_ee::system::errors::system::SystemError;
-use zk_ee::system::metadata::basic_metadata::EvmCodeSizeLimitMetadata;
 #[cfg(feature = "mock-unsupported-precompiles")]
 use zk_ee::system::MissingSystemFunctionErrors;
 use zk_ee::{
@@ -258,10 +257,7 @@ where
         self.add_hook(L2_BASE_TOKEN_ADDRESS_LOW, SystemHook(l2_base_token_hook))
     }
 
-    pub fn add_contract_deployer(&mut self)
-    where
-        S::Metadata: EvmCodeSizeLimitMetadata,
-    {
+    pub fn add_contract_deployer(&mut self) {
         self.add_hook(
             CONTRACT_DEPLOYER_ADDRESS_LOW,
             SystemHook(contract_deployer_hook),
