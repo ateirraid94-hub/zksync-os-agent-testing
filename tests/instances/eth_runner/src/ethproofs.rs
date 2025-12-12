@@ -13,6 +13,7 @@ use serde::Serialize;
 
 use base64::Engine;
 use crossbeam::channel::unbounded;
+use execution_utils::gpu_prover::execution::prover::ExecutionProverConfiguration;
 use execution_utils::unrolled::UnrolledProgramProof;
 use execution_utils::unrolled_gpu::{UnrolledProver, UnrolledProverLevel};
 use rig::chain::get_zksync_os_img_path;
@@ -269,7 +270,8 @@ pub fn ethproofs_with_proofs(
     let bin_path = get_zksync_os_img_path(&None);
     let path = &bin_path.into_os_string().into_string().unwrap();
     let path = path.strip_suffix(".bin").unwrap().to_string();
-    let prover = UnrolledProver::new(&path, 8, UnrolledProverLevel::RecursionUnified);
+    let configuration = ExecutionProverConfiguration::default();
+    let prover = UnrolledProver::new(&path, configuration, UnrolledProverLevel::RecursionUnified);
     let (block_sender, block_receiver) = unbounded::<(u64, Block, ExecutionWitness)>();
     let (proof_sender, proof_receiver) = unbounded::<(u64, UnrolledProgramProof, u64, f64)>();
     let connector_clone = connector.clone();
