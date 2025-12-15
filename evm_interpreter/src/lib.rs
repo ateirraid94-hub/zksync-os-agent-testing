@@ -41,9 +41,7 @@ use zk_ee::system::errors::root_cause::{GetRootCause, RootCause};
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::{internal::InternalError, system::SystemError};
 use zk_ee::system::evm::{EvmFrameInterface, EvmStackInterface};
-use zk_ee::system::{
-    Ergs, EthereumLikeTypes, Resource, Resources, System, SystemTypes, DEFAULT_MAX_CODE_SIZE,
-};
+use zk_ee::system::{Ergs, EthereumLikeTypes, Resource, Resources, System, SystemTypes};
 
 use alloc::vec::Vec;
 use zk_ee::utils::*;
