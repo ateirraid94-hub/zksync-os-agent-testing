@@ -3,14 +3,15 @@ use crate::interpreter::*;
 use core::hint::unreachable_unchecked;
 use gas_constants::{CALL_STIPEND, INITCODE_WORD_COST, SHA3WORD};
 
+use super::*;
 use native_resource_constants::*;
 use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::storage_types::MAX_EVENT_TOPICS;
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::evm_tracer::EvmTracer;
 use zk_ee::system::tracer::Tracer;
+use zk_ee::utils::bytecode_size_limit::derive_initcode_size_limit;
 use zk_ee::{system::*, wrap_error};
-
-use super::*;
 
 impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
     pub fn balance(&mut self, system: &mut System<S>) -> InstructionResult {
@@ -308,7 +309,7 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
         Self::resize_heap_implementation(&mut self.heap, &mut self.gas, code_offset, len)?;
 
         // Create code size is limited
-        if len > MAX_INITCODE_SIZE {
+        if len > derive_initcode_size_limit(system.metadata.code_size_limit()) {
             return Err(EvmError::CreateInitcodeSizeLimit.into());
         }
 

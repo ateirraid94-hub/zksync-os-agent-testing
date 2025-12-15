@@ -613,7 +613,7 @@ where
             )
         };
 
-        F::charge_additional_intrinsic_gas(&mut resources, &transaction)?;
+        F::charge_additional_intrinsic_gas(&mut resources, &transaction, &system.metadata)?;
 
         system.set_tx_context(TxLevelMetadata {
             tx_origin: from,

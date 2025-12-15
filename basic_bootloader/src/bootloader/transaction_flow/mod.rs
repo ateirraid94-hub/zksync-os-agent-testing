@@ -4,18 +4,18 @@
 
 pub mod zk;
 
+use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::errors::TxError;
 use crate::bootloader::runner::RunnerMemoryBuffers;
 use crate::bootloader::transaction::Transaction;
 use ruint::aliases::{B160, U256};
 use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
+use zk_ee::system::errors::metadata::Metadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::EthereumLikeTypes;
 use zk_ee::system::System;
 use zk_ee::system::*;
-
-use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use zk_ee::utils::Bytes32;
 
 use super::errors::BootloaderSubsystemError;
@@ -118,6 +118,7 @@ where
     fn charge_additional_intrinsic_gas(
         resources: &mut S::Resources,
         transaction: &Transaction<S::Allocator>,
+        metadata: &S::Metadata,
     ) -> Result<(), TxError>;
 
     ///
