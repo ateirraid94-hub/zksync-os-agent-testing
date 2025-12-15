@@ -9,11 +9,21 @@ use ark_ff::{BigInteger,PrimeField};
 use revm_precompile::bn254::run_pair;
 use fuzz_precompiles_forward::precompiles::pairing as pairing_forward;
 use fuzz_precompiles_proving::precompiles::pairing as pairing_proving;
+use crate::common::be_add_inplace32;
+
+mod common;
 
 const CHUNK: usize = 32;
 const G1_SIZE: usize = 64;
 const G2_SIZE: usize = 128;
 const PAIR_SIZE: usize = G1_SIZE + G2_SIZE;
+
+const BN254_P_BE: [u8; 32] = [
+    0x30,0x64,0x4e,0x72,0xe1,0x31,0xa0,0x29,
+    0xb8,0x50,0x45,0xb6,0x81,0x81,0x58,0x5d,
+    0x97,0x81,0x6a,0x91,0x68,0x71,0xca,0x8d,
+    0x3c,0x20,0x8c,0x16,0xd8,0x7c,0xfd,0x47,
+];
 
 #[derive(Arbitrary, Debug, Clone, Copy)]
 enum Coord {
@@ -32,6 +42,12 @@ enum Mutation {
     Zero(Coord),  // Zeroes out a particular coordinate of P, Q points (see Coord enum)
     AllZeroG1,    // Zeroes out a particular P point
     AllZeroG2,    // Zeroes out a particular Q point
+
+    G1x_AddP, G1y_AddP,
+    G1x_EqP,  G1y_EqP,
+
+    G2xIm_AddP, G2xRe_AddP, G2yIm_AddP, G2yRe_AddP,
+    G2xIm_EqP,  G2xRe_EqP,  G2yIm_EqP,  G2yRe_EqP,
 }
 
 #[derive(Arbitrary, Debug, Clone)]
@@ -126,6 +142,19 @@ pub fn encode_g2(p: G2Affine) -> [u8; 128] {
     out
 }
 
+#[inline]
+fn add_p_overflow(chunk: &mut [u8]) {
+    let mut limb = [0u8; 32];
+    limb.copy_from_slice(chunk);
+    let _carry = be_add_inplace32(&mut limb, &BN254_P_BE);
+    chunk.copy_from_slice(&limb);
+}
+
+#[inline]
+fn set_eq_p(chunk: &mut [u8]) {
+    chunk.copy_from_slice(&BN254_P_BE);
+}
+
 fn apply_mut(buf: &mut [u8], n_pairs: usize, which: Mutation, bit_idx: u8) {
     let p = (bit_idx as usize) % n_pairs;
     let bi = (bit_idx as usize) & 31;
@@ -157,6 +186,21 @@ fn apply_mut(buf: &mut [u8], n_pairs: usize, which: Mutation, bit_idx: u8) {
         Mutation::AllZeroG2 => {
             buf[off_g2x_im(p)..off_g2x_im(p) + G2_SIZE].fill(0);
         }
+
+        Mutation::G1x_AddP => add_p_overflow(&mut buf[off_g1x(p)..off_g1x(p) + CHUNK]),
+        Mutation::G1y_AddP => add_p_overflow(&mut buf[off_g1y(p)..off_g1y(p) + CHUNK]),
+        Mutation::G1x_EqP  => set_eq_p(&mut buf[off_g1x(p)..off_g1x(p) + CHUNK]),
+        Mutation::G1y_EqP  => set_eq_p(&mut buf[off_g1y(p)..off_g1y(p) + CHUNK]),
+
+        Mutation::G2xIm_AddP => add_p_overflow(&mut buf[off_g2x_im(p)..off_g2x_im(p) + CHUNK]),
+        Mutation::G2xRe_AddP => add_p_overflow(&mut buf[off_g2x_re(p)..off_g2x_re(p) + CHUNK]),
+        Mutation::G2yIm_AddP => add_p_overflow(&mut buf[off_g2y_im(p)..off_g2y_im(p) + CHUNK]),
+        Mutation::G2yRe_AddP => add_p_overflow(&mut buf[off_g2y_re(p)..off_g2y_re(p) + CHUNK]),
+
+        Mutation::G2xIm_EqP  => set_eq_p(&mut buf[off_g2x_im(p)..off_g2x_im(p) + CHUNK]),
+        Mutation::G2xRe_EqP  => set_eq_p(&mut buf[off_g2x_re(p)..off_g2x_re(p) + CHUNK]),
+        Mutation::G2yIm_EqP  => set_eq_p(&mut buf[off_g2y_im(p)..off_g2y_im(p) + CHUNK]),
+        Mutation::G2yRe_EqP  => set_eq_p(&mut buf[off_g2y_re(p)..off_g2y_re(p) + CHUNK]),
     }
 }
 

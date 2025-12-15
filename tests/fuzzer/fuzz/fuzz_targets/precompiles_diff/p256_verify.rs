@@ -10,11 +10,18 @@ use p256::ecdsa::{SigningKey,Signature};
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::ecdsa::VerifyingKey;
-use crate::common::{be_inc_inplace,be_dec_inplace};
+use crate::common::{be_inc_inplace,be_dec_inplace,be_add_inplace32};
 
 mod common;
 
 const IN_LEN: usize = 160;
+
+const P_P256: [u8; 32] = [
+    0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x01,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+];
 
 const N_P256: [u8; 32] = [
     0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,
@@ -69,6 +76,13 @@ enum Mutation {
 
     HighS,          // s = n - 1
     LowS,           // s = floor(n/2)
+
+    PubX_AddP,      // x = x + p
+    PubY_AddP,      // y = y + p
+    PubXY_AddP,     // x = x + p, y = y + p
+
+    PubX_EqP,       // x = p
+    PubY_EqP,       // y = p
 }
 
 fn apply_mut(
@@ -105,7 +119,17 @@ fn apply_mut(
         Mutation::S_GeN => { *s = N_P256; be_inc_inplace(s); }
 
         Mutation::HighS => { *s = N_P256; be_dec_inplace(s); }
-        Mutation::LowS  => { *s = N_P256_HALF; },
+        Mutation::LowS  => { *s = N_P256_HALF; }
+
+        Mutation::PubY_AddP => { be_add_inplace32(py, &P_P256); }
+        Mutation::PubX_AddP => { be_add_inplace32(px, &P_P256); }
+        Mutation::PubXY_AddP => {
+           be_add_inplace32(px, &P_P256);
+           be_add_inplace32(py, &P_P256);
+        }
+
+        Mutation::PubX_EqP => { *px = P_P256; }
+        Mutation::PubY_EqP => { *py = P_P256; }
     }
 }
 

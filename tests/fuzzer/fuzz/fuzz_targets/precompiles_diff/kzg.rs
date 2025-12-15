@@ -9,15 +9,25 @@ use fuzz_precompiles_forward::precompiles::kzg as kzg_forward;
 use fuzz_precompiles_proving::precompiles::kzg as kzg_proving;
 use c_kzg::{Blob,Bytes32,KzgCommitment,KzgProof,KzgSettings,
 ethereum_kzg_settings,BYTES_PER_BLOB};
+use crate::common::be_add_inplace32;
 use once_cell::sync::Lazy;
 use revm::primitives::keccak256;
 use sha2::{Digest, Sha256};
+
+mod common;
 
 const VH_LEN: usize = 32; // Vershioned hash 
 const C_LEN: usize = 48;  // Commitment
 const P_LEN: usize = 48;  // Proof
 const F_LEN: usize = 32;  // Field element
 const IN_LEN: usize = VH_LEN + C_LEN + F_LEN + F_LEN + P_LEN;
+
+const FR_MOD_BE: [u8; 32] = [
+    0x73,0xed,0xa7,0x53,0x29,0x9d,0x7d,0x48,
+    0x33,0x39,0xd8,0x08,0x09,0xa1,0xd8,0x05,
+    0x53,0xbd,0xa4,0x02,0xff,0xfe,0x5b,0xfe,
+    0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x01,
+];
 
 #[derive(Arbitrary, Debug, Clone, Copy)]
 enum FieldSel { Commit, Z, Y, Proof }
@@ -28,6 +38,10 @@ enum Mutation {
     Flip(FieldSel),
     Zero(FieldSel),
     ZeroAll,
+    Z_AddROverflow,
+    Y_AddROverflow,
+    Z_EqR,
+    Y_EqR,
 }
 
 #[derive(Arbitrary, Debug, Clone)]
@@ -117,6 +131,28 @@ fn apply_mutation(buf: &mut Vec<u8>, m: Mutation, bit_idx: u8) {
         Mutation::Zero(sel) => {
             let (a, b) = field_range(sel);
             buf[a..b].fill(0);
+        }
+        Mutation::Z_AddROverflow => {
+            let (a, b) = field_range(FieldSel::Z);
+            let mut z = [0u8; 32];
+            z.copy_from_slice(&buf[a..b]);
+            let _carry = be_add_inplace32(&mut z, &FR_MOD_BE);
+            buf[a..b].copy_from_slice(&z);
+        }
+        Mutation::Y_AddROverflow => {
+            let (a, b) = field_range(FieldSel::Y);
+            let mut y = [0u8; 32];
+            y.copy_from_slice(&buf[a..b]);
+            let _carry = be_add_inplace32(&mut y, &FR_MOD_BE);
+            buf[a..b].copy_from_slice(&y);
+        }
+        Mutation::Z_EqR => {
+            let (a, b) = field_range(FieldSel::Z);
+            buf[a..b].copy_from_slice(&FR_MOD_BE);
+        }
+        Mutation::Y_EqR => {
+            let (a, b) = field_range(FieldSel::Y);
+            buf[a..b].copy_from_slice(&FR_MOD_BE);
         }
     }
 }
