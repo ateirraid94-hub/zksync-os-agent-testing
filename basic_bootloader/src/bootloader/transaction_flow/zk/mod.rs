@@ -15,19 +15,21 @@ use crate::bootloader::{BasicBootloader, Bytes32};
 use basic_system::cost_constants::{ECRECOVER_COST_ERGS, ECRECOVER_NATIVE_COST};
 use core::fmt::Write;
 use crypto::secp256k1::SECP256K1N_HALF;
-use evm_interpreter::{ERGS_PER_GAS, MAX_INITCODE_SIZE};
+use evm_interpreter::ERGS_PER_GAS;
 use ruint::aliases::{B160, U256};
 use system_hooks::HooksStorage;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::memory::ArrayBuilder;
 use zk_ee::system::errors::interface::InterfaceError;
 use zk_ee::system::errors::subsystem::SubsystemError;
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{
     errors::{runtime::RuntimeError, system::SystemError},
     logger::Logger,
     EthereumLikeTypes, System, SystemTypes, *,
 };
+use zk_ee::utils::convenience::bytecode_size_limit::derive_initcode_size_limit;
 use zk_ee::{internal_error, out_of_native_resources, wrap_error};
 
 pub struct ZkTransactionFlowOnlyEOA;
@@ -370,11 +372,12 @@ where
     fn charge_additional_intrinsic_gas(
         resources: &mut S::Resources,
         transaction: &Transaction<S::Allocator>,
+        metadata: &S::Metadata,
     ) -> Result<(), TxError> {
         let is_deployment = transaction.is_deployment().is_some();
         if is_deployment {
             let calldata_len = transaction.calldata().len() as u64;
-            if calldata_len > MAX_INITCODE_SIZE as u64 {
+            if calldata_len > derive_initcode_size_limit(metadata.code_size_limit()) as u64 {
                 return Err(TxError::Validation(CreateInitCodeSizeLimit));
             }
             let initcode_gas_cost = evm_interpreter::gas_constants::INITCODE_WORD_COST
@@ -439,8 +442,8 @@ fn process_deployment<'a, S: EthereumLikeTypes>(
 where
     S::IO: IOSubsystemExt,
 {
-    // Next check max initcode size
-    if main_calldata.len() > MAX_INITCODE_SIZE {
+    // Check max initcode size
+    if main_calldata.len() > derive_initcode_size_limit(system.metadata.code_size_limit()) {
         return Ok(TxExecutionResult {
             return_values: ReturnValues::empty(),
             resources_returned: resources.clone(),
