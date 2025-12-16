@@ -4,7 +4,7 @@ use basic_bootloader::bootloader::block_header::BlockHeader;
 use ruint::aliases::B160;
 use zk_ee::common_structs::GenericEventContent;
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
-use zk_ee::system::DEFAULT_MAX_CODE_SIZE;
+use zk_ee::system::{DEFAULT_MAX_CODE_SIZE, MAX_CODE_SIZE_UPPER_BOUND};
 use zk_ee::types_config::EthereumIOTypesConfig;
 use zksync_os_interface::error::InvalidTransaction;
 use zksync_os_interface::types::{BlockContext, L2ToL1Log};
@@ -19,6 +19,12 @@ pub trait IntoInterface<T> {
 
 impl FromInterface<BlockContext> for BlockMetadataFromOracle {
     fn from_interface(value: BlockContext) -> Self {
+        let code_size_limit = value
+            .code_size_limit
+            .map(|code_size_limit| code_size_limit.max(DEFAULT_MAX_CODE_SIZE))
+            .map(|code_size_limit| code_size_limit.min(MAX_CODE_SIZE_UPPER_BOUND))
+            .unwrap_or(DEFAULT_MAX_CODE_SIZE);
+
         BlockMetadataFromOracle {
             chain_id: value.chain_id,
             block_number: value.block_number,
@@ -31,10 +37,7 @@ impl FromInterface<BlockContext> for BlockMetadataFromOracle {
             gas_limit: value.gas_limit,
             pubdata_limit: value.pubdata_limit,
             mix_hash: value.mix_hash,
-            code_size_limit: value
-                .code_size_limit
-                .map(|code_size| code_size.max(DEFAULT_MAX_CODE_SIZE))
-                .unwrap_or(DEFAULT_MAX_CODE_SIZE),
+            code_size_limit,
         }
     }
 }

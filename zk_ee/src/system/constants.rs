@@ -29,3 +29,6 @@ pub const EIP7702_DELEGATION_MARKER: [u8; 3] = [0xef, 0x01, 0x00];
 
 /// Default limit for the size of deployed bytecode in bytes. Enforced by EIP-158.
 pub const DEFAULT_MAX_CODE_SIZE: u32 = 0x6000;
+
+/// The upper bound for MAX_CODE_SIZE
+pub const MAX_CODE_SIZE_UPPER_BOUND: u32 = 0x100000;
