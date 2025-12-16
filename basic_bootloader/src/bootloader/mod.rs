@@ -13,6 +13,7 @@ pub mod runner;
 pub mod supported_ees;
 
 mod gas_helpers;
+mod process_l1_transaction;
 mod process_transaction;
 pub mod transaction;
 pub mod transaction_flow;
