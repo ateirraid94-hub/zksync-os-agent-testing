@@ -66,6 +66,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
         Bytecode: Maybe<&'static [u8]>,
         CodeVersion: Maybe<u8>,
         IsDelegated: Maybe<bool>,
+        HasBytecode: Maybe<bool>,
     >(
         &mut self,
         ee_type: ExecutionEnvironmentType,
@@ -84,6 +85,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
                 Bytecode,
                 CodeVersion,
                 IsDelegated,
+                HasBytecode,
             >,
         >,
         oracle: &mut impl IOOracle,
@@ -100,6 +102,7 @@ pub trait StorageModel: Sized + SnapshottableIo {
             Bytecode,
             CodeVersion,
             IsDelegated,
+            HasBytecode,
         >,
         SystemError,
     >;
