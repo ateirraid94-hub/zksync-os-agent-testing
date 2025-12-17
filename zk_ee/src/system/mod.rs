@@ -76,6 +76,7 @@ pub trait SystemTypes {
     type Allocator: Allocator + Clone + Default;
     type Metadata: BasicMetadata<Self::IOTypes>;
 }
+
 pub trait EthereumLikeTypes: SystemTypes<IOTypes = EthereumIOTypesConfig> {}
 
 pub struct System<S: SystemTypes> {

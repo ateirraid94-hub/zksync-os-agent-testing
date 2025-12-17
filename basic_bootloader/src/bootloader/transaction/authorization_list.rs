@@ -134,8 +134,7 @@ where
                 .with_nonce()
                 .with_nominal_token_balance()
                 .with_is_delegated()
-                .with_artifacts_len()
-                .with_unpadded_code_len(),
+                .with_has_bytecode(),
         )
     })?;
     // 5. Check authority is not a contract
@@ -148,7 +147,7 @@ where
     }
     // 7. Add refund if authority is not empty.
     let is_empty = account_properties.nonce.0 == 0
-        && account_properties.unpadded_code_len.0 == 0
+        && account_properties.has_bytecode.0 == false
         && account_properties.nominal_token_balance.0.is_zero();
     if !is_empty {
         system.io.add_evm_refund(

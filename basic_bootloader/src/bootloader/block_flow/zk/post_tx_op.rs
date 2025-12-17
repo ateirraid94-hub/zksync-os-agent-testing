@@ -1,6 +1,6 @@
 use super::*;
 
-use zk_ee::internal_error;
+use zk_ee::{internal_error, utils::Bytes32};
 
 impl<
         S: EthereumLikeTypes<Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata>,

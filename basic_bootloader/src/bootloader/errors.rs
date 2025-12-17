@@ -68,8 +68,8 @@ pub enum InvalidTransaction {
     InvalidChainId,
     /// Access list is not supported for blocks before the Berlin hardfork.
     AccessListNotSupported,
-    /// Unacceptable gas per pubdata price.
-    GasPerPubdataTooHigh,
+    /// Unacceptable pubdata price.
+    PubdataPriceTooHigh,
     /// Block gas limit is too high.
     BlockGasLimitTooHigh,
     /// Protocol upgrade tx should be first in the block.
@@ -103,6 +103,10 @@ pub enum InvalidTransaction {
     AuthListIsEmpty,
     /// 7702 has a null destination address
     EIP7702HasNullDestination,
+    /// EIP-7623 calldata cost is not paid
+    EIP7623IntrinsicGasIsTooLow,
+    /// Native resources cost is too high
+    NativeResourcesAreTooExpensive,
 }
 
 ///

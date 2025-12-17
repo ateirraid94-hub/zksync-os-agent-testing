@@ -1,7 +1,10 @@
+use zk_ee::{system::AccountDataRequest, utils::UsizeAlignedByteBox};
+
 use super::*;
 use crate::bootloader::{
     block_flow::tx_loop::TxLoopOp, transaction_flow::zk::ZkTransactionFlowOnlyEOA,
 };
+use zk_ee::system::Resource;
 
 impl<S: EthereumLikeTypes<Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata>> TxLoopOp<S>
     for ZKHeaderStructureTxLoop
@@ -74,7 +77,9 @@ where
                     cycle_marker::start!("process_transaction");
 
                     let tx_result =
-                        BasicBootloader::<S, ZkTransactionFlowOnlyEOA>::process_transaction::<Config>(
+                        BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::process_transaction::<
+                            Config,
+                        >(
                             initial_calldata_buffer,
                             system,
                             system_functions,
