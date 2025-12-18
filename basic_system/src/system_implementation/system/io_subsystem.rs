@@ -1017,16 +1017,9 @@ where
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
         key: &<Self::IOTypes as SystemIOTypesConfig>::StorageKey,
-        is_access_list: bool,
     ) -> Result<(), SystemError> {
-        self.storage.storage_touch(
-            ee_type,
-            resources,
-            address,
-            key,
-            &mut self.oracle,
-            is_access_list,
-        )
+        self.storage
+            .storage_touch(ee_type, resources, address, key, &mut self.oracle)
     }
 
     fn touch_account(
@@ -1034,15 +1027,9 @@ where
         ee_type: ExecutionEnvironmentType,
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
-        is_access_list: bool,
     ) -> Result<(), SystemError> {
-        self.storage.touch_account(
-            ee_type,
-            resources,
-            address,
-            &mut self.oracle,
-            is_access_list,
-        )
+        self.storage
+            .touch_account(ee_type, resources, address, &mut self.oracle)
     }
 
     fn read_account_properties<

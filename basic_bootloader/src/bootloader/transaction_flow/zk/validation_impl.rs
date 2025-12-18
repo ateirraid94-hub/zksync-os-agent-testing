@@ -369,8 +369,6 @@ where
         return Err(InvalidTransaction::RejectCallerWithCode.into());
     }
 
-    // Now we can apply access list and authorization list, while simultaneously charging for them
-
     // Originator's nonce is incremented before authorization list
     // skipped for service transactions, for which we do not track nonce
     let old_nonce = if transaction.nonce().is_some() {
@@ -425,6 +423,7 @@ where
     // Access list
     parse_and_warm_up_access_list(system, &mut tx_resources.main_resources, &transaction)?;
 
+    // Now we can apply access list and authorization list, while simultaneously charging for them
     // Parse, validate and apply authorization list, following EIP-7702
     #[cfg(feature = "eip-7702")]
     {

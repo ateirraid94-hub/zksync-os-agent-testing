@@ -379,7 +379,6 @@ pub trait IOSubsystemExt: IOSubsystem {
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
         key: &<Self::IOTypes as SystemIOTypesConfig>::StorageKey,
-        is_access_list: bool,
     ) -> Result<(), SystemError>;
 
     /// Perform a transfer of token balance.
@@ -398,7 +397,6 @@ pub trait IOSubsystemExt: IOSubsystem {
         ee_type: ExecutionEnvironmentType,
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
-        is_access_list: bool,
     ) -> Result<(), SystemError>;
 
     /// Generic function to read some of an account's properties

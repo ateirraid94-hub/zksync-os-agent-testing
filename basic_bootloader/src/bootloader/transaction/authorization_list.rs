@@ -6,14 +6,17 @@ use crate::bootloader::errors::InvalidTransaction;
 use crate::bootloader::BootloaderSubsystemError;
 use core::fmt::Write;
 use crypto::MiniDigest;
+use evm_interpreter::ERGS_PER_GAS;
 use ruint::aliases::{B160, U256};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::memory::ArrayBuilder;
 use zk_ee::system::errors::interface::InterfaceError;
 use zk_ee::system::errors::subsystem::SubsystemError;
 use zk_ee::system::errors::system::SystemError;
+use zk_ee::system::Ergs;
 use zk_ee::system::IOSubsystem;
 use zk_ee::system::NonceError;
+use zk_ee::system::Resource;
 use zk_ee::system::{AccountDataRequest, EthereumLikeTypes, IOSubsystemExt, Resources, System};
 use zk_ee::{internal_error, wrap_error};
 
@@ -62,6 +65,7 @@ where
 const EIP7702_MAGIC: u8 = 0x05;
 
 /// Validate and apply an authorization list item, following EIP-7702:
+/// 0. Pre-charge for intrinsic gas cost of delegation (PER_AUTH_BASE_COST).
 /// 1. Verify the chain ID is 0 or the ID of the current chain.
 /// 2. Verify the nonce is less than 2**64 - 1.
 /// 3. Let authority = ecrecover(msg, y_parity, r, s).
@@ -92,6 +96,15 @@ where
     S::IO: IOSubsystemExt,
 {
     let chain_id = system.get_chain_id();
+
+    // 0. Pre-charge intrinsic gas
+    resources.charge(&S::Resources::from_ergs_and_native(
+        Ergs(evm_interpreter::gas_constants::NEWACCOUNT * ERGS_PER_GAS),
+        <<S::Resources as Resources>::Native as zk_ee::system::Computational>::from_computational(
+            crate::bootloader::constants::PER_AUTH_NATIVE_COST,
+        ),
+    ))?;
+
     // 1. Check chain id
     if !auth_chain_id.is_zero() && auth_chain_id != &U256::from(chain_id) {
         return Ok(false);
