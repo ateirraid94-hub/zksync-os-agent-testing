@@ -94,7 +94,7 @@ pub enum CreateType {
     Create2,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CallTracer {
     pub transactions: Vec<Call>,
     pub unfinished_calls: Vec<Call>,
@@ -104,6 +104,69 @@ pub struct CallTracer {
     pub only_top_call: bool,
 
     create_operation_requested: Option<CreateType>,
+}
+
+impl std::fmt::Display for CallTracer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, tx) in self.transactions.iter().enumerate() {
+            writeln!(f, "Transaction {}:", i)?;
+            tx.fmt_with_indent(f, 2)?;
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
+impl Call {
+    fn fmt_with_indent(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result {
+        let pad = " ".repeat(indent);
+        let pad2 = " ".repeat(indent + 2);
+
+        let from_formatted = hex::encode(self.from.to_be_bytes_vec());
+        let to_formatted = hex::encode(self.to.to_be_bytes_vec());
+
+        writeln!(f, "{}Call from 0x{} to 0x{}", pad, from_formatted, to_formatted)?;
+        writeln!(f, "{}Type: {:?}", pad2, self.call_type)?;
+        writeln!(f, "{}Value: {}", pad2, self.value)?;
+        writeln!(f, "{}Gas: {} used {}", pad2, self.gas, self.gas_used)?;
+        writeln!(f, "{}Reverted: {}", pad2, self.reverted)?;
+
+        if let Some(error) = &self.error {
+            writeln!(f, "{}Error: {:?}", pad2, error)?;
+        }
+
+        writeln!(f, "{}Input: 0x{}", pad2, hex::encode(&self.input))?;
+        writeln!(f, "{}Output: 0x{}", pad2, hex::encode(&self.output))?;
+
+        if !self.logs.is_empty() {
+            writeln!(f, "{}Logs:", pad2)?;
+            for log in &self.logs {
+                writeln!(
+                    f,
+                    "{}- {:?} topics {:?} data 0x{}",
+                    pad2,
+                    log.address,
+                    log.topics,
+                    hex::encode(&log.data)
+                )?;
+            }
+        }
+
+        if !self.calls.is_empty() {
+            writeln!(f, "{}Subcalls:", pad2)?;
+            for call in &self.calls {
+                call.fmt_with_indent(f, indent + 4)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for Call {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_with_indent(f, 0)
+    }
 }
 
 impl CallTracer {
