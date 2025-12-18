@@ -2,8 +2,7 @@
 //! We will move it in future PRs.
 
 use super::basic_metadata::{
-    BasicBlockMetadata, BasicTransactionMetadata, EvmCodeSizeLimitMetadata,
-    ZkSpecificPricingMetadata,
+    BasicBlockMetadata, BasicTransactionMetadata, ZkSpecificPricingMetadata,
 };
 use super::system_metadata::SystemMetadata;
 use crate::system::errors::internal::InternalError;
@@ -130,12 +129,6 @@ pub struct BlockMetadataFromOracle {
     pub code_size_limit: u32,
 }
 
-impl EvmCodeSizeLimitMetadata for BlockMetadataFromOracle {
-    fn evm_code_size_limit(&self) -> u32 {
-        self.code_size_limit
-    }
-}
-
 impl BasicBlockMetadata<EthereumIOTypesConfig> for BlockMetadataFromOracle {
     fn chain_id(&self) -> u64 {
         self.chain_id
@@ -192,6 +185,10 @@ impl BasicBlockMetadata<EthereumIOTypesConfig> for BlockMetadataFromOracle {
 
     fn blob_base_fee_per_gas(&self) -> U256 {
         U256::MAX
+    }
+
+    fn code_size_limit(&self) -> u32 {
+        self.code_size_limit
     }
 }
 

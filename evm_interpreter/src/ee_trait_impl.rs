@@ -9,6 +9,7 @@ use zk_ee::common_structs::CalleeAccountProperties;
 use zk_ee::system::errors::interface::InterfaceError;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::evm_tracer::EvmTracer;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::*;
@@ -46,7 +47,7 @@ impl<'ee, S: EthereumLikeTypes> ExecutionEnvironment<'ee, S, EvmErrors> for Inte
             call_value: U256::ZERO,
             is_constructor: false,
             pending_os_request: None,
-            code_size_limit: DEFAULT_MAX_CODE_SIZE as usize,
+            code_size_limit: system.metadata.code_size_limit() as usize,
         })
     }
 

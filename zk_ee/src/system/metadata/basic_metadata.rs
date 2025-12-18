@@ -50,6 +50,11 @@ pub trait BasicBlockMetadata<IOTypes: SystemIOTypesConfig> {
     fn blob_base_fee_per_gas(&self) -> U256 {
         U256::ZERO
     }
+
+    /// Code size limit in bytes
+    ///
+    /// Default is 24576
+    fn code_size_limit(&self) -> u32;
 }
 
 /// Transaction-level metadata describing the currently executing transaction.
@@ -82,12 +87,6 @@ pub trait ZkSpecificPricingMetadata {
 
     /// Price in base token of 1 byte of pubdata.
     fn get_pubdata_price(&self) -> U256;
-}
-
-/// Optional hook for block metadata to expose custom code size limits for EVM deployments.
-pub trait EvmCodeSizeLimitMetadata {
-    /// Returns the maximum allowed deployed bytecode size in bytes.
-    fn evm_code_size_limit(&self) -> u32;
 }
 
 /// Convenience super-trait for environments that expose both block- and tx-level

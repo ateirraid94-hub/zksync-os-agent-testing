@@ -46,8 +46,7 @@ use self::{
     errors::{internal::InternalError, system::SystemError},
     logger::Logger,
     metadata::basic_metadata::{
-        BasicBlockMetadata, BasicMetadata, BasicTransactionMetadata, EvmCodeSizeLimitMetadata,
-        ZkSpecificPricingMetadata,
+        BasicBlockMetadata, BasicMetadata, BasicTransactionMetadata, ZkSpecificPricingMetadata,
     },
     metadata::zk_metadata::ZkMetadata,
 };
@@ -218,16 +217,6 @@ where
 
     pub fn get_pubdata_price(&self) -> ruint::aliases::U256 {
         self.metadata.get_pubdata_price()
-    }
-}
-
-impl<S: SystemTypes> System<S>
-where
-    S::Metadata: EvmCodeSizeLimitMetadata,
-{
-    /// Returns the optional override for the maximum deployed EVM bytecode size (in bytes).
-    pub fn evm_code_size_limit(&self) -> u32 {
-        self.metadata.evm_code_size_limit()
     }
 }
 

@@ -8,7 +8,7 @@ use core::fmt::Write;
 use ruint::aliases::{B160, U256};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
-use zk_ee::system::metadata::basic_metadata::EvmCodeSizeLimitMetadata;
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::utils::Bytes32;
 use zk_ee::{internal_error, out_of_return_memory};
 
@@ -20,7 +20,6 @@ pub fn contract_deployer_hook<'a, S: EthereumLikeTypes>(
 ) -> Result<(CompletedExecution<'a, S>, &'a mut [MaybeUninit<u8>]), SystemError>
 where
     S::IO: IOSubsystemExt,
-    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     let ExternalCallRequest {
         available_resources,
@@ -115,7 +114,6 @@ fn contract_deployer_hook_inner<S: EthereumLikeTypes>(
 ) -> Result<Result<&'static [u8], &'static str>, SystemError>
 where
     S::IO: IOSubsystemExt,
-    S::Metadata: EvmCodeSizeLimitMetadata,
 {
     evm_interpreter::charge_native_and_ergs::<S::Resources>(
         resources,
@@ -179,7 +177,7 @@ where
 
             // Although this can be called as a part of protocol upgrade,
             // we are checking the next invariants, just in case
-            let code_size_limit = system.evm_code_size_limit() as usize;
+            let code_size_limit = system.metadata.code_size_limit() as usize;
             if bytecode_length as usize > code_size_limit {
                 return Ok(Err(
                     "Contract deployer failure: setBytecodeDetailsEVM called with the bytecode size that exceeds the limit",

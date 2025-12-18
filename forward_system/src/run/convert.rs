@@ -31,7 +31,7 @@ impl FromInterface<BlockContext> for BlockMetadataFromOracle {
             gas_limit: value.gas_limit,
             pubdata_limit: value.pubdata_limit,
             mix_hash: value.mix_hash,
-            code_size_limit: DEFAULT_MAX_CODE_SIZE,
+            code_size_limit: value.code_size_limit.unwrap_or(DEFAULT_MAX_CODE_SIZE),
         }
     }
 }

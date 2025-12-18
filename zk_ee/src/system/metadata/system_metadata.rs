@@ -61,6 +61,9 @@ impl<
     fn blob_base_fee_per_gas(&self) -> U256 {
         self.block_level.blob_base_fee_per_gas()
     }
+    fn code_size_limit(&self) -> u32 {
+        self.block_level.code_size_limit()
+    }
 }
 
 /// Forwards to `tx_level`.
@@ -112,16 +115,5 @@ impl<
 
     fn set_transaction_metadata(&mut self, tx_level_metadata: Self::TransactionMetadata) {
         self.tx_level = tx_level_metadata;
-    }
-}
-
-impl<
-        IOTypes: SystemIOTypesConfig,
-        B: BasicBlockMetadata<IOTypes> + EvmCodeSizeLimitMetadata,
-        TX: BasicTransactionMetadata<IOTypes>,
-    > EvmCodeSizeLimitMetadata for SystemMetadata<IOTypes, B, TX>
-{
-    fn evm_code_size_limit(&self) -> u32 {
-        self.block_level.evm_code_size_limit()
     }
 }
