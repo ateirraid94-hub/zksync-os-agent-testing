@@ -114,3 +114,14 @@ impl<
         self.tx_level = tx_level_metadata;
     }
 }
+
+impl<
+        IOTypes: SystemIOTypesConfig,
+        B: BasicBlockMetadata<IOTypes> + EvmCodeSizeLimitMetadata,
+        TX: BasicTransactionMetadata<IOTypes>,
+    > EvmCodeSizeLimitMetadata for SystemMetadata<IOTypes, B, TX>
+{
+    fn evm_code_size_limit(&self) -> Option<u32> {
+        self.block_level.evm_code_size_limit()
+    }
+}

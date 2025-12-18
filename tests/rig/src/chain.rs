@@ -29,6 +29,7 @@ use zk_ee::common_structs::{derive_flat_storage_key, ProofData};
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
+use zk_ee::system::DEFAULT_MAX_CODE_SIZE;
 use zk_ee::utils::Bytes32;
 use zksync_os_interface::traits::EncodedTx;
 use zksync_os_interface::traits::TxListSource;
@@ -100,6 +101,7 @@ pub struct BlockContext {
     pub gas_limit: u64,
     pub pubdata_limit: u64,
     pub mix_hash: U256,
+    pub code_size_limit: Option<u32>,
 }
 
 impl Default for BlockContext {
@@ -113,6 +115,7 @@ impl Default for BlockContext {
             gas_limit: MAX_BLOCK_GAS_LIMIT,
             pubdata_limit: u64::MAX,
             mix_hash: U256::ONE,
+            code_size_limit: None,
         }
     }
 }
@@ -253,6 +256,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             gas_limit: block_context.gas_limit,
             pubdata_limit: block_context.pubdata_limit,
             mix_hash: block_context.mix_hash,
+            code_size_limit: block_context
+                .code_size_limit
+                .unwrap_or(DEFAULT_MAX_CODE_SIZE as u32),
         };
         let tx_source = TxListSource {
             transactions: transactions.into(),
@@ -429,6 +435,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             gas_limit: block_context.gas_limit,
             pubdata_limit: block_context.pubdata_limit,
             mix_hash: block_context.mix_hash,
+            code_size_limit: block_context
+                .code_size_limit
+                .unwrap_or(DEFAULT_MAX_CODE_SIZE as u32),
         };
         let state_commitment = FlatStorageCommitment::<{ TREE_HEIGHT }> {
             root: *self.state_tree.storage_tree.root(),
