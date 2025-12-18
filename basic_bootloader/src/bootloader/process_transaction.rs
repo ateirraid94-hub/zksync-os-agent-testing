@@ -23,8 +23,8 @@ use gas_helpers::check_enough_resources_for_pubdata;
 use gas_helpers::get_resources_to_charge_for_pubdata;
 use gas_helpers::ResourcesForTx;
 use metadata::zk_metadata::TxLevelMetadata;
-use system_hooks::HooksStorage;
 use transaction::charge_keccak;
+use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::interface_error;
 use zk_ee::internal_error;
 use zk_ee::system::errors::cascade::CascadedError;
@@ -396,6 +396,7 @@ where
             tx_hash,
             is_l1_tx: is_priority_op,
             is_upgrade_tx: !is_priority_op,
+            is_service_tx: false,
             gas_used,
             gas_refunded: evm_refund,
             computational_native_used,
@@ -767,11 +768,14 @@ where
                 .as_str(),
         );
 
+        let is_service_tx = transaction.is_service();
+
         Ok(TxProcessingResult {
             result: execution_result,
             tx_hash,
             is_l1_tx: false,
             is_upgrade_tx: false,
+            is_service_tx,
             gas_used,
             gas_refunded: evm_refund,
             computational_native_used,
@@ -801,13 +805,15 @@ where
             .get_logger()
             .write_fmt(format_args!("Start of validation\n"));
 
-        // Nonce validation
-        let tx_nonce = u256_try_to_u64(&transaction.nonce()).ok_or(TxError::from(
-            InvalidTransaction::NonceOverflowInTransaction,
-        ))?;
+        // Nonce validation - skipped for service transactions
+        if let Some(nonce) = transaction.nonce() {
+            let tx_nonce = u256_try_to_u64(&nonce).ok_or(TxError::from(
+                InvalidTransaction::NonceOverflowInTransaction,
+            ))?;
 
-        if !Config::SIMULATION {
-            F::check_nonce_is_not_used(caller_nonce, tx_nonce)?;
+            if !Config::SIMULATION {
+                F::check_nonce_is_not_used(caller_nonce, tx_nonce)?;
+            }
         }
 
         // validation
@@ -825,15 +831,21 @@ where
             tracer,
         )?;
         let from = transaction.from();
-        // Check nonce has been marked
-        if !Config::SIMULATION {
-            F::check_nonce_is_used_after_validation(
-                system,
-                caller_ee_type,
-                resources,
-                tx_nonce,
-                *from,
-            )?;
+
+        // Check nonce has been marked - skipped for service transactions
+        if let Some(nonce) = transaction.nonce() {
+            let tx_nonce = u256_try_to_u64(&nonce).ok_or(TxError::from(
+                InvalidTransaction::NonceOverflowInTransaction,
+            ))?;
+            if !Config::SIMULATION {
+                F::check_nonce_is_used_after_validation(
+                    system,
+                    caller_ee_type,
+                    resources,
+                    tx_nonce,
+                    *from,
+                )?;
+            }
         }
 
         let _ = system.get_logger().write_fmt(format_args!(
