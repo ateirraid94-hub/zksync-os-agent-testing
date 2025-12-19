@@ -101,6 +101,7 @@ where
         intrinsic_computational_native_charged,
     } = create_resources_for_tx::<S>(
         gas_limit,
+        gas_price.is_zero(),
         native_prepaid_from_gas,
         native_per_pubdata,
         false, // is_deployment

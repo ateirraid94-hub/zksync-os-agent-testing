@@ -42,6 +42,7 @@ impl<S: EthereumLikeTypes> core::fmt::Debug for ResourcesForTx<S> {
 ///
 pub fn create_resources_for_tx<S: EthereumLikeTypes>(
     gas_limit: u64,
+    zero_gas_price: bool,
     native_prepaid_from_gas: u64,
     native_per_pubdata_byte: u64,
     is_deployment: bool,
@@ -62,7 +63,8 @@ where
     // isn't computational.
     // We can consider in the future to keep two limits, so that pubdata
     // is not charged from computational resource.
-    let native_limit = if cfg!(feature = "unlimited_native") {
+    // Note: for zero gas price, we use "unlimited native"
+    let native_limit = if cfg!(feature = "unlimited_native") || zero_gas_price {
         u64::MAX - 1 // So any saturation below can not be subtracted from it
     } else {
         native_prepaid_from_gas

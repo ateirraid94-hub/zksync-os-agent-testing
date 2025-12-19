@@ -118,6 +118,7 @@ where
     // Now we will materialize resources, from which we will try to charge intrinsic cost on top
     let mut tx_resources = create_resources_for_tx::<S>(
         tx_gas_limit,
+        gas_price.is_zero(),
         native_prepaid_from_gas,
         native_per_pubdata,
         transaction.is_deployment().is_some(),
