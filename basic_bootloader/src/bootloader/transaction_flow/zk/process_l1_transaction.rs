@@ -36,6 +36,7 @@ use zk_ee::system::{Ergs, Resource};
 use zk_ee::system::{EthereumLikeTypes, Resources};
 #[allow(unused_imports)]
 use zk_ee::system::{IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
+use zk_ee::system_log;
 use zk_ee::utils::{u256_to_b160_checked, u256_to_u64_saturated, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
 
@@ -133,9 +134,10 @@ where
                     // Only way hashing of L1 tx can fail due to Validation or Runtime is
                     // due to running out of native.
                     _ => {
-                        let _ = system.get_logger().write_fmt(format_args!(
+                        system_log!(
+                            system,
                             "Transaction preparation exhausted native resources: {e:?}\n"
-                        ));
+                        );
 
                         resources.exhaust_ergs();
                         // We need to compute the hash anyways, we do with inf resources
@@ -194,9 +196,10 @@ where
                     // Out of native is converted to a top-level revert and
                     // gas is exhausted.
                     RootCause::Runtime(e @ RuntimeError::FatalRuntimeError(_)) => {
-                        let _ = system.get_logger().write_fmt(format_args!(
+                        system_log!(
+                            system,
                             "L1 transaction ran out of native resources or memory {e:?}\n"
-                        ));
+                        );
                         resources.exhaust_ergs();
                         system.finish_global_frame(Some(&rollback_handle))?;
                         (
@@ -367,9 +370,7 @@ where
     S::Metadata: ZkSpecificPricingMetadata
         + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
 {
-    let _ = system
-        .get_logger()
-        .write_fmt(format_args!("Executing L1 transaction\n"));
+    system_log!(system, "Executing L1 transaction\n");
 
     let gas_price = U256::from(transaction.max_fee_per_gas.read());
     system.set_tx_context(TxLevelMetadata {
@@ -388,9 +389,10 @@ where
             })
             .map_err(|e| match e.root_cause() {
                 RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    let _ = system.get_logger().write_fmt(format_args!(
+                    system_log!(
+                        system,
                         "Out of ergs on infinite ergs: inner error was {e:?}"
-                    ));
+                    );
                     BootloaderSubsystemError::LeafDefect(internal_error!(
                         "Out of ergs on infinite ergs"
                     ))
@@ -428,9 +430,7 @@ where
     *resources = resources_returned;
     system.finish_global_frame(reverted.then_some(&rollback_handle))?;
 
-    let _ = system
-        .get_logger()
-        .write_fmt(format_args!("Main TX body successful = {}\n", !reverted));
+    system_log!(system, "Main TX body successful = {}\n", !reverted);
 
     let returndata_region = return_values.returndata;
 
@@ -456,9 +456,7 @@ where
     let (enough, to_charge_for_pubdata, pubdata_used) =
         check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
     let execution_result = if !enough {
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Not enough gas for pubdata after execution\n"));
+        system_log!(system, "Not enough gas for pubdata after execution\n");
         execution_result.reverted()
     } else {
         execution_result
@@ -484,11 +482,7 @@ pub fn mint_token<'a, S: EthereumLikeTypes + 'a>(
 where
     S::IO: IOSubsystemExt,
 {
-    // TODO: debug implementation for ruint types uses global alloc, which panics in ZKsync OS
-    #[cfg(not(target_arch = "riscv32"))]
-    let _ = system.get_logger().write_fmt(format_args!(
-        "Minting {nominal_token_value:?} tokens to {to:?}\n"
-    ));
+    system_log!(system, "Minting {nominal_token_value:?} tokens to {to:?}\n");
 
     let _old_balance = system
         .io
@@ -502,9 +496,7 @@ where
         .map_err(|e| -> BootloaderSubsystemError {
             match e {
                 SubsystemError::LeafUsage(balance_error) => {
-                    let _ = system
-                        .get_logger()
-                        .write_fmt(format_args!("Error while minting: {balance_error:?}"));
+                    system_log!(system, "Error while minting: {balance_error:?}");
                     interface_error!(BootloaderInterfaceError::MintingBalanceOverflow)
                 }
                 _ => wrap_error!(e),

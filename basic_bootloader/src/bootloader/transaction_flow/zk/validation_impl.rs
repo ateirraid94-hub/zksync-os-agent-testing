@@ -26,6 +26,7 @@ use zk_ee::system::{AccountDataRequest, SystemFunctions, MAX_NATIVE_COMPUTATIONA
 use zk_ee::system::{Ergs, IOSubsystemExt, Resources};
 use zk_ee::system::{IOSubsystem, NonceError};
 use zk_ee::system::{Resource, SystemTypes};
+use zk_ee::system_log;
 use zk_ee::{internal_error, out_of_native_resources};
 use zk_ee::{utils::*, wrap_error};
 
@@ -263,10 +264,11 @@ where
         false,
     )?;
 
-    let _ = system.get_logger().write_fmt(format_args!(
+    system_log!(
+        system,
         "Prepared resources for transaction: {:?}\n",
         &tx_resources
-    ));
+    );
 
     // NOTE: we provided a "hint" for "from", so it's sequencer's risks here:
     // - either "from" is valid at it has at least enough balance, valid signature, etc to eventually pay for all validation

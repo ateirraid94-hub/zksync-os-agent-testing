@@ -1,6 +1,7 @@
 use core::fmt::Write;
 use evm_interpreter::ERGS_PER_GAS;
 use ruint::aliases::U256;
+use zk_ee::system_log;
 use zk_ee::{
     system::{
         errors::internal::InternalError, Computational, EthereumLikeTypes, IOSubsystem, Resource,
@@ -34,9 +35,7 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
     let mut gas_used = gas_limit - resources.ergs().0.div_floor(ERGS_PER_GAS);
     resources.exhaust_ergs();
 
-    let _ = system.get_logger().write_fmt(format_args!(
-        "Gas used before refund calculations: {gas_used}\n"
-    ));
+    system_log!(system, "Gas used before refund calculations: {gas_used}\n");
 
     // Following EIP-3529, refunds are capped to 1/5 of the gas used
     let evm_refund = {
@@ -45,15 +44,14 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
         core::cmp::min(full_refund, max_refund)
     };
 
-    let _ = system.get_logger().write_fmt(format_args!(
-        "Gas refund from refund counters = {evm_refund}\n"
-    ));
+    system_log!(system, "Gas refund from refund counters = {evm_refund}\n");
 
     gas_used -= evm_refund;
 
-    let _ = system.get_logger().write_fmt(format_args!(
+    system_log!(
+        system,
         "Minimal gas used from validation = {minimal_gas_used}\n"
-    ));
+    );
 
     #[allow(unused_mut)]
     let mut gas_used = core::cmp::max(gas_used, minimal_gas_used);
@@ -85,9 +83,7 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
     }
 
     let total_gas_refund = gas_limit - gas_used;
-    let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Refund after accounting for unused gas, refund counters and native cost: {total_gas_refund}\n"));
+    system_log!(system, "Refund after accounting for unused gas, refund counters and native cost: {total_gas_refund}\n");
     require_internal!(
         total_gas_refund <= gas_limit,
         "Gas refund greater than gas limit",
@@ -98,8 +94,6 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
         evm_refund,
         native_used,
     };
-    let _ = system
-        .get_logger()
-        .write_fmt(format_args!("Final gas used: {gas_used}\n"));
+    system_log!(system, "Final gas used: {gas_used}\n");
     Ok(refund_info)
 }

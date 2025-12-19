@@ -4,6 +4,7 @@ use zk_ee::internal_error;
 use zk_ee::system::errors::internal::InternalError;
 use zk_ee::system::Resource;
 use zk_ee::system::{Computational, Resources};
+use zk_ee::system_log;
 use zk_ee::utils::u256_to_u64_saturated;
 
 use super::super::*;
@@ -73,9 +74,7 @@ pub fn check_enough_resources_for_pubdata<S: EthereumLikeTypes>(
 ) -> Result<(bool, S::Resources, u64), InternalError> {
     let (pubdata_used, resources_for_pubdata) =
         get_resources_to_charge_for_pubdata(system, native_per_pubdata, base_pubdata)?;
-    let _ = system.get_logger().write_fmt(format_args!(
-        "Checking gas for pubdata, resources_for_pubdata: {resources_for_pubdata:?}, resources: {resources:?}\n"
-    ));
+    system_log!(system, "Checking gas for pubdata, resources_for_pubdata: {resources_for_pubdata:?}, resources: {resources:?}\n");
     let enough = resources.has_enough(&resources_for_pubdata);
     Ok((enough, resources_for_pubdata, pubdata_used))
 }

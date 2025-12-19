@@ -8,6 +8,7 @@ use zk_ee::system::{
     AccountDataRequest, CallModifier, CompletedExecution, ExternalCallRequest, IOSubsystemExt,
 };
 use zk_ee::system::{EthereumLikeTypes, System};
+use zk_ee::system_log;
 
 use super::*;
 
@@ -36,12 +37,8 @@ where
         S::IO: IOSubsystemExt,
     {
         if DEBUG_OUTPUT {
-            let _ = system
-                .get_logger()
-                .write_fmt(format_args!("`caller` = {caller:?}\n"));
-            let _ = system
-                .get_logger()
-                .write_fmt(format_args!("`callee` = {callee:?}\n"));
+            system_log!(system, "`caller` = {caller:?}\n");
+            system_log!(system, "`callee` = {callee:?}\n");
         }
 
         let ee_version = {

@@ -18,6 +18,7 @@ use zk_ee::system::IOSubsystem;
 use zk_ee::system::NonceError;
 use zk_ee::system::Resource;
 use zk_ee::system::{AccountDataRequest, EthereumLikeTypes, IOSubsystemExt, Resources, System};
+use zk_ee::system_log;
 use zk_ee::{internal_error, wrap_error};
 
 use super::rlp_encoded::AuthorizationList;
@@ -52,9 +53,7 @@ where
             (y_parity, r, s),
             &mut hasher,
         )?;
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Delegation success: {success}\n"));
+        system_log!(system, "Delegation success: {success}\n");
 
         if !success {}
     }
@@ -170,11 +169,12 @@ where
     }
 
     let delegation_address = B160::from_be_bytes(*delegation_address);
-    let _ = system.get_logger().write_fmt(format_args!(
+    system_log!(
+        system,
         "Will delegate address 0x{:040x} -> 0x{:040x}\n",
         authority.as_uint(),
         delegation_address.as_uint()
-    ));
+    );
 
     // 8. Set code for authority, system function
     //    will handle the two cases (unsetting).

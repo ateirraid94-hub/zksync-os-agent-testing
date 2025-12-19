@@ -3,6 +3,7 @@ use crate::bootloader::BasicBootloader;
 use crate::bootloader::InvalidTransaction;
 use core::fmt::Write;
 use zk_ee::system::EthereumLikeTypes;
+use zk_ee::system_log;
 use zk_ee::utils::UsizeAlignedByteBox;
 
 impl<'a, S: EthereumLikeTypes + 'a, F: BasicTransactionFlow<S>> BasicBootloader<S, F>
@@ -88,9 +89,10 @@ where
                 }
             };
 
-        let _ = system.get_logger().write_fmt(format_args!(
+        system_log!(
+            system,
             "Transaction was validated and can be processed to collect fees\n"
-        ));
+        );
 
         F::before_fee_collection(system, &transaction, &tx_context, tracer)?;
 
@@ -105,9 +107,7 @@ where
         };
         drop(validation_rollback_handle);
 
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Fees were collected\n"));
+        system_log!(system, "Fees were collected\n");
 
         F::before_execute_transaction_payload(system, &transaction, &mut tx_context, tracer)?;
 
@@ -132,9 +132,7 @@ where
             tracer,
         )?;
 
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Start of refund\n"));
+        system_log!(system, "Start of refund\n");
 
         let refund_rollback_handle = system.start_global_frame()?;
 
@@ -143,9 +141,7 @@ where
                 system.finish_global_frame(None)?;
             }
             Err(e) => {
-                let _ = system
-                    .get_logger()
-                    .write_fmt(format_args!("Error on refund {:?}\n", &e));
+                system_log!(system, "Error on refund {:?}\n", &e);
                 system.finish_global_frame(Some(&refund_rollback_handle))?;
                 return Err(e.into());
             }

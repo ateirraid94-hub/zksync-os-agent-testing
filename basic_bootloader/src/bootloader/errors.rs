@@ -190,10 +190,7 @@ macro_rules! require {
         if $b {
             Ok(())
         } else {
-            $system
-                .get_logger()
-                .write_fmt(format_args!("Check failed: {:?}\n", $err))
-                .expect("Failed to write log");
+            system_log!($system, "Check failed: {:?}\n", $err);
             Err($err)
         }
     };
@@ -205,10 +202,7 @@ macro_rules! unless {
         if !$b {
             Ok(())
         } else {
-            $system
-                .get_logger()
-                .write_fmt(format_args!("Check failed: {:?}\n", $err))
-                .expect("Failed to write log");
+            system_log!($system, "Check failed: {:?}\n", $err);
             Err($err)
         }
     };
@@ -220,10 +214,7 @@ macro_rules! require_internal {
         if $b {
             Ok(())
         } else {
-            $system
-                .get_logger()
-                .write_fmt(format_args!("Check failed: {}\n", $s))
-                .expect("Failed to write log");
+            system_log!($system, "Check failed: {}\n", $s);
             Err(zk_ee::internal_error!($s))
         }
     };

@@ -32,6 +32,7 @@ use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{
     errors::runtime::RuntimeError, logger::Logger, EthereumLikeTypes, System, SystemTypes, *,
 };
+use zk_ee::system_log;
 use zk_ee::types_config::EthereumIOTypesConfig;
 use zk_ee::utils::Bytes32;
 use zk_ee::{interface_error, internal_error, out_of_native_resources, wrap_error};
@@ -176,20 +177,16 @@ where
         transaction: &Transaction<S::Allocator>,
         _tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError> {
-        let to = match transaction.to() {
-            Some(to) => alloc::format!("0x{:040x}", to.as_uint()),
-            None => "null".to_string(),
-        };
-        let _ = system.get_logger().write_fmt(
-            format_args!(
-                "Will process transaction from 0x{:040x} to {} with gas limit of {} and value of {:?} and {} bytes of calldata\n",
+        system_log!(system, "Will process transaction from 0x{:040x} to {} with gas limit of {} and value of {:?} and {} bytes of calldata\n",
                 transaction.from().as_uint(),
-               to,
+                // Inline match to avoid allocation
+                match transaction.to() {
+                    Some(to) => alloc::format!("0x{:040x}", to.as_uint()),
+                    None => "null".to_string(),
+                },
                 transaction.gas_limit(),
                 transaction.value(),
-                transaction.calldata().len(),
-            )
-        );
+                transaction.calldata().len(),);
         Ok(())
     }
 
@@ -224,10 +221,11 @@ where
         let from = transaction.from();
         let fee = context.fee_to_prepay;
 
-        let _ = system.get_logger().write_fmt(format_args!(
+        system_log!(
+            system,
             "Will precharge {:?} native tokens for transaction\n",
             &fee
-        ));
+        );
 
         // ARCHITECTURE NOTE: Fee payment is split into two phases:
         // 1. Deduct full fee from sender at transaction start (here)
@@ -332,16 +330,12 @@ where
                 let pubdata_info = match r {
                     ExecutionResult::Success { .. } => {
                         system.finish_global_frame(None)?;
-                        let _ = system
-                            .get_logger()
-                            .write_fmt(format_args!("Transaction main payload was processed\n"));
+                        system_log!(system, "Transaction main payload was processed\n");
                         Some(cached_pubdata_info)
                     }
                     ExecutionResult::Revert { .. } => {
                         system.finish_global_frame(Some(&main_body_rollback_handle))?;
-                        let _ = system
-                            .get_logger()
-                            .write_fmt(format_args!("Transaction main payload was reverted\n"));
+                        system_log!(system, "Transaction main payload was reverted\n");
                         None
                     }
                 };
@@ -351,9 +345,10 @@ where
             // gas is exhausted.
             Err(e) => match e.root_cause() {
                 RootCause::Runtime(e @ RuntimeError::FatalRuntimeError(_)) => {
-                    let _ = system.get_logger().write_fmt(format_args!(
+                    system_log!(
+                        system,
                         "Transaction ran out of native resources or memory: {e:?}\n"
-                    ));
+                    );
                     context.resources.main_resources.exhaust_ergs();
                     system.finish_global_frame(Some(&main_body_rollback_handle))?;
                     (ExecutionResult::Revert { output: &[] }, None)
@@ -385,10 +380,12 @@ where
             .main_resources
             .reclaim_withheld(context.resources.withheld.take());
 
-        let _ = system.get_logger().write_fmt(format_args!(
+        system_log!(
+            system,
             "Have {:?} resources available before refund, and need to cover {:?} pubdata\n",
-            &context.resources.main_resources, &pubdata_info
-        ));
+            &context.resources.main_resources,
+            &pubdata_info
+        );
 
         let validation_pubdata = context.validation_pubdata;
 
@@ -439,10 +436,7 @@ where
         // here we refund the user, then we will transfer fee to the operator
 
         if context.tx_gas_limit > context.gas_used {
-            let _ = system.get_logger().write_fmt(format_args!(
-                "Gas price for refund is {:?}\n",
-                &context.gas_price
-            ));
+            system_log!(system, "Gas price for refund is {:?}\n", &context.gas_price);
 
             // refund
             let refund_recipient = transaction.from();
@@ -493,10 +487,11 @@ where
             context.gas_price
         };
 
-        let _ = system.get_logger().write_fmt(format_args!(
+        system_log!(
+            system,
             "Gas price for coinbase fee is {:?}\n",
             &gas_price_for_operator
-        ));
+        );
 
         let token_to_pay_operator = U256::from(context.gas_used)
             .checked_mul(gas_price_for_operator)
@@ -643,9 +638,7 @@ where
             result,
         } = final_state;
 
-        let _ = system.get_logger().write_fmt(format_args!(
-            "Resources to refund = {resources_returned:?}\n",
-        ));
+        system_log!(system, "Resources to refund = {resources_returned:?}\n",);
         context.resources.main_resources.reclaim(resources_returned);
 
         let reverted = result.failed();
@@ -729,9 +722,7 @@ where
             result: deployment_result,
         } = final_state;
 
-        let _ = system.get_logger().write_fmt(format_args!(
-            "Resources to refund = {resources_returned:?}\n",
-        ));
+        system_log!(system, "Resources to refund = {resources_returned:?}\n",);
         context.resources.main_resources.reclaim(resources_returned);
 
         let (deployment_success, reverted, return_values, at) = match deployment_result {
@@ -760,13 +751,14 @@ where
         // Do not forget to reassign it back after potential copy when finishing frame
         system.finish_global_frame(reverted.then_some(&rollback_handle))?;
 
-        let _ = system.get_logger().write_fmt(format_args!(
+        system_log!(
+            system,
             "Deployment at {at:?} ended with success = {deployment_success}\n"
-        ));
+        );
         let returndata_iter = return_values.returndata.iter().copied();
-        let _ = system.get_logger().write_fmt(format_args!("Returndata = "));
+        system_log!(system, "Returndata = ");
         let _ = system.get_logger().log_data(returndata_iter);
-        let _ = system.get_logger().write_fmt(format_args!("\n"));
+        system_log!(system, "\n");
         let deployed_address = at
             .map(DeployedAddress::Address)
             .unwrap_or(DeployedAddress::RevertedNoAddress);
@@ -788,9 +780,7 @@ where
     where
         S: 'a,
     {
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Start of execution\n"));
+        system_log!(system, "Start of execution\n");
 
         let to_ee_type = transaction.is_deployment();
 
@@ -823,9 +813,7 @@ where
             .get_logger()
             .log_data(returndata_region.iter().copied());
 
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Main TX body successful = {}\n", !reverted));
+        system_log!(system, "Main TX body successful = {}\n", !reverted);
 
         let mut execution_result = match reverted {
             true => ExecutionResult::Revert {
@@ -844,9 +832,7 @@ where
             }
         };
 
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Transaction execution completed\n"));
+        system_log!(system, "Transaction execution completed\n");
 
         // After the transaction is executed, we reclaim the withheld resources.
         // This is needed to ensure correct "gas_used" calculation, also these
@@ -864,9 +850,7 @@ where
         )?;
         if !has_enough {
             execution_result = execution_result.reverted();
-            let _ = system
-                .get_logger()
-                .write_fmt(format_args!("Not enough gas for pubdata after execution\n"));
+            system_log!(system, "Not enough gas for pubdata after execution\n");
             Ok((
                 execution_result.reverted(),
                 CachedPubdataInfo {
