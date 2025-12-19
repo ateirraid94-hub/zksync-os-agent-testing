@@ -75,31 +75,43 @@ impl<'a, IOTypes: SystemIOTypesConfig> ExecutionResult<'a, IOTypes> {
     }
 }
 
-/// Note - even though function here may use IO internally, one should not make such assumptions and open frames
-/// at caller side if needed
+///
+/// Trait describing basic steps in the transaction processing.
+/// Note that these are used for processing L2 transactions.
+/// For now, L1 transaction processing is implemented
+/// by each transaction flow as a single step.
+///
 pub trait BasicTransactionFlow<S: SystemTypes>: Sized
 where
     S::IO: IOSubsystemExt,
 {
+    /// Context in which the transaction is executed.
     type TransactionContext: core::fmt::Debug;
+
+    /// Extra output from the execution of the transaction's body.
+    /// Mostly used for refund information.
     type ExecutionBodyExtraData: core::fmt::Debug;
+
+    /// Result of the execution.
     type ExecutionResult<'a>: MinimalTransactionOutput<'a>;
 
-    // We identity few steps that are somewhat universal (it's named "basic"),
-    // and will try to adhere to them to easier compose the execution flow for transactions that are "intrinsic" and not "enforced upon".
-
+    /// Initial step before the validation of the transaction.
+    /// Mostly used for logging metadata.
     fn before_validation(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,
         tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError>;
 
+    /// Validation of the transaction.
     fn validate_and_prepare_context<Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         transaction: &mut Transaction<S::Allocator>,
         tracer: &mut impl Tracer<S>,
     ) -> Result<Self::TransactionContext, TxError>;
 
+    /// Step between validation and fee collection,
+    /// mostly used for logging fee information.
     fn before_fee_collection(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,
@@ -107,6 +119,7 @@ where
         tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError>;
 
+    /// Charge fee from sender
     fn precharge_fee<Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,
@@ -114,6 +127,7 @@ where
         tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError>;
 
+    /// Step between fee charging and transaction execution.
     fn before_execute_transaction_payload(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,
@@ -121,6 +135,7 @@ where
         tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError>;
 
+    /// Main transaction execution step.
     fn create_frame_and_execute_transaction_payload<'a, Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         system_functions: &mut HooksStorage<S, S::Allocator>,
@@ -138,6 +153,9 @@ where
     where
         S: 'a;
 
+    /// Step between transaction execution and refund.
+    /// Responsible of computing the refund based on "extra data"
+    /// returned after execution.
     fn before_refund<'a, Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,
@@ -147,6 +165,8 @@ where
         tracer: &mut impl Tracer<S>,
     ) -> Result<(), InternalError>;
 
+    /// Refund the sender for unused resources and
+    /// pay the coinbase the fee.
     fn refund_and_commit_fee<Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,
@@ -154,6 +174,9 @@ where
         tracer: &mut impl Tracer<S>,
     ) -> Result<(), BootloaderSubsystemError>;
 
+    /// Final step in the processing of a transaction.
+    /// Mostly used for adapting the generic ExecutionResult to the
+    /// trait-specific one.
     fn after_execution<'a, Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         transaction: &Transaction<S::Allocator>,

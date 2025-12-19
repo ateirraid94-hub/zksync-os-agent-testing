@@ -10,6 +10,7 @@ impl<'a, S: EthereumLikeTypes + 'a, F: BasicTransactionFlow<S>> BasicBootloader<
 where
     S::IO: IOSubsystemExt,
 {
+    /// Main transaction processing entrypoint
     pub fn process_transaction<Config: BasicBootloaderExecutionConfig>(
         initial_calldata_buffer: UsizeAlignedByteBox<S::Allocator>,
         system: &mut System<S>,
@@ -64,6 +65,8 @@ where
         }
     }
 
+    /// Generic processing of L2 transactions, based on the
+    /// steps defined by the `BasicTransactionFlow` trait.
     pub fn process_l2_transaction<Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         system_functions: &mut HooksStorage<S, S::Allocator>,
@@ -76,10 +79,9 @@ where
     {
         F::before_validation(system, &transaction, tracer)?;
 
-        // Here we will follow basic Ethereum EOA flow, but caller is responsible to manage frames
-
         let validation_rollback_handle = system.start_global_frame()?;
 
+        // Tx validation
         let mut tx_context =
             match F::validate_and_prepare_context::<Config>(system, &mut transaction, tracer) {
                 Ok(v) => v,
@@ -96,6 +98,7 @@ where
 
         F::before_fee_collection(system, &transaction, &tx_context, tracer)?;
 
+        // Fee collection
         match F::precharge_fee::<Config>(system, &transaction, &mut tx_context, tracer) {
             Ok(_) => {
                 system.finish_global_frame(None)?;
@@ -112,7 +115,6 @@ where
         F::before_execute_transaction_payload(system, &transaction, &mut tx_context, tracer)?;
 
         // Execute main body
-
         let (execution_result, extra_info) =
             F::create_frame_and_execute_transaction_payload::<Config>(
                 system,
@@ -136,6 +138,7 @@ where
 
         let refund_rollback_handle = system.start_global_frame()?;
 
+        // Refund
         match F::refund_and_commit_fee::<Config>(system, &transaction, &mut tx_context, tracer) {
             Ok(_) => {
                 system.finish_global_frame(None)?;
