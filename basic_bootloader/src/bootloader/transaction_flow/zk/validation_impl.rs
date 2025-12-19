@@ -58,7 +58,7 @@ where
     // and even if those would saturate, we can still catch this case
     require!(
         tx_gas_limit.saturating_mul(ERGS_PER_GAS) < u64::MAX,
-        internal_error!("TX gas limit overflows ergs counter"),
+        InvalidTransaction::CallerGasLimitTooHigh,
         system
     )?;
 

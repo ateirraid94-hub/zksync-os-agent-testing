@@ -107,6 +107,8 @@ pub enum InvalidTransaction {
     EIP7623IntrinsicGasIsTooLow,
     /// Native resources cost is too high
     NativeResourcesAreTooExpensive,
+    /// The call's gas limit is too high for the system to process.
+    CallerGasLimitTooHigh,
 }
 
 ///
