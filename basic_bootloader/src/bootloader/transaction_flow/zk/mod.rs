@@ -271,11 +271,8 @@ where
         _tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError> {
         // Charge for validation pubdata
-        let (validation_pubdata, to_charge_for_pubdata) = get_resources_to_charge_for_pubdata(
-            system,
-            U256::from(context.native_per_pubdata),
-            None,
-        )?;
+        let (validation_pubdata, to_charge_for_pubdata) =
+            get_resources_to_charge_for_pubdata(system, context.native_per_pubdata, None)?;
         context.validation_pubdata = validation_pubdata;
         Self::charge_for_validation_pubdata_using_withheld(
             &mut context.resources,
@@ -400,7 +397,7 @@ where
                 let (execution_pubdata_spent, to_charge_for_pubdata) =
                     get_resources_to_charge_for_pubdata(
                         system,
-                        U256::from(context.native_per_pubdata),
+                        context.native_per_pubdata,
                         Some(validation_pubdata),
                     )?;
                 (
@@ -415,7 +412,7 @@ where
             to_charge_for_pubdata,
             transaction.gas_limit(),
             min_gas_used,
-            U256::from(context.native_per_gas),
+            context.native_per_gas,
             &mut context.resources.main_resources,
         )?;
         debug_assert_eq!(context.gas_used, 0);
@@ -844,7 +841,7 @@ where
 
         let (has_enough, to_charge_for_pubdata, pubdata_used) = check_enough_resources_for_pubdata(
             system,
-            U256::from(context.native_per_pubdata),
+            context.native_per_pubdata,
             &resources_for_check,
             Some(context.validation_pubdata),
         )?;

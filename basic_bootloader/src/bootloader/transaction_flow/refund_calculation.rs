@@ -1,14 +1,10 @@
 use core::fmt::Write;
 use evm_interpreter::ERGS_PER_GAS;
-use ruint::aliases::U256;
-use zk_ee::system_log;
-use zk_ee::{
-    system::{
-        errors::internal::InternalError, Computational, EthereumLikeTypes, IOSubsystem, Resource,
-        Resources, System,
-    },
-    utils::u256_to_u64_saturated,
+use zk_ee::system::{
+    errors::internal::InternalError, Computational, EthereumLikeTypes, IOSubsystem, Resource,
+    Resources, System,
 };
+use zk_ee::system_log;
 
 use crate::require_internal;
 
@@ -26,7 +22,7 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
     to_charge_for_pubdata: S::Resources,
     gas_limit: u64,
     minimal_gas_used: u64,
-    native_per_gas: U256,
+    native_per_gas: u64,
     resources: &mut S::Resources,
 ) -> Result<RefundInfo, InternalError> {
     // Already checked
@@ -59,15 +55,13 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
     let full_native_limit = if cfg!(feature = "unlimited_native") {
         u64::MAX
     } else {
-        gas_limit.saturating_mul(u256_to_u64_saturated(&native_per_gas))
+        gas_limit.saturating_mul(native_per_gas)
     };
     let native_used = full_native_limit.saturating_sub(resources.native().remaining().as_u64());
 
     #[cfg(not(feature = "unlimited_native"))]
     {
         // Adjust gas_used with difference with used native
-        let native_per_gas = u256_to_u64_saturated(&native_per_gas);
-
         let delta_gas = if native_per_gas == 0 {
             0
         } else {
