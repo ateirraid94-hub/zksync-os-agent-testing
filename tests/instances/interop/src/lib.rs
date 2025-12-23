@@ -182,9 +182,15 @@ fn test_new_sl_chain_id_no_update() {
     let bytecode = hex::decode(L2_CHAIN_ASSET_HANDLER_BYTECODE).unwrap();
     chain.set_evm_bytecode(L2_CHAIN_ASSET_HANDLER_ADDRESS, &bytecode);
     let mut tracer = NopTracer::default();
+    let sl_chain_id = 1u64;
+    chain.set_storage_slot(
+        SYSTEM_CONTEXT_ADDRESS,
+        U256::ZERO,
+        rig::ruint::aliases::B256::from_limbs([sl_chain_id, 0, 0, 0]),
+    );
 
     // We check that a block with no updates to sl chain id
-    // has a 0 on the PI field
+    // has the expected chain id set on the SystemContext
     let wallet = PrivateKeySigner::from_str(
         "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7",
     )
@@ -219,9 +225,9 @@ fn test_new_sl_chain_id_no_update() {
     assert!(tx_result.is_success(), "Transaction should be successful");
     // Check the pi
     assert_eq!(
-        U256::ZERO,
-        pi_batch_output.new_settlement_layer_chain_id,
-        "Mismatch in new_settlement_layer_chain_id"
+        U256::from(sl_chain_id),
+        pi_batch_output.settlement_layer_chain_id,
+        "Mismatch in settlement_layer_chain_id"
     );
 }
 
@@ -234,6 +240,12 @@ fn test_new_sl_chain_id_one_update() {
     let bytecode = hex::decode(L2_CHAIN_ASSET_HANDLER_BYTECODE).unwrap();
     chain.set_evm_bytecode(L2_CHAIN_ASSET_HANDLER_ADDRESS, &bytecode);
     let mut tracer = NopTracer::default();
+    let old_sl_chain_id = 1u64;
+    chain.set_storage_slot(
+        SYSTEM_CONTEXT_ADDRESS,
+        U256::ZERO,
+        rig::ruint::aliases::B256::from_limbs([old_sl_chain_id, 0, 0, 0]),
+    );
 
     // We check that sending a single update works
     let new_sl_chain_id = U256::from(42);
@@ -268,8 +280,8 @@ fn test_new_sl_chain_id_one_update() {
     assert!(tx_result.logs.len() == 1);
     // Check the pi
     assert_eq!(
-        new_sl_chain_id, pi_batch_output.new_settlement_layer_chain_id,
-        "Mismatch in new_settlement_layer_chain_id"
+        new_sl_chain_id, pi_batch_output.settlement_layer_chain_id,
+        "Mismatch in settlement_layer_chain_id"
     );
 }
 
