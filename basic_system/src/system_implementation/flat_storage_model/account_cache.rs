@@ -519,7 +519,6 @@ impl<
         Bytecode: Maybe<&'static [u8]>,
         CodeVersion: Maybe<u8>,
         IsDelegated: Maybe<bool>,
-        HasBytecode: Maybe<bool>,
     >(
         &mut self,
         ee_type: ExecutionEnvironmentType,
@@ -538,7 +537,6 @@ impl<
                 Bytecode,
                 CodeVersion,
                 IsDelegated,
-                HasBytecode,
             >,
         >,
         storage: &mut NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>,
@@ -557,7 +555,6 @@ impl<
             Bytecode,
             CodeVersion,
             IsDelegated,
-            HasBytecode,
         >,
         SystemError,
     > {
@@ -631,7 +628,6 @@ impl<
                     Ok(delegated)
                 }
             })?,
-            has_bytecode: Maybe::construct(|| full_data.observable_bytecode_len > 0),
         })
     }
 

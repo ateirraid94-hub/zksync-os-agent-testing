@@ -159,7 +159,7 @@ where
     }
     // 7. Add refund if authority is not empty.
     let is_empty = account_properties.nonce.0 == 0
-        && account_properties.has_bytecode.0 == false
+        && account_properties.has_bytecode() == false
         && account_properties.nominal_token_balance.0.is_zero();
     if !is_empty {
         system.io.add_evm_refund(

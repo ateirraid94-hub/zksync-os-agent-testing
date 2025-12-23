@@ -221,7 +221,6 @@ pub struct AccountData<
     Bytecode,
     CodeVersion,
     IsDelegated,
-    HasBytecode,
 > {
     pub ee_version: EEVersion,
     pub observable_bytecode_hash: ObservableBytecodeHash,
@@ -234,22 +233,23 @@ pub struct AccountData<
     pub bytecode: Bytecode,
     pub code_version: CodeVersion,
     pub is_delegated: IsDelegated,
-    pub has_bytecode: HasBytecode,
 }
 
-impl<A, B, C, D, E, F, G, H, I, J>
-    AccountData<A, B, C, D, E, F, G, H, I, J, Just<bool>, Just<bool>>
-{
-    pub fn is_contract(&self) -> bool {
-        self.has_bytecode.0 && self.is_delegated.0 == false
+impl<A, B, D, E, F, G, H, I, J, K> AccountData<A, B, Just<u32>, D, E, F, G, H, I, J, K> {
+    pub fn has_bytecode(&self) -> bool {
+        self.observable_bytecode_len.0 > 0
     }
 }
 
-impl<A, B, C, D, E, F, G, H, I, J>
-    AccountData<A, B, C, Just<u64>, D, E, F, G, H, I, J, Just<bool>>
-{
+impl<A, B, D, E, F, G, H, I, J> AccountData<A, B, Just<u32>, D, E, F, G, H, I, J, Just<bool>> {
+    pub fn is_contract(&self) -> bool {
+        self.has_bytecode() && self.is_delegated.0 == false
+    }
+}
+
+impl<A, B, D, E, F, G, H, I, J> AccountData<A, B, Just<u32>, Just<u64>, D, E, F, G, H, I, J> {
     pub fn can_deploy_into(&self) -> bool {
-        self.nonce.0 == 0 && self.has_bytecode.0 == false
+        self.nonce.0 == 0 && self.has_bytecode() == false
     }
 }
 
@@ -270,7 +270,6 @@ impl
             Nothing,
             Nothing,
             Nothing,
-            Nothing,
         >,
     >
 {
@@ -279,77 +278,78 @@ impl
     }
 }
 
-impl<A, B, C, D, E, F, G, H, I, J, K, L>
-    AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, J, K, L>>
+impl<A, B, C, D, E, F, G, H, I, J, K>
+    AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, J, K>>
 {
     pub fn with_ee_version(
         self,
-    ) -> AccountDataRequest<AccountData<Just<u8>, B, C, D, E, F, G, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<Just<u8>, B, C, D, E, F, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
     pub fn with_observable_bytecode_hash<T>(
         self,
-    ) -> AccountDataRequest<AccountData<A, Just<T>, C, D, E, F, G, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, Just<T>, C, D, E, F, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_observable_bytecode_len(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, Just<u32>, D, E, F, G, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, Just<u32>, D, E, F, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_nonce(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, Just<u64>, E, F, G, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, Just<u64>, E, F, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_bytecode_hash<T>(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, Just<T>, F, G, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, Just<T>, F, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_unpadded_code_len(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, Just<u32>, G, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, E, Just<u32>, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_artifacts_len(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, Just<u32>, H, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, Just<u32>, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_nominal_token_balance<T>(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, Just<T>, I, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, Just<T>, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_bytecode(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, Just<&'static [u8]>, J, K, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, Just<&'static [u8]>, J, K>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_code_version(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, Just<u8>, J, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, Just<u8>, J>> {
         AccountDataRequest(PhantomData)
     }
 
     pub fn with_is_delegated(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, J, Just<bool>, L>> {
+    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, J, Just<bool>>> {
         AccountDataRequest(PhantomData)
     }
 
+    // Helper: just queries observable bytecode len
     pub fn with_has_bytecode(
         self,
-    ) -> AccountDataRequest<AccountData<A, B, C, D, E, F, G, H, I, J, K, Just<bool>>> {
+    ) -> AccountDataRequest<AccountData<A, B, Just<u32>, D, E, F, G, H, I, J, K>> {
         AccountDataRequest(PhantomData)
     }
 }
@@ -412,7 +412,6 @@ pub trait IOSubsystemExt: IOSubsystem {
         Bytecode: Maybe<&'static [u8]>,
         CodeVersion: Maybe<u8>,
         IsDelegated: Maybe<bool>,
-        HasBytecode: Maybe<bool>,
     >(
         &mut self,
         ee_type: ExecutionEnvironmentType,
@@ -431,7 +430,6 @@ pub trait IOSubsystemExt: IOSubsystem {
                 Bytecode,
                 CodeVersion,
                 IsDelegated,
-                HasBytecode,
             >,
         >,
     ) -> Result<
@@ -447,7 +445,6 @@ pub trait IOSubsystemExt: IOSubsystem {
             Bytecode,
             CodeVersion,
             IsDelegated,
-            HasBytecode,
         >,
         SystemError,
     >;

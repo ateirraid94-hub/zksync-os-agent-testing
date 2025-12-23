@@ -1047,7 +1047,6 @@ where
         Bytecode: Maybe<&'static [u8]>,
         CodeVersion: Maybe<u8>,
         IsDelegated: Maybe<bool>,
-        HasBytecode: Maybe<bool>,
     >(
         &mut self,
         ee_type: ExecutionEnvironmentType,
@@ -1066,7 +1065,6 @@ where
                 Bytecode,
                 CodeVersion,
                 IsDelegated,
-                HasBytecode,
             >,
         >,
     ) -> Result<
@@ -1082,7 +1080,6 @@ where
             Bytecode,
             CodeVersion,
             IsDelegated,
-            HasBytecode,
         >,
         SystemError,
     > {
