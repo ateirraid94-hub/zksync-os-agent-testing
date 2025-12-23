@@ -33,7 +33,7 @@ use crate::contract_deployer::contract_deployer_hook;
 use crate::interop_root_reporter::interop_root_reporter_event_hook;
 use crate::l1_messenger::l1_messenger_hook;
 use crate::l2_base_token::l2_base_token_hook;
-use crate::new_sl_chain_id_reporter::system_context_event_hook;
+use crate::system_context::system_context_event_hook;
 use core::marker::PhantomData;
 use core::{alloc::Allocator, mem::MaybeUninit};
 use evm_interpreter::ERGS_PER_GAS;
@@ -63,8 +63,8 @@ pub mod contract_deployer;
 pub mod interop_root_reporter;
 pub mod l1_messenger;
 pub mod l2_base_token;
-pub mod new_sl_chain_id_reporter;
 mod precompiles;
+pub mod system_context;
 
 pub trait SystemFunctionInvocation<S: SystemTypes, E: Subsystem>
 where
