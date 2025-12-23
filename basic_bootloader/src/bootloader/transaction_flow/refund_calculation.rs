@@ -4,7 +4,7 @@ use zk_ee::system::{
     errors::internal::InternalError, Computational, EthereumLikeTypes, IOSubsystem, Resource,
     Resources, System,
 };
-use zk_ee::system_log;
+use zk_ee::{internal_error, system_log};
 
 use crate::require_internal;
 
@@ -28,7 +28,9 @@ pub(crate) fn compute_gas_refund<S: EthereumLikeTypes>(
     // Already checked
     resources.charge_unchecked(&to_charge_for_pubdata);
 
-    let mut gas_used = gas_limit - resources.ergs().0.div_floor(ERGS_PER_GAS);
+    let mut gas_used = gas_limit
+        .checked_sub(resources.ergs().0.div_floor(ERGS_PER_GAS))
+        .ok_or(internal_error!("gas remaining > gas limit"))?;
     resources.exhaust_ergs();
 
     system_log!(system, "Gas used before refund calculations: {gas_used}\n");
