@@ -111,6 +111,7 @@ pub struct GenericPubdataAwareStorageValuesCache<
     P: StorageAccessPolicy<R, V>,
 > {
     pub cache: HistoryMap<K, CacheRecord<V, StorageElementMetadata>, A, StorageCacheAppearance>,
+    pub(crate) access_list_slots: alloc::collections::BTreeSet<K, A>,
     pub(crate) resources_policy: P,
     pub(crate) current_tx_number: TransactionId,
     pub(crate) initial_values: BTreeMap<K, (V, TransactionId), A>, // Used to cache initial values at the beginning of the tx (For EVM gas model)
@@ -137,6 +138,7 @@ impl<
     pub fn new_from_parts(allocator: A, resources_policy: P) -> Self {
         Self {
             cache: HistoryMap::new(allocator.clone()),
+            access_list_slots: alloc::collections::BTreeSet::new_in(allocator.clone()),
             current_tx_number: TransactionId(0),
             resources_policy,
             initial_values: BTreeMap::new_in(allocator.clone()),
@@ -149,6 +151,7 @@ impl<
 
     pub fn begin_new_tx(&mut self) {
         self.cache.commit();
+        self.access_list_slots.clear();
         #[cfg(feature = "evm_refunds")]
         {
             self.evm_refunds_counter = HistoryCounter::new(self.alloc.clone());
@@ -182,6 +185,21 @@ impl<
         }
     }
 
+    pub(crate) fn mark_access_list_slot(
+        &mut self,
+        ee_type: ExecutionEnvironmentType,
+        resources: &mut R,
+        key: &K,
+    ) -> Result<(), SystemError> {
+        self.resources_policy
+            .charge_warm_storage_read(ee_type, resources, true)?;
+        self.resources_policy.charge_cold_storage_read_extra(
+            ee_type, resources, true, // TODO: what to use here?
+        )?;
+        self.access_list_slots.insert(*key);
+        Ok(())
+    }
+
     /// Read element and initialize it if needed
     pub(crate) fn materialize_element<'a>(
         cache: &'a mut HistoryMap<
@@ -190,6 +208,7 @@ impl<
             A,
             StorageCacheAppearance,
         >,
+        access_list_slots: &alloc::collections::BTreeSet<K, A>,
         resources_policy: &mut P,
         current_tx_number: TransactionId,
         ee_type: ExecutionEnvironmentType,
@@ -204,6 +223,7 @@ impl<
         resources_policy.charge_warm_storage_read(ee_type, resources, is_access_list)?;
 
         let mut initialized_element = false;
+        let from_access_list = access_list_slots.contains(key);
 
         cache
             .get_or_insert(key, || {
@@ -214,11 +234,13 @@ impl<
                 let data_from_oracle = InitialStorageSlotQuery::get(oracle, &query_input)
                     .expect("must get initial slot value from oracle");
 
-                resources_policy.charge_cold_storage_read_extra(
-                    ee_type,
-                    resources,
-                    data_from_oracle.is_new_storage_slot,
-                )?;
+                if !from_access_list {
+                    resources_policy.charge_cold_storage_read_extra(
+                        ee_type,
+                        resources,
+                        data_from_oracle.is_new_storage_slot,
+                    )?;
+                }
 
                 let initial_appearance = match data_from_oracle.is_new_storage_slot {
                     true => StorageInitialAppearance::Empty,
@@ -238,7 +260,8 @@ impl<
             })
             .and_then(|mut x| {
                 // Warm up element according to EVM rules if needed
-                let is_warm_read = x.current().metadata().considered_warm(current_tx_number);
+                let is_warm_read =
+                    x.current().metadata().considered_warm(current_tx_number) || from_access_list;
                 if is_warm_read == false {
                     if initialized_element == false {
                         // Element exists in cache, but wasn't touched in current tx yet
@@ -271,6 +294,7 @@ impl<
     {
         let (addr_data, _) = Self::materialize_element(
             &mut self.cache,
+            &self.access_list_slots,
             &mut self.resources_policy,
             self.current_tx_number,
             ee_type,
@@ -296,6 +320,7 @@ impl<
     {
         let (mut addr_data, is_warm_read) = Self::materialize_element(
             &mut self.cache,
+            &self.access_list_slots,
             &mut self.resources_policy,
             self.current_tx_number,
             ee_type,

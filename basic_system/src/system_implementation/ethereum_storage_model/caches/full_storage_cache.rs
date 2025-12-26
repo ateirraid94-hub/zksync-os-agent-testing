@@ -72,8 +72,14 @@ impl<
             key: *key,
         };
 
-        self.slot_values
-            .apply_read_impl(ee_type, &key, resources, oracle, is_access_list)?;
+        if is_access_list {
+            self.slot_values
+                .mark_access_list_slot(ee_type, resources, &key)?;
+        } else {
+            self.slot_values
+                .apply_read_impl(ee_type, &key, resources, oracle, false)?;
+        }
+
         Ok(())
     }
 
