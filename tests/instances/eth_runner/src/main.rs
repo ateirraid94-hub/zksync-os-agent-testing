@@ -2,10 +2,10 @@
 #![feature(generic_const_exprs)]
 #![recursion_limit = "1024"]
 
+use crate::ethproofs::EthProofsConnector;
 use clap::{Parser, Subcommand};
 use ethproofs::ethproofs_live_run;
 use rig::env_logger;
-use crate::ethproofs::EthProofsConnector;
 mod block;
 mod block_hashes;
 mod calltrace;
@@ -17,6 +17,8 @@ mod post_check;
 mod prestate;
 mod receipts;
 mod single_run;
+
+mod eth_stf_witgen;
 
 pub use single_run::{create_eth_run_oracle, read_eth_run_oracle};
 
@@ -137,6 +139,27 @@ enum Command {
         #[arg(long)]
         worker_threads: Option<usize>,
     },
+
+    /// This command will run the witness generation for Ethereum STF.
+    /// It will fetch the block and execution witness from L1, and attempt to generate witness.
+    /// Can be useful for local debugging.
+    EthStfWitGen {
+        /// Path to the block JSON file
+        #[arg(long)]
+        block_dir: Option<String>,
+        /// Save witness or not
+        #[arg(long)]
+        save: bool,
+        /// Remote block to be proven
+        #[arg(long)]
+        block_number: Option<String>,
+        /// If set, will run prover input generation and dump it
+        /// to the desired path.
+        #[arg(long)]
+        reth_endpoint: String,
+        #[arg(long)]
+        cont: bool,
+    },
 }
 
 fn init_logger() {
@@ -231,6 +254,28 @@ fn main() -> anyhow::Result<()> {
         } => {
             panic!("disabled due to CLI need");
             // ethproofs::ethproofs_prove_with_witness(&witness_input, worker_threads.unwrap_or(16))
+        }
+        Command::EthStfWitGen {
+            block_dir,
+            block_number,
+            reth_endpoint,
+            save,
+            cont,
+        } => {
+            if cont {
+                crate::eth_stf_witgen::igor_run_cont(None, reth_endpoint).unwrap();
+            } else {
+                crate::eth_stf_witgen::igor_run(
+                    false,
+                    None,
+                    block_dir,
+                    reth_endpoint,
+                    block_number,
+                    save,
+                )
+                .unwrap();
+            }
+            Ok(())
         }
     }
 }
