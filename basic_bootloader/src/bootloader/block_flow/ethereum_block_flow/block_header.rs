@@ -33,6 +33,9 @@ const EIP_1559_BASE_FEE_MAX_CHANGE_DENOMINATOR: u64 = 8;
 const EIP_1559_ELASTICITY_MULTIPLIER: u64 = 2;
 const EIP_1559_MIN_GAS_LIMIT: u64 = 5000;
 
+// EIP-7825 (Fusaka)
+pub const EIP_7825_SINGLE_TX_GAS_LIMIT: u64 = 2u64.pow(24);
+
 #[derive(Clone, Copy, Debug)]
 pub struct PectraForkHeader {
     // Default fields
@@ -168,7 +171,7 @@ impl BasicBlockMetadata<EthereumIOTypesConfig> for HeaderAndHistory {
         self.header.gas_limit
     }
     fn individual_tx_gas_limit(&self) -> u64 {
-        self.block_gas_limit()
+        EIP_7825_SINGLE_TX_GAS_LIMIT
     }
     fn eip1559_basefee(&self) -> U256 {
         U256::from(self.header.base_fee_per_gas)
