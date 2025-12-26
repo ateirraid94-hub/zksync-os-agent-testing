@@ -68,7 +68,15 @@ fn p256_verify_as_system_function_inner<
         result
     };
 
-    dst.extend(core::iter::once(is_valid as u8));
+    // TODO: Behavior from EIP-7951
+    // dst.extend(core::iter::once(is_valid as u8));
+    if is_valid {
+        let mut output = [0u8; 32];
+        output[31] = 1;
+        dst.extend(output);
+    } else {
+        // 0 bytes written
+    }
 
     Ok(())
 }

@@ -11,8 +11,8 @@ pub const SHA256_PER_WORD_COST_ERGS: Ergs = Ergs(12 * ERGS_PER_GAS);
 
 pub const RIPEMD_160_STATIC_COST_ERGS: Ergs = Ergs(600 * ERGS_PER_GAS);
 pub const RIPEMD_160_PER_WORD_COST_ERGS: Ergs = Ergs(120 * ERGS_PER_GAS);
-pub const MODEXP_MINIMAL_COST_ERGS: Ergs = Ergs(200 * ERGS_PER_GAS);
-pub const P256_VERIFY_COST_ERGS: Ergs = Ergs(5000 * ERGS_PER_GAS);
+pub const MODEXP_MINIMAL_COST_ERGS: Ergs = Ergs(500 * ERGS_PER_GAS);
+pub const P256_VERIFY_COST_ERGS: Ergs = Ergs(6900 * ERGS_PER_GAS);
 pub const ECRECOVER_COST_ERGS: Ergs = Ergs(3000 * ERGS_PER_GAS);
 pub const BN254_ECADD_COST_ERGS: Ergs = Ergs(150 * ERGS_PER_GAS);
 pub const BN254_ECMUL_COST_ERGS: Ergs = Ergs(6000 * ERGS_PER_GAS);
@@ -41,6 +41,6 @@ pub const BN254_PAIRING_PER_PAIR_NATIVE_COST: u64 = BN254_PAIRING_BASE_NATIVE_CO
 // TODO (EVM-1071): add more precise calculation
 // Note: after the modexp optimization, it should be ~200.
 #[cfg(feature = "evm-compatibility")]
-pub const MODEXP_WORST_CASE_NATIVE_PER_GAS: u64 = 200;
+pub const MODEXP_WORST_CASE_NATIVE_PER_GAS: u64 = 500;
 #[cfg(not(feature = "evm-compatibility"))]
 pub const MODEXP_WORST_CASE_NATIVE_PER_GAS: u64 = 5_600;

@@ -209,10 +209,11 @@ impl HeaderAndHistory {
         use crate::bootloader::block_flow::ethereum_block_flow::utils::fake_exponential;
 
         // TODO: consider if it's numerically stable over u64
+        let blob_parameters = BlobParameters::for_block_timestamp(header.timestamp);
         let computed_blob_base_fee_per_gas = fake_exponential(
             U256::from(MIN_BASE_FEE_PER_BLOB_GAS),
             &U256::from(header.excess_blob_gas),
-            &U256::from(BLOB_BASE_FEE_UPDATE_FRACTION),
+            &U256::from(blob_parameters.base_fee_update_fraction),
         );
 
         Ok(Self {
@@ -427,8 +428,35 @@ impl ChainChecker for PectraForkHeader {
 
                 // EIP-4844
                 {
-                    let t = historical_header.excess_blob_gas + historical_header.blob_gas_used;
-                    let excess_blob_gas = t.saturating_sub(TARGET_BLOB_GAS_PER_BLOCK);
+                    // EIP-7918 logic
+                    let blob_parameters = BlobParameters::for_block_timestamp(self.timestamp);
+                    let target_blob_gas = blob_parameters.target * GAS_PER_BLOB;
+
+                    let computed_blob_base_fee_per_gas =
+                        crate::bootloader::block_flow::ethereum_block_flow::utils::fake_exponential(
+                            U256::from(MIN_BASE_FEE_PER_BLOB_GAS),
+                            &U256::from(historical_header.excess_blob_gas),
+                            &U256::from(blob_parameters.base_fee_update_fraction),
+                        );
+
+                    let excess_blob_gas = if historical_header.excess_blob_gas
+                        + historical_header.blob_gas_used
+                        < target_blob_gas
+                    {
+                        0
+                    } else if U256::from(BLOB_BASE_COST)
+                        * U256::from(historical_header.base_fee_per_gas)
+                        > U256::from(GAS_PER_BLOB) * computed_blob_base_fee_per_gas
+                    {
+                        historical_header.excess_blob_gas
+                            + historical_header.blob_gas_used
+                                * (blob_parameters.max - blob_parameters.target)
+                                / blob_parameters.max
+                    } else {
+                        historical_header.excess_blob_gas + historical_header.blob_gas_used
+                            - target_blob_gas
+                    };
+
                     assert_eq!(self.excess_blob_gas, excess_blob_gas);
                 }
             }
@@ -438,3 +466,64 @@ impl ChainChecker for PectraForkHeader {
         Ok(initial_state_commitment)
     }
 }
+
+// TODO: Move to a separate file
+
+pub const BLOB_BASE_COST: u64 = 2u64.pow(13);
+
+#[derive(Debug, Clone, Copy)]
+pub struct BlobParameters {
+    pub target: u64,
+    pub max: u64,
+    pub base_fee_update_fraction: u64,
+}
+
+impl BlobParameters {
+    const CANCUN_TIME: u64 = 0;
+    const PRAGUE_TIME: u64 = 0;
+    const OSAKA_TIME: u64 = 1747387400;
+    const BPO1_TIME: u64 = 1757387400;
+    const BPO2_TIME: u64 = 1767387784;
+
+    pub fn for_block_timestamp(block_timestamp: u64) -> Self {
+        if block_timestamp >= Self::BPO2_TIME {
+            BPO2_BLOB_PARAMETERS
+        } else if block_timestamp >= Self::BPO1_TIME {
+            BPO1_BLOB_PARAMETERS
+        } else if block_timestamp >= Self::OSAKA_TIME {
+            OSAKA_BLOB_PARAMETERS
+        } else {
+            PRAGUE_BLOB_PARAMETERS
+        }
+    }
+}
+
+const CANCUN_BLOB_PARAMETERS: BlobParameters = BlobParameters {
+    target: 3,
+    max: 6,
+    base_fee_update_fraction: 3338477,
+};
+
+const PRAGUE_BLOB_PARAMETERS: BlobParameters = BlobParameters {
+    target: 6,
+    max: 9,
+    base_fee_update_fraction: 5007716,
+};
+
+const OSAKA_BLOB_PARAMETERS: BlobParameters = BlobParameters {
+    target: 6,
+    max: 9,
+    base_fee_update_fraction: 5007716,
+};
+
+const BPO1_BLOB_PARAMETERS: BlobParameters = BlobParameters {
+    target: 10,
+    max: 15,
+    base_fee_update_fraction: 8346193,
+};
+
+const BPO2_BLOB_PARAMETERS: BlobParameters = BlobParameters {
+    target: 14,
+    max: 21,
+    base_fee_update_fraction: 11684671,
+};

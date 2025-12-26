@@ -70,13 +70,13 @@ case "$TYPE" in
     TEXT_NAME="evm_replay.text"
     ;;
   pectra)
-    FEATURES="$FEATURES,pectra,evm-compatibility,prevrandao,evm_refunds,unlimited_native,disable_system_contracts,global-alloc"
+    FEATURES="$FEATURES,pectra,evm-compatibility,prevrandao,evm_refunds,unlimited_native,disable_system_contracts,global-alloc,p256_precompile"
     BIN_NAME="app.bin"
     ELF_NAME="app.elf"
     TEXT_NAME="app.text"
     ;;
   pectra-debug)
-    FEATURES="$FEATURES,pectra,evm-compatibility,prevrandao,evm_refunds,unlimited_native,disable_system_contracts,global-alloc,print_debug_info"
+    FEATURES="$FEATURES,pectra,evm-compatibility,prevrandao,evm_refunds,unlimited_native,disable_system_contracts,global-alloc,print_debug_info,p256_precompile"
     BIN_NAME="app.bin"
     ELF_NAME="app.elf"
     TEXT_NAME="app.text"

@@ -28,6 +28,7 @@ pub const OR: u8 = 0x17;
 pub const XOR: u8 = 0x18;
 pub const NOT: u8 = 0x19;
 pub const BYTE: u8 = 0x1a;
+pub const CLZ: u8 = 0x1e;
 
 pub const CALLDATALOAD: u8 = 0x35;
 pub const CALLDATASIZE: u8 = 0x36;
@@ -217,7 +218,7 @@ pub const OPCODE_JUMPMAP: [Option<&'static str>; 256] = [
     /* 0x1b */ Some("SHL"),
     /* 0x1c */ Some("SHR"),
     /* 0x1d */ Some("SAR"),
-    /* 0x1e */ None,
+    /* 0x1e */ Some("CLZ"),
     /* 0x1f */ None,
     /* 0x20 */ Some("SHA3"),
     /* 0x21 */ None,

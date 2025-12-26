@@ -226,6 +226,7 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
                     opcodes::XOR => self.bitxor(),
                     opcodes::NOT => self.not(),
                     opcodes::BYTE => self.byte(),
+                    opcodes::CLZ => self.clz(),
                     opcodes::SHL => self.shl(),
                     opcodes::SHR => self.shr(),
                     opcodes::SAR => self.sar(),

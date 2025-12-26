@@ -169,5 +169,5 @@ pub fn is_precompile(address: &B160) -> bool {
     if limbs[1] != 0u64 || limbs[2] != 0u64 {
         return false;
     }
-    limbs[0] > 0 && limbs[0] <= highest_precompile_address
+    (limbs[0] > 0 && limbs[0] <= highest_precompile_address) || (limbs[0] == 0x100)
 }
