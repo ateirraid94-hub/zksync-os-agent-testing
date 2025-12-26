@@ -41,12 +41,13 @@ fn p256_verify_as_system_function_inner<
     dst: &mut D,
     resources: &mut R,
 ) -> Result<(), SubsystemError<P256VerifyErrors>> {
-    if src.len() != 160 {
-        return Err(SubsystemError::LeafUsage(interface_error!(
-            P256VerifyInterfaceError::InvalidInputLength
-        )));
-    }
     resources.charge(&R::from_ergs(P256_VERIFY_COST_ERGS))?;
+
+    if src.len() != 160 {
+        // The precompile MUST perform the following validation checks and return `` (failure) if any check fails
+        return Ok(());
+    }
+
     // digest, r, s, x, y
     let mut buffer = [0u8; 160];
     for (dst, src) in buffer.iter_mut().zip(src.iter()) {
