@@ -48,7 +48,8 @@ define_subsystem!(ModExp,
                   {
                       InvalidInputLength,
                       InvalidModulus,
-                      DivisionByZero
+                      DivisionByZero,
+                      InputLengthExceedsLimit
                   }
 );
 

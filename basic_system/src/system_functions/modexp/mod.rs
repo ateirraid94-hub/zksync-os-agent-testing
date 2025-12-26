@@ -20,6 +20,10 @@ use zk_ee::system_io_oracle::ADVISE_SUBSPACE_MASK;
 
 pub const MODEXP_ADVISE_QUERY_ID: u32 = ADVISE_SUBSPACE_MASK | 0x10;
 
+/// Maximum length of base, exponent, modulus in bytes for modexp advise.
+/// See EIP-7823 for details.
+pub const EIP_7823_LENGTH_LIMIT: usize = 1024; // 1024 bytes
+
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct ModExpAdviseParams {
@@ -167,6 +171,15 @@ fn modexp_as_system_function_inner<
             ModExpInterfaceError::InvalidInputLength
         )));
     };
+
+    if base_len > EIP_7823_LENGTH_LIMIT
+        || exp_len > EIP_7823_LENGTH_LIMIT
+        || mod_len > EIP_7823_LENGTH_LIMIT
+    {
+        return Err(SubsystemError::LeafUsage(interface_error!(
+            ModExpInterfaceError::InputLengthExceedsLimit
+        )));
+    }
 
     // Used to extract ADJUSTED_EXPONENT_LENGTH.
     let exp_highp_len = core::cmp::min(exp_len, 32);
