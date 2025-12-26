@@ -36,6 +36,9 @@ const EIP_1559_MIN_GAS_LIMIT: u64 = 5000;
 // EIP-7825 (Fusaka)
 pub const EIP_7825_SINGLE_TX_GAS_LIMIT: u64 = 2u64.pow(24);
 
+// EIP-7934 (Fusaka)
+pub const EIP_7934_MAX_RLP_BLOCK_SIZE: usize = 8usize * 1024usize * 1024usize; // 8 MiB
+
 #[derive(Clone, Copy, Debug)]
 pub struct PectraForkHeader {
     // Default fields
@@ -200,7 +203,15 @@ impl HeaderAndHistory {
             &(),
             allocator,
         )?;
+
         let target_header_buffer = target_header_buffer.expect("target header is not empty slice");
+
+        if target_header_buffer.len() > EIP_7934_MAX_RLP_BLOCK_SIZE {
+            return Err(internal_error!(
+                "target header size exceeds maximum allowed by EIP-7934"
+            ));
+        }
+
         let target_header =
             PectraForkHeaderReflection::try_parse_slice_in_full(target_header_buffer.as_slice())
                 .map_err(|_| internal_error!("must parse target header from bytes"))?;
