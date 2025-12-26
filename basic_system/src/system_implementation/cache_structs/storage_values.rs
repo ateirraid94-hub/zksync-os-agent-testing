@@ -230,17 +230,17 @@ impl<
                 // Element doesn't exist in cache yet, initialize it
                 initialized_element = true;
 
-                let query_input = key.clone().into();
-                let data_from_oracle = InitialStorageSlotQuery::get(oracle, &query_input)
-                    .expect("must get initial slot value from oracle");
-
+                // TODO: We need to charge before actually performing the read, because we may not have enough gas
+                // to execute the read; and if we're using execution witness, storage value might not be present for us to read.
                 if !from_access_list {
                     resources_policy.charge_cold_storage_read_extra(
-                        ee_type,
-                        resources,
-                        data_from_oracle.is_new_storage_slot,
+                        ee_type, resources, false, // TODO
                     )?;
                 }
+
+                let query_input = (*key).into();
+                let data_from_oracle = InitialStorageSlotQuery::get(oracle, &query_input)
+                    .expect("must get initial slot value from oracle");
 
                 let initial_appearance = match data_from_oracle.is_new_storage_slot {
                     true => StorageInitialAppearance::Empty,
