@@ -13,6 +13,7 @@ use zk_ee::system::{
     ExecutionEnvironmentPreemptionPoint, ExternalCallRequest, ReturnValues,
 };
 use zk_ee::system::{CallResult, IOSubsystemExt, SystemFunctions};
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::types_config::SystemIOTypesConfig;
 use zk_ee::utils::cheap_clone::CheapCloneRiscV;
 
@@ -364,7 +365,7 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
         let result = if self.is_constructor {
             let deployed_code = return_values.returndata;
             let mut error_after_constructor = None;
-            if deployed_code.len() > self.code_size_limit {
+            if deployed_code.len() > system.metadata.code_size_limit() as usize {
                 // EIP-158: reject code of length > 24576.
                 error_after_constructor = Some(EvmError::CreateContractSizeLimit)
             } else if !deployed_code.is_empty() && deployed_code[0] == 0xEF {

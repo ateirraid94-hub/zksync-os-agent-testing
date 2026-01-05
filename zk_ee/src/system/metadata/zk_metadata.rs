@@ -113,6 +113,8 @@ pub struct BlockMetadataFromOracle {
     // long term, we have to decide whether we want to keep it here, or add a separate oracle
     // type that would return some 'chain' specific metadata (as this class is supposed to hold block metadata only).
     pub chain_id: u64,
+    /// Deployed bytecode size limit (in bytes).
+    pub code_size_limit: u32,
     pub block_number: u64,
     pub block_hashes: BlockHashes,
     pub timestamp: u64,
@@ -125,8 +127,6 @@ pub struct BlockMetadataFromOracle {
     /// Source of randomness, currently holds the value
     /// of prevRandao.
     pub mix_hash: U256,
-    /// Deployed bytecode size limit (in bytes).
-    pub code_size_limit: u32,
 }
 
 impl BasicBlockMetadata<EthereumIOTypesConfig> for BlockMetadataFromOracle {
@@ -213,12 +213,12 @@ impl BlockMetadataFromOracle {
             block_number: 1,
             timestamp: 42,
             chain_id: 37,
+            code_size_limit: DEFAULT_MAX_CODE_SIZE,
             gas_limit: u64::MAX / 256,
             pubdata_limit: u64::MAX,
             coinbase: B160::ZERO,
             block_hashes: BlockHashes::default(),
             mix_hash: U256::ONE,
-            code_size_limit: DEFAULT_MAX_CODE_SIZE,
         }
     }
 }
@@ -253,11 +253,11 @@ impl UsizeSerializable for BlockMetadataFromOracle {
                                     ),
                                     UsizeSerializable::iter(&self.chain_id),
                                 ),
-                                UsizeSerializable::iter(&self.gas_limit),
+                                UsizeSerializable::iter(&self.code_size_limit),
                             ),
-                            UsizeSerializable::iter(&self.pubdata_limit),
+                            UsizeSerializable::iter(&self.gas_limit),
                         ),
-                        UsizeSerializable::iter(&self.code_size_limit),
+                        UsizeSerializable::iter(&self.pubdata_limit),
                     ),
                     UsizeSerializable::iter(&self.coinbase),
                 ),
@@ -278,9 +278,9 @@ impl UsizeDeserializable for BlockMetadataFromOracle {
         let block_number = UsizeDeserializable::from_iter(src)?;
         let timestamp = UsizeDeserializable::from_iter(src)?;
         let chain_id = UsizeDeserializable::from_iter(src)?;
+        let code_size_limit = UsizeDeserializable::from_iter(src)?;
         let gas_limit = UsizeDeserializable::from_iter(src)?;
         let pubdata_limit = UsizeDeserializable::from_iter(src)?;
-        let code_size_limit = UsizeDeserializable::from_iter(src)?;
         let coinbase = UsizeDeserializable::from_iter(src)?;
         let block_hashes = UsizeDeserializable::from_iter(src)?;
         let mix_hash = UsizeDeserializable::from_iter(src)?;
@@ -292,12 +292,12 @@ impl UsizeDeserializable for BlockMetadataFromOracle {
             block_number,
             timestamp,
             chain_id,
+            code_size_limit,
             gas_limit,
             pubdata_limit,
             coinbase,
             block_hashes,
             mix_hash,
-            code_size_limit,
         };
 
         Ok(new)

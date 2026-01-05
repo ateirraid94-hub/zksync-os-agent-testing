@@ -109,8 +109,6 @@ pub struct Interpreter<'a, S: SystemTypes> {
     pub is_constructor: bool,
     /// Indicating that EE is waiting for the result of some operation from the OS. `continue_after_preemption` will panic if this is None
     pub pending_os_request: Option<PendingOsRequest<S>>,
-    /// Maximum allowed deployed bytecode size for the current execution context.
-    pub code_size_limit: usize,
 }
 
 /// Wrapper to provide external access to EVM frame state
