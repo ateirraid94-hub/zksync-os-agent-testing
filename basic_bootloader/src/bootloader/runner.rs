@@ -709,7 +709,6 @@ where
             scratch_space_len: 0,
             callstack_depth,
             callee_account_properties,
-            code_size_limit,
         },
     };
 

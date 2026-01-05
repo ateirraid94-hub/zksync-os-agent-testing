@@ -121,5 +121,4 @@ pub struct EnvironmentParameters<'a> {
     pub scratch_space_len: u32,
     pub callstack_depth: usize,
     pub callee_account_properties: CalleeAccountProperties<'a>,
-    pub code_size_limit: usize,
 }
