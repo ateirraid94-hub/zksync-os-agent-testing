@@ -497,7 +497,7 @@ impl BlobParameters {
     const PRAGUE_TIME: u64 = 0;
     const OSAKA_TIME: u64 = 1747387400;
     const BPO1_TIME: u64 = 1757387400;
-    const BPO2_TIME: u64 = 1767387784;
+    const BPO2_TIME: u64 = 1767747671; // Value in EIP is wrong, correct value is here: https://notes.ethereum.org/@bbusa/fusaka-bpo-timeline
 
     pub fn for_block_timestamp(block_timestamp: u64) -> Self {
         if block_timestamp >= Self::BPO2_TIME {
