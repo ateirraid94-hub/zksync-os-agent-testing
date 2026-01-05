@@ -20,7 +20,6 @@ use zk_ee::system::errors::root_cause::GetRootCause;
 use zk_ee::system::errors::root_cause::RootCause;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
-use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{errors::system::SystemError, logger::Logger, *};
 use zk_ee::system_log;

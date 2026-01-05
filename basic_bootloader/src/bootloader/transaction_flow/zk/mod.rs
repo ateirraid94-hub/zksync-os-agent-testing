@@ -165,7 +165,7 @@ impl<S: EthereumLikeTypes> BasicTransactionFlow<S> for ZkTransactionFlowOnlyEOA<
 where
     S::IO: IOSubsystemExt,
     S::Metadata: ZkSpecificPricingMetadata
-    + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
+        + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
 {
     type TransactionContext = TxContextForPreAndPostProcessing<S>;
     type ExecutionBodyExtraData = Option<CachedPubdataInfo<S>>;
@@ -390,9 +390,9 @@ where
         // we charge for the rest now.
         let (total_pubdata_used, to_charge_for_pubdata) = match pubdata_info {
             Some(CachedPubdataInfo {
-                     pubdata_used,
-                     to_charge_for_pubdata,
-                 }) => (pubdata_used + validation_pubdata, to_charge_for_pubdata),
+                pubdata_used,
+                to_charge_for_pubdata,
+            }) => (pubdata_used + validation_pubdata, to_charge_for_pubdata),
             None => {
                 let (execution_pubdata_spent, to_charge_for_pubdata) =
                     get_resources_to_charge_for_pubdata(
@@ -545,7 +545,7 @@ where
                 "Spent ergs for [process_transaction]: {}",
                 context.gas_used * evm_interpreter::ERGS_PER_GAS
             )
-                .as_str(),
+            .as_str(),
         );
         #[cfg(not(target_arch = "riscv32"))]
         cycle_marker::log_marker(
@@ -596,7 +596,7 @@ impl<S: EthereumLikeTypes> ZkTransactionFlowOnlyEOA<S>
 where
     S::IO: IOSubsystemExt,
     S::Metadata: ZkSpecificPricingMetadata
-    + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
+        + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
 {
     fn execute_call<'a>(
         system: &mut System<S>,
@@ -682,10 +682,10 @@ where
                     &from,
                     context.originator_nonce_to_use,
                 )
-                    .map_err(|e| {
-                        let ee_error: EESubsystemError = wrap_error!(e);
-                        wrap_error!(ee_error)
-                    })?
+                .map_err(|e| {
+                    let ee_error: EESubsystemError = wrap_error!(e);
+                    wrap_error!(ee_error)
+                })?
             }
         };
 

@@ -8,10 +8,10 @@ use core::fmt::Write;
 use ruint::aliases::{B160, U256};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system_log;
 use zk_ee::utils::Bytes32;
 use zk_ee::{internal_error, out_of_return_memory};
-use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 
 pub fn contract_deployer_hook<'a, S: EthereumLikeTypes>(
     request: ExternalCallRequest<S>,

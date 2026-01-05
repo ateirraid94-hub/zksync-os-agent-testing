@@ -1,3 +1,5 @@
+use super::validation_impl::compute_calldata_tokens;
+use super::{ZkTransactionFlowOnlyEOA, ZkTxResult};
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
     L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST, L1_TX_INTRINSIC_PUBDATA,
@@ -24,7 +26,9 @@ use zk_ee::system::errors::root_cause::GetRootCause;
 use zk_ee::system::errors::root_cause::RootCause;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
-use zk_ee::system::metadata::basic_metadata::{BasicBlockMetadata, BasicMetadata, ZkSpecificPricingMetadata};
+use zk_ee::system::metadata::basic_metadata::{
+    BasicBlockMetadata, BasicMetadata, ZkSpecificPricingMetadata,
+};
 use zk_ee::system::metadata::zk_metadata::TxLevelMetadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::Resource;
@@ -34,11 +38,9 @@ use zk_ee::system::{EthereumLikeTypes, Resources};
 #[allow(unused_imports)]
 use zk_ee::system::{IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
 use zk_ee::system_log;
+use zk_ee::utils::bytecode_size_limit::derive_initcode_size_limit;
 use zk_ee::utils::{u256_to_b160_checked, u256_try_to_u64, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
-use zk_ee::utils::bytecode_size_limit::derive_initcode_size_limit;
-use super::validation_impl::compute_calldata_tokens;
-use super::{ZkTransactionFlowOnlyEOA, ZkTxResult};
 
 pub(crate) fn process_l1_transaction<
     'a,

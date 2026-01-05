@@ -6,6 +6,7 @@ use native_resource_constants::STEP_NATIVE_COST;
 use ruint::aliases::B160;
 use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::memory::ArrayBuilder;
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::evm_tracer::EvmTracer;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::Ergs;
@@ -14,7 +15,6 @@ use zk_ee::system::{
     ExecutionEnvironmentPreemptionPoint, ExternalCallRequest, ReturnValues,
 };
 use zk_ee::system::{CallResult, IOSubsystemExt, SystemFunctions};
-use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system_log;
 use zk_ee::types_config::SystemIOTypesConfig;
 use zk_ee::utils::cheap_clone::CheapCloneRiscV;
@@ -381,10 +381,10 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
                     deployed_code,
                 ) {
                     Ok((
-                           actual_deployed_bytecode,
-                           internal_bytecode_hash,
-                           observable_bytecode_len,
-                       )) => {
+                        actual_deployed_bytecode,
+                        internal_bytecode_hash,
+                        observable_bytecode_len,
+                    )) => {
                         system_log!(
                             system,
                             "Successfully deployed contract at {:?} \n",
