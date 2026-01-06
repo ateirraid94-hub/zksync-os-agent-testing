@@ -9,6 +9,8 @@ impl<
 where
     S::IO: IOSubsystemExt,
 {
+    // TODO
+    type PostTxLoopOpResult = ();
     type BlockDataKeeper = ZKBasicBlockDataKeeper;
     type BlockHeader = crate::bootloader::block_header::BlockHeader;
 
@@ -16,7 +18,7 @@ where
         system: System<S>,
         block_data: Self::BlockDataKeeper,
         result_keeper: &mut impl ResultKeeperExt<EthereumIOTypesConfig, BlockHeader = Self::BlockHeader>,
-    ) -> Result<<S::IO as IOSubsystemExt>::FinalData, BootloaderSubsystemError> {
+    ) -> Result<Self::PostTxLoopOpResult, BootloaderSubsystemError> {
         let tx_rolling_hash = block_data.transaction_hashes_accumulator.finish();
         let upgrade_tx_hash = block_data.upgrade_tx_recorder.finish();
         let l1_to_l2_tx_hash = block_data.enforced_transaction_hashes_accumulator.finish();
@@ -60,8 +62,7 @@ where
             "Bootloader execution is complete, will proceed with applying changes\n"
         );
 
-        let r = system.finish(block_hash, l1_to_l2_tx_hash, upgrade_tx_hash, result_keeper);
-        #[allow(clippy::let_and_return)]
-        Ok(r)
+        // TODO
+        Ok(())
     }
 }

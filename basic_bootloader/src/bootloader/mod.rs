@@ -1,6 +1,7 @@
 use errors::{BootloaderSubsystemError, InvalidTransaction};
 use result_keeper::ResultKeeperExt;
 use ruint::aliases::*;
+use stf::BasicSTF;
 use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::common_structs::MAX_NUMBER_OF_LOGS;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
@@ -66,7 +67,10 @@ where
         mut oracle: <S::IO as IOSubsystemExt>::IOOracle,
         result_keeper: &mut impl ResultKeeperExt<S::IOTypes, BlockHeader = S::BlockHeader>,
         tracer: &mut impl Tracer<S>,
-    ) -> Result<<S::IO as IOSubsystemExt>::FinalData, BootloaderSubsystemError>
+    ) -> Result<
+        <<S as BasicSTF>::PostTxLoopOp as PostTxLoopOp<S>>::PostTxLoopOpResult,
+        BootloaderSubsystemError,
+    >
     where
         S::IO: IOSubsystemExt,
     {

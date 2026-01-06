@@ -27,9 +27,11 @@ use zk_ee::common_structs::{derive_flat_storage_key_with_hasher, ValueDiffCompre
 use zk_ee::internal_error;
 use zk_ee::system::errors::internal::InternalError;
 use zk_ee::system::BalanceSubsystemError;
+use zk_ee::system::BasicAccountDiff;
 use zk_ee::system::DeconstructionSubsystemError;
 use zk_ee::system::NonceSubsystemError;
 use zk_ee::system::Resources;
+use zk_ee::system::StorageDiff;
 use zk_ee::utils::write_bytes::WriteBytes;
 use zk_ee::{
     common_structs::{
@@ -121,22 +123,6 @@ impl<
     fn pubdata_used_by_tx(&self) -> u32 {
         self.account_data_cache.calculate_pubdata_used_by_tx()
             + self.storage_cache.calculate_pubdata_used_by_tx()
-    }
-
-    /// Standard finish method that completes storage model processing.
-    fn finish<T: WriteBytes + ?Sized>(
-        self,
-        oracle: &mut impl IOOracle,
-        state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut T,
-        result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
-        logger: &mut impl Logger,
-    ) -> Result<(), InternalError> {
-        // Complete the finalization but discard the returned storage cache
-        let _ =
-            self.finish_internal(oracle, state_commitment, pubdata_dst, result_keeper, logger)?;
-
-        Ok(())
     }
 
     /// This method extracts the final state changes after finishing the storage model
@@ -481,6 +467,126 @@ impl<
 
     fn add_to_refund_counter(&mut self, refund: Self::Resources) -> Result<(), SystemError> {
         self.storage_cache.0.add_to_refund_counter_impl(refund)
+    }
+
+    // TODO: check this is fine, I just copied it from ethproofs
+    fn persist_caches(
+        &mut self,
+        oracle: &mut impl IOOracle,
+        result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+    ) {
+        self.account_data_cache
+            .persist_changes(
+                &mut self.storage_cache,
+                &mut self.preimages_cache,
+                oracle,
+                result_keeper,
+            )
+            .expect("must persist caches");
+    }
+
+    fn report_new_preimages(&mut self, result_keeper: &mut impl IOResultKeeper<Self::IOTypes>) {
+        self.preimages_cache
+            .report_new_preimages(result_keeper)
+            .expect("must report preimages");
+    }
+
+    type AccountAddress<'a>
+        = &'a B160
+    where
+        Self: 'a;
+    type AccountDiff<'a>
+        = BasicAccountDiff<Self::IOTypes>
+    where
+        Self: 'a;
+
+    fn get_account_diff<'a>(
+        &'a self,
+        _address: Self::AccountAddress<'a>,
+    ) -> Option<Self::AccountDiff<'a>> {
+        None
+    }
+    fn accounts_diffs_iterator<'a>(
+        &'a self,
+    ) -> impl ExactSizeIterator<Item = (Self::AccountAddress<'a>, Self::AccountDiff<'a>)> + Clone
+    {
+        [].into_iter()
+    }
+
+    type StorageKey<'a>
+        = &'a WarmStorageKey
+    where
+        Self: 'a;
+    type StorageDiff<'a>
+        = StorageDiff<Self::IOTypes>
+    where
+        Self: 'a;
+    fn get_storage_diff<'a>(&'a self, key: Self::StorageKey<'a>) -> Option<Self::StorageDiff<'a>> {
+        self.storage_cache.0.cache.get(key).map(|item| {
+            todo!()
+            // let is_new_storage_slot =
+            //     item.key_properties().initial_appearance() == StorageInitialAppearance::Empty;
+            // let initial_value_used = matches!(
+            //     item.key_properties().current_appearance(),
+            //     StorageCurrentAppearance::Observed
+            //         | StorageCurrentAppearance::Updated
+            //         | StorageCurrentAppearance::Deleted
+            // );
+            // let current_record = item.current();
+            // let initial_record = item.initial();
+
+            // // TODO: so far we copy, but can try to remove it eventually
+            // StorageDiff {
+            //     initial_value: *initial_record.value(),
+            //     current_value: *current_record.value(),
+            //     is_new_storage_slot,
+            //     initial_value_used,
+            // }
+        })
+    }
+
+    fn storage_diffs_iterator<'a>(
+        &'a self,
+    ) -> impl ExactSizeIterator<Item = (Self::StorageKey<'a>, Self::StorageDiff<'a>)> + Clone {
+        self.storage_cache.0.cache.iter().map(|item| {
+            todo!()
+            // let is_new_storage_slot =
+            //     item.key_properties().initial_appearance() == StorageInitialAppearance::Empty;
+            // let initial_value_used = matches!(
+            //     item.key_properties().current_appearance(),
+            //     StorageCurrentAppearance::Observed
+            //         | StorageCurrentAppearance::Updated
+            //         | StorageCurrentAppearance::Deleted
+            // );
+            // let current_record = item.current();
+            // let initial_record = item.initial();
+            // (
+            //     item.key(),
+            //     // TODO: so far we copy, but can try to remove it eventually
+            //     StorageDiff {
+            //         initial_value: *initial_record.value(),
+            //         current_value: *current_record.value(),
+            //         is_new_storage_slot,
+            //         initial_value_used,
+            //     },
+            // )
+        })
+    }
+
+    fn update_commitment(
+        &mut self,
+        state_commitment: Option<&mut Self::StorageCommitment>,
+        oracle: &mut impl IOOracle,
+        logger: &mut impl Logger,
+        _result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+    ) {
+        if let Some(state_commitment) = state_commitment {
+            use zk_ee::common_structs::state_root_view::StateRootView;
+            let it = self.storage_cache.net_accesses_iter();
+            state_commitment
+                .verify_and_apply_batch(oracle, it, self.allocator.clone(), logger)
+                .expect("must persist changes to state");
+        }
     }
 }
 

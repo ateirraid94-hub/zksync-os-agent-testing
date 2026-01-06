@@ -225,26 +225,51 @@ pub trait StorageModel: Sized + SnapshottableIo {
         logger: &mut impl Logger,
     ) -> Result<Bytes32, InternalError>;
 
-    ///
-    /// Finish work, there are 3 outputs:
-    /// - state changes: uncompressed state diffs(including new preimages), writes to `results_keeper`
-    /// - pubdata - compressed state diffs(including preimages) that should be posted on the DA layer, writes to `results_keeper` and `pubdata_dst`.
-    /// - new state commitment: if `state_commitment` is `Some` - verifies all the reads, applies writes and updates state commitment
-    ///
-    // Currently, result_keeper accepts storage diffs and preimages.
-    // However, future storage models may require different format, so we'll need to generalize it.
-    fn finish<T: WriteBytes + ?Sized>(
-        self,
-        oracle: &mut impl IOOracle, // oracle is needed here to prove tree
-        state_commitment: Option<&mut Self::StorageCommitment>,
-        pubdata_dst: &mut T,
-        result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
-        logger: &mut impl Logger,
-    ) -> Result<(), InternalError>;
-
     /// Get current counter of refunds
     fn get_refund_counter(&'_ self) -> &'_ Self::Resources;
 
     /// Add resources to refund at the end of transaction
     fn add_to_refund_counter(&mut self, refund: Self::Resources) -> Result<(), SystemError>;
+
+    // TODO: add docs
+    fn persist_caches(
+        &mut self,
+        oracle: &mut impl IOOracle,
+        result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+    );
+
+    fn report_new_preimages(&mut self, result_keeper: &mut impl IOResultKeeper<Self::IOTypes>);
+
+    type AccountAddress<'a>: 'a + Clone + Copy + PartialEq + Eq + core::fmt::Debug
+    where
+        Self: 'a;
+    type AccountDiff<'a>: 'a + Clone + Copy + PartialEq + Eq + core::fmt::Debug
+    where
+        Self: 'a;
+    fn get_account_diff<'a>(
+        &'a self,
+        address: Self::AccountAddress<'a>,
+    ) -> Option<Self::AccountDiff<'a>>;
+    fn accounts_diffs_iterator<'a>(
+        &'a self,
+    ) -> impl ExactSizeIterator<Item = (Self::AccountAddress<'a>, Self::AccountDiff<'a>)> + Clone;
+
+    type StorageKey<'a>: 'a + Clone + Copy + PartialEq + Eq + core::fmt::Debug
+    where
+        Self: 'a;
+    type StorageDiff<'a>: 'a + Clone + Copy + PartialEq + Eq + core::fmt::Debug
+    where
+        Self: 'a;
+    fn get_storage_diff<'a>(&'a self, key: Self::StorageKey<'a>) -> Option<Self::StorageDiff<'a>>;
+    fn storage_diffs_iterator<'a>(
+        &'a self,
+    ) -> impl ExactSizeIterator<Item = (Self::StorageKey<'a>, Self::StorageDiff<'a>)> + Clone;
+
+    fn update_commitment(
+        &mut self,
+        state_commitment: Option<&mut Self::StorageCommitment>,
+        oracle: &mut impl IOOracle,
+        logger: &mut impl Logger,
+        result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
+    );
 }

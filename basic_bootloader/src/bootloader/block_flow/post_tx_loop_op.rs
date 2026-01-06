@@ -8,6 +8,7 @@ pub trait PostTxLoopOp<S: SystemTypes>
 where
     S::IO: IOSubsystemExt,
 {
+    type PostTxLoopOpResult;
     /// Block-level data accumulated during block processing
     type BlockDataKeeper;
     /// Block header structure for this STF
@@ -18,5 +19,5 @@ where
         system: System<S>,
         block_data: Self::BlockDataKeeper,
         result_keeper: &mut impl ResultKeeperExt<S::IOTypes, BlockHeader = Self::BlockHeader>,
-    ) -> Result<<S::IO as IOSubsystemExt>::FinalData, BootloaderSubsystemError>;
+    ) -> Result<Self::PostTxLoopOpResult, BootloaderSubsystemError>;
 }
