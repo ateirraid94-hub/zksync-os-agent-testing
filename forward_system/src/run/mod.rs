@@ -5,7 +5,7 @@ mod tree;
 mod tx_result_callback;
 mod tx_source;
 
-pub(crate) mod query_processors;
+pub mod query_processors;
 pub mod result_keeper;
 pub mod test_impl;
 

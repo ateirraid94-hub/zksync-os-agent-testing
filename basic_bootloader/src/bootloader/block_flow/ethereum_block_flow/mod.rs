@@ -8,9 +8,7 @@ use zk_ee::system_io_oracle::IOOracle;
 use zk_ee::types_config::*;
 
 // TODO: move to fork params
-pub const MAX_BLOBS_PER_BLOCK: usize = 9;
-pub const TARGET_BLOBS_PER_BLOCK: usize = 6;
-pub const TARGET_BLOBS_GAS_PER_BLOCK: u64 = (TARGET_BLOBS_PER_BLOCK as u64) * GAS_PER_BLOB;
+pub const MAX_BLOBS_PER_BLOCK: usize = 21; // TODO: should not be static; should be hardfork-dependent
 pub const VERSIONED_HASH_VERSION_KZG: u8 = 0x01;
 pub const GAS_PER_BLOB: u64 = 1 << 17;
 
