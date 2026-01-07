@@ -814,4 +814,35 @@ mod test {
     //     assert!(result.iter().all(|el| *el == 0) == false);
     //     dbg!(result);
     // }
+
+    #[test]
+    #[ignore]
+    fn generate_setup_and_layout_for_final_proof() {
+        use execution_utils::setups::pad_binary;
+        use risc_v_simulator::cycle::IWithoutByteAccessIsaConfigWithDelegation;
+        use std::fs::File;
+        use std::io::Write;
+
+        let (binary, binary_u32) =
+            pad_binary(execution_utils::unrolled_gpu::RECURSION_UNIFIED_BIN.to_vec());
+        let (text, _) = pad_binary(execution_utils::unrolled_gpu::RECURSION_UNIFIED_TXT.to_vec());
+        println!("Computing setup");
+        let setup =
+            execution_utils::unified_circuit::compute_unified_setup_for_machine_configuration::<
+                IWithoutByteAccessIsaConfigWithDelegation,
+            >(&binary, &text);
+        let setup = bincode::serde::encode_to_vec(&setup, bincode::config::standard()).unwrap();
+        File::create("recursion_unified_setup.bin")
+            .unwrap()
+            .write_all(&setup)
+            .unwrap();
+        let layouts = execution_utils::setups::get_unified_circuit_artifact_for_machine_type::<
+            IWithoutByteAccessIsaConfigWithDelegation,
+        >(&binary_u32);
+        let layouts = bincode::serde::encode_to_vec(&layouts, bincode::config::standard()).unwrap();
+        File::create("recursion_unified_layouts.bin")
+            .unwrap()
+            .write_all(&layouts)
+            .unwrap();
+    }
 }
