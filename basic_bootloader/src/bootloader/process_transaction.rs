@@ -981,19 +981,24 @@ where
         max_priority_fee_per_gas: Option<&U256>,
     ) -> Result<U256, TxError> {
         let base_fee = system.get_eip1559_basefee();
-        let max_priority_fee_per_gas = max_priority_fee_per_gas.unwrap_or(max_fee_per_gas);
-        require!(
-            max_priority_fee_per_gas <= max_fee_per_gas,
-            TxError::Validation(InvalidTransaction::PriorityFeeGreaterThanMaxFee,),
-            system
-        )?;
-        require!(
-            &base_fee <= max_fee_per_gas,
-            TxError::Validation(InvalidTransaction::BaseFeeGreaterThanMaxFee,),
-            system
-        )?;
-        let priority_fee_per_gas = (*max_priority_fee_per_gas).min(max_fee_per_gas - base_fee);
-        Ok(base_fee + priority_fee_per_gas)
+        if base_fee.is_zero() {
+            // If base fee is zero, then we ignore priority fee
+            Ok(U256::ZERO)
+        } else {
+            let max_priority_fee_per_gas = max_priority_fee_per_gas.unwrap_or(max_fee_per_gas);
+            require!(
+                max_priority_fee_per_gas <= max_fee_per_gas,
+                TxError::Validation(InvalidTransaction::PriorityFeeGreaterThanMaxFee,),
+                system
+            )?;
+            require!(
+                &base_fee <= max_fee_per_gas,
+                TxError::Validation(InvalidTransaction::BaseFeeGreaterThanMaxFee,),
+                system
+            )?;
+            let priority_fee_per_gas = (*max_priority_fee_per_gas).min(max_fee_per_gas - base_fee);
+            Ok(base_fee + priority_fee_per_gas)
+        }
     }
 
     // Returns (refund_info, total_pubdata_used)
