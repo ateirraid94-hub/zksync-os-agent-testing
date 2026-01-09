@@ -148,7 +148,6 @@ fn fuzz(input: FuzzInput) {
                         scratch_space_len: 0,
                         callee_account_properties,
                         callstack_depth: 1, // To not trigger any special cases
-                        code_size_limit: DEFAULT_MAX_CODE_SIZE as usize,
                     },
                     external_call: ExternalCallRequest {
                         available_resources: inf_resources.clone(),
