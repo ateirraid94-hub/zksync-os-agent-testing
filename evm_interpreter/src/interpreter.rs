@@ -5,6 +5,7 @@ use errors::EvmSubsystemError;
 use native_resource_constants::STEP_NATIVE_COST;
 use ruint::aliases::B160;
 use zk_ee::memory::ArrayBuilder;
+use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::evm_tracer::EvmTracer;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::Ergs;
@@ -13,7 +14,6 @@ use zk_ee::system::{
     ExecutionEnvironmentPreemptionPoint, ExternalCallRequest, ReturnValues,
 };
 use zk_ee::system::{CallResult, IOSubsystemExt, SystemFunctions};
-use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::types_config::SystemIOTypesConfig;
 use zk_ee::utils::cheap_clone::CheapCloneRiscV;
 
