@@ -20,7 +20,6 @@ use zk_ee::system::errors::root_cause::GetRootCause;
 use zk_ee::system::errors::root_cause::RootCause;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
-use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::{errors::system::SystemError, logger::Logger, *};
 use zk_ee::wrap_error;
@@ -687,7 +686,6 @@ where
         callee_account_properties.ee_type
     };
 
-    let code_size_limit = system.metadata.code_size_limit() as usize;
     let external_call_launch_params = ExecutionEnvironmentLaunchParams {
         external_call: ExternalCallRequest {
             available_resources: resources_for_callee_frame,

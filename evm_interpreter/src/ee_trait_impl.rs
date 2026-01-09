@@ -8,7 +8,6 @@ use zk_ee::common_structs::CalleeAccountProperties;
 use zk_ee::system::errors::interface::InterfaceError;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
-use zk_ee::system::metadata::basic_metadata::BasicBlockMetadata;
 use zk_ee::system::tracer::evm_tracer::EvmTracer;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::*;
