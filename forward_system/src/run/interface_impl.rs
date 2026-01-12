@@ -4,8 +4,10 @@ use crate::run::output::TxResult;
 use crate::run::tracing_impl::TracerWrapped;
 use crate::run::{run_block, simulate_tx};
 use zk_ee::system::metadata::BlockMetadataFromOracle;
-use zksync_os_interface::tracing::AnyTracer;
-use zksync_os_interface::traits::{EncodedTx, PreimageSource, ReadStorage, RunBlock, SimulateTx, TxResultCallback, TxSource};
+use zksync_os_interface::tracing::{AnyTracer, AnyTxValidator};
+use zksync_os_interface::traits::{
+    EncodedTx, PreimageSource, ReadStorage, RunBlock, SimulateTx, TxResultCallback, TxSource,
+};
 use zksync_os_interface::types::BlockContext;
 use zksync_os_interface::types::BlockOutput;
 
@@ -25,6 +27,7 @@ impl RunBlock for RunBlockForward {
         TrSrc: TxSource,
         TrCallback: TxResultCallback,
         Tracer: AnyTracer,
+        Validator: AnyTxValidator,
     >(
         &self,
         _config: (),
@@ -34,6 +37,7 @@ impl RunBlock for RunBlockForward {
         tx_source: TrSrc,
         tx_result_callback: TrCallback,
         tracer: &mut Tracer,
+        _validator: &mut Validator,
     ) -> Result<BlockOutput, Self::Error> {
         let evm_tracer = tracer.as_evm().expect("only EVM tracers are supported");
         run_block(
@@ -51,7 +55,12 @@ impl SimulateTx for RunBlockForward {
     type Config = ();
     type Error = ForwardSubsystemError;
 
-    fn simulate_tx<Storage: ReadStorage, PreimgSrc: PreimageSource, Tracer: AnyTracer>(
+    fn simulate_tx<
+        Storage: ReadStorage,
+        PreimgSrc: PreimageSource,
+        Tracer: AnyTracer,
+        Validator: AnyTxValidator,
+    >(
         &self,
         _config: (),
         transaction: EncodedTx,
@@ -59,6 +68,7 @@ impl SimulateTx for RunBlockForward {
         storage: Storage,
         preimage_source: PreimgSrc,
         tracer: &mut Tracer,
+        _validator: &mut Validator,
     ) -> Result<TxResult, Self::Error> {
         let evm_tracer = tracer.as_evm().expect("only EVM tracers are supported");
         let abi_tx = match transaction {
