@@ -55,24 +55,25 @@ pub struct FullIO<
     A: Allocator + Clone + Default,
     R: Resources,
     P: StorageAccessPolicy<R, Bytes32>,
-    SF: StackFactory<M>,
-    const M: usize,
+    SF: StackFactory<N>,
+    const N: usize,
     O: IOOracle,
+    M: StorageModel<IOTypes = EthereumIOTypesConfig, Resources = R, InitData = P, Allocator = A>,
     const PROOF_ENV: bool,
 > {
-    pub(crate) storage: FlatTreeWithAccountsUnderHashesStorageModel<A, R, P, SF, M, PROOF_ENV>,
-    pub(crate) transient_storage: GenericTransientStorage<WarmStorageKey, Bytes32, SF, M, A>,
-    pub(crate) logs_storage: LogsStorage<SF, M, A>,
-    pub(crate) events_storage: EventsStorage<MAX_EVENT_TOPICS, SF, M, A>,
-    pub(crate) interop_root_storage: InteropRootStorage<SF, M, A>,
+    pub(crate) storage: M,
+    pub(crate) transient_storage: GenericTransientStorage<WarmStorageKey, Bytes32, SF, N, A>,
+    pub(crate) logs_storage: LogsStorage<SF, N, A>,
+    pub(crate) events_storage: EventsStorage<MAX_EVENT_TOPICS, SF, N, A>,
+    pub(crate) interop_root_storage: InteropRootStorage<SF, N, A>,
     pub(crate) allocator: A,
     pub(crate) oracle: O,
     pub(crate) tx_number: u32,
     pub(crate) da_commitment_scheme: Option<DACommitmentScheme>,
 }
 
-pub struct FullIOStateSnapshot {
-    io: FlatTreeWithAccountsUnderHashesStorageModelStateSnapshot,
+pub struct FullIOStateSnapshot<M: StorageModel> {
+    io: M::StateSnapshot,
     transient: CacheSnapshotId,
     messages: usize,
     events: usize,
@@ -83,15 +84,16 @@ impl<
         A: Allocator + Clone + Default,
         R: Resources,
         P: StorageAccessPolicy<R, Bytes32>,
-        SF: StackFactory<M>,
-        const M: usize,
+        SF: StackFactory<N>,
+        const N: usize,
         O: IOOracle,
+        M: StorageModel<IOTypes = EthereumIOTypesConfig, Resources = R, InitData = P, Allocator = A>,
         const PROOF_ENV: bool,
-    > IOSubsystem for FullIO<A, R, P, SF, M, O, PROOF_ENV>
+    > IOSubsystem for FullIO<A, R, P, SF, N, O, M, PROOF_ENV>
 {
     type IOTypes = EthereumIOTypesConfig;
     type Resources = R;
-    type StateSnapshot = FullIOStateSnapshot;
+    type StateSnapshot = FullIOStateSnapshot<M>;
 
     fn storage_read<const TRANSIENT: bool>(
         &mut self,
@@ -393,7 +395,7 @@ impl<
             + self.logs_storage.calculate_pubdata_used_by_tx()? as u64)
     }
 
-    fn start_io_frame(&mut self) -> Result<FullIOStateSnapshot, InternalError> {
+    fn start_io_frame(&mut self) -> Result<Self::StateSnapshot, InternalError> {
         let io = self.storage.start_frame();
         let transient = self.transient_storage.start_frame();
         let messages = self.logs_storage.start_frame();
@@ -411,7 +413,7 @@ impl<
 
     fn finish_io_frame(
         &mut self,
-        rollback_handle: Option<&FullIOStateSnapshot>,
+        rollback_handle: Option<&Self::StateSnapshot>,
     ) -> Result<(), InternalError> {
         self.storage.finish_frame(rollback_handle.map(|x| &x.io))?;
         self.transient_storage
@@ -952,29 +954,29 @@ impl<
         A: Allocator + Clone + Default,
         R: Resources,
         P: StorageAccessPolicy<R, Bytes32> + Default,
-        SF: StackFactory<M>,
-        const M: usize,
+        SF: StackFactory<N>,
+        const N: usize,
         O: IOOracle,
+        M: StorageModel<IOTypes = EthereumIOTypesConfig, Resources = R, InitData = P, Allocator = A>,
         const PROOF_ENV: bool,
-    > IOSubsystemExt for FullIO<A, R, P, SF, M, O, PROOF_ENV>
+    > IOSubsystemExt for FullIO<A, R, P, SF, N, O, M, PROOF_ENV>
 {
     type IOOracle = O;
 
     fn init_from_oracle(mut oracle: Self::IOOracle) -> Result<Self, InternalError> {
         let allocator = A::default();
 
-        let storage =
-            FlatTreeWithAccountsUnderHashesStorageModel::construct(P::default(), allocator.clone());
+        let storage = M::construct(P::default(), allocator.clone());
 
         let transient_storage =
-            GenericTransientStorage::<WarmStorageKey, Bytes32, SF, M, A>::new_from_parts(
+            GenericTransientStorage::<WarmStorageKey, Bytes32, SF, N, A>::new_from_parts(
                 allocator.clone(),
             );
-        let logs_storage = LogsStorage::<SF, M, A>::new_from_parts(allocator.clone());
+        let logs_storage = LogsStorage::<SF, N, A>::new_from_parts(allocator.clone());
         let events_storage =
-            EventsStorage::<MAX_EVENT_TOPICS, SF, M, A>::new_from_parts(allocator.clone());
+            EventsStorage::<MAX_EVENT_TOPICS, SF, N, A>::new_from_parts(allocator.clone());
         let interop_root_storage =
-            InteropRootStorage::<SF, M, A>::new_from_parts(allocator.clone());
+            InteropRootStorage::<SF, N, A>::new_from_parts(allocator.clone());
 
         let da_commitment_scheme = if PROOF_ENV {
             Some(DACommitmentScheme::try_from_oracle(&mut oracle)?)
@@ -1213,15 +1215,15 @@ impl<
         A: Allocator + Clone + Default,
         R: Resources,
         P: StorageAccessPolicy<R, Bytes32>,
-        SF: StackFactory<M>,
-        const M: usize,
+        SF: StackFactory<N>,
+        const N: usize,
         O: IOOracle,
+        M: StorageModel<IOTypes = EthereumIOTypesConfig, Resources = R, InitData = P, Allocator = A>,
         const PROOF_ENV: bool,
-    > EthereumLikeIOSubsystem for FullIO<A, R, P, SF, M, O, PROOF_ENV>
+    > EthereumLikeIOSubsystem for FullIO<A, R, P, SF, N, O, M, PROOF_ENV>
 {
 }
 
-// TODO: this should be shared by both storage models
 impl<
         A: Allocator + Clone + Default,
         R: Resources,
@@ -1229,18 +1231,11 @@ impl<
         SF: StackFactory<N>,
         const N: usize,
         O: IOOracle,
+        M: StorageModel<IOTypes = EthereumIOTypesConfig, Resources = R, InitData = P, Allocator = A>,
         const PROOF_ENV: bool,
-    > IOTeardown<EthereumIOTypesConfig> for FullIO<A, R, P, SF, N, O, PROOF_ENV>
+    > IOTeardown<EthereumIOTypesConfig> for FullIO<A, R, P, SF, N, O, M, PROOF_ENV>
 {
-    // Replace FlatTreeWithAccountsUnderHashesStorageModel with a parameter M
-    type IOStateCommittment = <FlatTreeWithAccountsUnderHashesStorageModel<
-        A,
-        R,
-        P,
-        SF,
-        N,
-        PROOF_ENV,
-    > as StorageModel>::StorageCommitment;
+    type IOStateCommitment = M::StorageCommitment;
 
     fn flush_caches(&mut self, result_keeper: &mut impl IOResultKeeper<EthereumIOTypesConfig>) {
         self.storage.persist_caches(&mut self.oracle, result_keeper);
@@ -1254,27 +1249,15 @@ impl<
     }
 
     type AccountAddress<'a>
-        = <FlatTreeWithAccountsUnderHashesStorageModel<
-        A,
-        R,
-        P,
-        SF,
-        N,
-        PROOF_ENV,
-    > as StorageModel>::AccountAddress<'a>
+        = M::AccountAddress<'a>
     where
         Self: 'a;
+
     type AccountDiff<'a>
-        = <FlatTreeWithAccountsUnderHashesStorageModel<
-        A,
-        R,
-        P,
-        SF,
-        N,
-        PROOF_ENV,
-    > as StorageModel>::AccountDiff<'a>
+        = M::AccountDiff<'a>
     where
         Self: 'a;
+
     fn get_account_diff<'a>(
         &'a self,
         address: Self::AccountAddress<'a>,
@@ -1289,30 +1272,19 @@ impl<
     }
 
     type StorageKey<'a>
-        = <FlatTreeWithAccountsUnderHashesStorageModel<
-        A,
-        R,
-        P,
-        SF,
-        N,
-        PROOF_ENV,
-    > as StorageModel>::StorageKey<'a>
+        = M::StorageKey<'a>
     where
         Self: 'a;
+
     type StorageDiff<'a>
-        = <FlatTreeWithAccountsUnderHashesStorageModel<
-        A,
-        R,
-        P,
-        SF,
-        N,
-        PROOF_ENV,
-    > as StorageModel>::StorageDiff<'a>
+        = M::StorageDiff<'a>
     where
         Self: 'a;
+
     fn get_storage_diff<'a>(&'a self, key: Self::StorageKey<'a>) -> Option<Self::StorageDiff<'a>> {
         self.storage.get_storage_diff(key)
     }
+
     fn storage_diffs_iterator<'a>(
         &'a self,
     ) -> impl ExactSizeIterator<Item = (Self::StorageKey<'a>, Self::StorageDiff<'a>)> + Clone {
@@ -1344,7 +1316,7 @@ impl<
 
     fn update_commitment(
         &mut self,
-        state_commitment: Option<&mut Self::IOStateCommittment>,
+        state_commitment: Option<&mut Self::IOStateCommitment>,
         logger: &mut impl Logger,
         result_keeper: &mut impl IOResultKeeper<Self::IOTypes>,
     ) {

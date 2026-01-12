@@ -1,5 +1,6 @@
 use super::snapshottable_io::SnapshottableIo;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
+use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
 use zk_ee::oracle::IOOracle;
 use zk_ee::system::{BalanceSubsystemError, DeconstructionSubsystemError, NonceSubsystemError};
 use zk_ee::utils::write_bytes::WriteBytes;
@@ -22,7 +23,7 @@ use zk_ee::{
 pub trait StorageModel: Sized + SnapshottableIo {
     type IOTypes: SystemIOTypesConfig;
     type Resources: Resources;
-    type StorageCommitment;
+    type StorageCommitment: Clone + UsizeDeserializable + UsizeSerializable + core::fmt::Debug; // easier to have it here than propagate
 
     fn storage_read(
         &mut self,
@@ -257,10 +258,13 @@ pub trait StorageModel: Sized + SnapshottableIo {
     type StorageKey<'a>: 'a + Clone + Copy + PartialEq + Eq + core::fmt::Debug
     where
         Self: 'a;
+
     type StorageDiff<'a>: 'a + Clone + Copy + PartialEq + Eq + core::fmt::Debug
     where
         Self: 'a;
+
     fn get_storage_diff<'a>(&'a self, key: Self::StorageKey<'a>) -> Option<Self::StorageDiff<'a>>;
+
     fn storage_diffs_iterator<'a>(
         &'a self,
     ) -> impl ExactSizeIterator<Item = (Self::StorageKey<'a>, Self::StorageDiff<'a>)> + Clone;
