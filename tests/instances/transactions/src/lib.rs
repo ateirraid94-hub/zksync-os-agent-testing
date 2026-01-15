@@ -11,13 +11,13 @@ use rig::alloy::rpc::types::{AccessList, AccessListItem, TransactionRequest};
 use rig::basic_system::system_implementation::system::pubdata::PUBDATA_ENCODING_VERSION;
 use rig::ruint::aliases::{B160, U256};
 use rig::zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
+use rig::zk_ee::utils::bytecode_size_limit::derive_initcode_size_limit;
 use rig::zksync_os_interface::error::InvalidTransaction;
 use rig::zksync_os_interface::traits::EncodedTx;
 use rig::{alloy, zksync_web3_rs, Chain};
 use rig::{utils::*, BlockContext};
 use std::str::FromStr;
 use zksync_web3_rs::signers::{LocalWallet, Signer};
-use rig::zk_ee::utils::bytecode_size_limit::derive_initcode_size_limit;
 
 mod native_charging;
 
