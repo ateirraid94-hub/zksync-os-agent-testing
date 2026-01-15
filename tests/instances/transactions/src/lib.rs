@@ -10,11 +10,15 @@ use rig::alloy::primitives::{address, b256};
 use rig::alloy::rpc::types::{AccessList, AccessListItem, TransactionRequest};
 use rig::basic_system::system_implementation::system::pubdata::PUBDATA_ENCODING_VERSION;
 use rig::ruint::aliases::{B160, U256};
+use rig::zk_ee::system::constants::DEFAULT_MAX_CODE_SIZE;
 use rig::zksync_os_interface::error::InvalidTransaction;
+use rig::zksync_os_interface::traits::EncodedTx;
 use rig::{alloy, zksync_web3_rs, Chain};
 use rig::{utils::*, BlockContext};
 use std::str::FromStr;
 use zksync_web3_rs::signers::{LocalWallet, Signer};
+use rig::zk_ee::utils::bytecode_size_limit::derive_initcode_size_limit;
+
 mod native_charging;
 
 fn run_config() -> Option<rig::chain::RunConfig> {
@@ -24,6 +28,30 @@ fn run_config() -> Option<rig::chain::RunConfig> {
         check_storage_diff_hashes: true,
         ..Default::default()
     })
+}
+
+fn oversized_deployment_tx(wallet: &PrivateKeySigner, init_code_len: usize) -> EncodedTx {
+    assert!(
+        init_code_len > 5,
+        "init code must be larger than the minimal return sequence"
+    );
+
+    let mut init_code = vec![0x60, 0x00, 0x60, 0x00, 0xf3];
+    init_code.resize(init_code_len, 0);
+
+    let tx = TxEip1559 {
+        chain_id: 37u64,
+        nonce: 0,
+        max_fee_per_gas: 1000,
+        max_priority_fee_per_gas: 1000,
+        gas_limit: 5_000_000,
+        to: TxKind::Create,
+        value: Default::default(),
+        access_list: Default::default(),
+        input: init_code.into(),
+    };
+
+    sign_and_encode_alloy_tx(tx, wallet)
 }
 
 #[test]
@@ -1375,4 +1403,57 @@ fn test_check_pubdata_has_timestamp() {
             .expect("Slice with incorrect length"),
     );
     assert_eq!(timestamp, pubdata_timestamp, "Timestamps do not match");
+}
+
+#[test]
+fn deployment_exceeding_default_code_size_limit_fails() {
+    let mut chain = Chain::empty(None);
+    let wallet = chain.random_signer();
+
+    chain.set_balance(
+        B160::from_be_bytes(wallet.address().into_array()),
+        U256::from(u64::MAX),
+    );
+
+    let oversized_len = derive_initcode_size_limit(DEFAULT_MAX_CODE_SIZE) + 1024; // slightly over the limit
+    let tx = oversized_deployment_tx(&wallet, oversized_len);
+
+    let result = chain.run_block(vec![tx], None, None, run_config());
+
+    assert!(matches!(
+        result.tx_results[0],
+        Err(InvalidTransaction::CreateInitCodeSizeLimit)
+    ));
+}
+
+#[test]
+fn deployment_with_custom_500kb_code_size_limit_succeeds() {
+    let mut chain = Chain::empty(None);
+    let wallet = chain.random_signer();
+
+    chain.set_balance(
+        B160::from_be_bytes(wallet.address().into_array()),
+        U256::from(u64::MAX),
+    );
+
+    let oversized_len = derive_initcode_size_limit(DEFAULT_MAX_CODE_SIZE) + 1024;
+    let tx = oversized_deployment_tx(&wallet, oversized_len);
+
+    let block_context = BlockContext {
+        code_size_limit: 500 * 1024, // 500 KiB
+        ..Default::default()
+    };
+
+    let result = chain.run_block(vec![tx], Some(block_context), None, run_config());
+    let tx_result = result
+        .tx_results
+        .first()
+        .expect("tx result should be present")
+        .as_ref()
+        .expect("tx must succeed");
+
+    assert!(
+        tx_result.is_success(),
+        "deployment should succeed when the code size limit is increased"
+    );
 }
