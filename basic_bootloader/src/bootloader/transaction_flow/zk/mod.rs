@@ -70,7 +70,7 @@ where
             .get_nominal_token_balance(caller_ee_type, resources, &from)
         {
             Ok(balance) => {
-                if total_required_balance > balance {
+                if total_required_balance > balance && !Config::SIMULATION {
                     return Err(TxError::Validation(
                         InvalidTransaction::LackOfFundForMaxFee {
                             fee: total_required_balance,
@@ -313,7 +313,7 @@ where
         Ok(())
     }
 
-    fn pay_for_transaction(
+    fn pay_for_transaction<Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         _system_functions: &mut HooksStorage<S, S::Allocator>,
         _tx_hash: Bytes32,
@@ -325,9 +325,15 @@ where
         resources: &mut S::Resources,
         _tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError> {
-        let amount = gas_price
-            .checked_mul(U256::from(transaction.gas_limit()))
-            .ok_or(internal_error!("gp*gl"))?;
+        let amount = if Config::SIMULATION {
+            // In simulation, we do not charge any fee, but we keep the same
+            // logic to keep the native resources accounting correct
+            U256::ZERO
+        } else {
+            gas_price
+                .checked_mul(U256::from(transaction.gas_limit()))
+                .ok_or(internal_error!("gp*gl"))?
+        };
         // ARCHITECTURE NOTE: Fee payment is split into two phases:
         // 1. Deduct full fee from sender at transaction start (here)
         // 2. Transfer actual payment to operator after execution (in refund_transaction_and_pay_operator)

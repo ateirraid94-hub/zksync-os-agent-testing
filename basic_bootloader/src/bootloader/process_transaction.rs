@@ -841,7 +841,7 @@ where
         ));
 
         // Charge fees
-        F::pay_for_transaction(
+        F::pay_for_transaction::<Config>(
             system,
             system_functions,
             tx_hash,
