@@ -1,7 +1,11 @@
-use crate::system_functions::point_evaluation::{parse_g1_compressed, versioned_hash_for_kzg};
-use crate::system_implementation::system::da_commitment_generator::DACommitmentGenerator;
-use crate::system_implementation::system::da_commitment_generator::blob_commitment_generator::commitment_and_proof_advice::{BlobCommitmentAndProofAdvisor, OracleBasedBlobCommitmentAndProofAdvisor};
+use self::commitment_and_proof_advice::{
+    BlobCommitmentAndProofAdvisor, OracleBasedBlobCommitmentAndProofAdvisor,
+};
+use super::DACommitmentGenerator;
 use arrayvec::ArrayVec;
+use basic_system::system_functions::point_evaluation::{
+    parse_g1_compressed, versioned_hash_for_kzg,
+};
 use crypto::ark_ff::Field;
 use crypto::ark_ff::One;
 use crypto::ark_ff::PrimeField;
