@@ -10,7 +10,7 @@ use core::alloc::Allocator;
 
 use super::*;
 use ruint::aliases::{B160, U256};
-use zk_ee::system::Resources;
+use zk_ee::system::{MAX_TX_GAS_LIMIT, Resources};
 use zk_ee::utils::UsizeAlignedByteBox;
 
 // NOTE: this is self-reference, but relatively easy one. Do NOT derive clone one it,
@@ -227,7 +227,7 @@ impl<A: Allocator> RlpEncodedTransaction<A> {
             RlpEncodedTxInner::EIP2930(tx, _) => tx.gas_limit,
             RlpEncodedTxInner::EIP1559(tx, _) => tx.gas_limit,
             RlpEncodedTxInner::EIP7702(tx, _) => tx.gas_limit,
-            RlpEncodedTxInner::Service(tx) => tx.gas_limit,
+            RlpEncodedTxInner::Service(_) => MAX_TX_GAS_LIMIT,
         }
     }
 

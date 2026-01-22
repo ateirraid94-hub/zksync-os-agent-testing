@@ -12,7 +12,6 @@ use system_hooks::addresses_constants::L2_INTEROP_ROOT_STORAGE_ADDRESS;
 ///
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ServiceTx<'a> {
-    pub(crate) gas_limit: u64,
     pub(crate) to: &'a [u8; 20], // NOTE: has to be one of the addresses in SERVICE_DESTINATION_WHITELIST
     pub(crate) data: &'a [u8],
 }
@@ -29,8 +28,6 @@ impl<'a> RlpListDecode<'a> for ServiceTx<'a> {
     /// Decode the 3-field list body:
     /// [gas_limit, destination, data]
     fn decode_list_body(r: &mut Rlp<'a>) -> Result<Self, InvalidTransaction> {
-        let gas_limit = r.u64()?;
-
         let to_slice = r.bytes()?;
         if to_slice.len() != 20 {
             return Err(InvalidTransaction::InvalidStructure);
@@ -48,7 +45,6 @@ impl<'a> RlpListDecode<'a> for ServiceTx<'a> {
 
         let data = r.bytes()?;
         Ok(Self {
-            gas_limit,
             to,
             data,
         })

@@ -553,11 +553,17 @@ where
 
         let pubdata_price = system.get_pubdata_price();
         let native_price = system.get_native_price();
-        let gas_price = Self::get_gas_price(
-            system,
-            transaction.max_fee_per_gas(),
-            transaction.max_priority_fee_per_gas(),
-        )?;
+        let gas_price = if transaction.is_service() {
+            // Service transactions do not pay gas fees,
+            // their gas price is allowed to be < block base fee.
+            U256::ZERO
+        } else {
+            Self::get_gas_price(
+                system,
+                transaction.max_fee_per_gas(),
+                transaction.max_priority_fee_per_gas(),
+            )?
+        };
         if native_price.is_zero() {
             return Err(internal_error!("Native price cannot be 0").into());
         };
