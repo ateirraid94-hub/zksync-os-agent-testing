@@ -538,7 +538,7 @@ where
 
         #[cfg(not(target_arch = "riscv32"))]
         cycle_marker::log_marker(
-            format!(
+            alloc::format!(
                 "Spent ergs for [process_transaction]: {}",
                 context.gas_used * evm_interpreter::ERGS_PER_GAS
             )
@@ -546,7 +546,7 @@ where
         );
         #[cfg(not(target_arch = "riscv32"))]
         cycle_marker::log_marker(
-            format!("Spent native for [process_transaction]: {computational_native_used}").as_str(),
+            alloc::format!("Spent native for [process_transaction]: {computational_native_used}").as_str(),
         );
 
         use crate::bootloader::constants::L2_TX_INTRINSIC_PUBDATA;
