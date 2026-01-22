@@ -545,11 +545,13 @@ where
             InvalidTransaction::BlockGasLimitTooHigh,
             system
         )?;
-        require!(
-            gas_limit <= block_gas_limit,
-            InvalidTransaction::CallerGasLimitMoreThanBlock,
-            system
-        )?;
+        if !transaction.is_service() {
+            require!(
+                gas_limit <= block_gas_limit,
+                InvalidTransaction::CallerGasLimitMoreThanBlock,
+                system
+            )?;
+        }
 
         let pubdata_price = system.get_pubdata_price();
         let native_price = system.get_native_price();
