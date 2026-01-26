@@ -7,6 +7,7 @@ use zk_ee::system::{
         runtime::{FatalRuntimeError, RuntimeError},
         system::SystemError,
     },
+    validator::TxValidationError,
     BalanceSubsystemError, NonceSubsystemError,
 };
 
@@ -105,6 +106,8 @@ pub enum InvalidTransaction {
     AuthListIsEmpty,
     /// 7702 has a null destination address
     EIP7702HasNullDestination,
+    /// Transaction was rejected by the validator
+    FilteredByValidator,
     /// EIP-7623 calldata cost is not paid
     EIP7623IntrinsicGasIsTooLow,
     /// Native resources cost is too high
@@ -179,6 +182,14 @@ impl From<SystemError> for TxError {
                 Self::Validation(InvalidTransaction::OutOfNativeResourcesDuringValidation)
             }
             SystemError::LeafDefect(e) => TxError::Internal(e.into()),
+        }
+    }
+}
+
+impl From<TxValidationError> for InvalidTransaction {
+    fn from(err: TxValidationError) -> Self {
+        match err {
+            TxValidationError::FilteredByValidator => InvalidTransaction::FilteredByValidator,
         }
     }
 }

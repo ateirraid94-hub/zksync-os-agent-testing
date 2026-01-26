@@ -22,7 +22,8 @@ use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::{Resource, System};
-
+use zk_ee::system::validator::TxValidator;
+use zk_ee::system::validator::NopTxValidator;
 mod common;
 
 // sendToL1(bytes) - 62f84b24
@@ -194,6 +195,7 @@ fn fuzz(input: FuzzInput) {
                 &amount,
                 true,
                 &mut NopTracer::default(),
+                &mut NopTxValidator::default(),
             );
         }
         2 => {
@@ -214,6 +216,7 @@ fn fuzz(input: FuzzInput) {
                 &amount,
                 true,
                 &mut NopTracer::default(),
+                &mut NopTxValidator::default(),
             );
         }
         3 => {
@@ -233,6 +236,7 @@ fn fuzz(input: FuzzInput) {
                 &amount,
                 true,
                 &mut NopTracer::default(),
+                &mut NopTxValidator::default(),
             );
         }
         _ => (),

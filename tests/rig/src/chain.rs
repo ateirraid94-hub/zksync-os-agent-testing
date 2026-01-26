@@ -48,6 +48,8 @@ use zk_ee::common_structs::{derive_flat_storage_key, ProofData};
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
+use zk_ee::system::validator::NopTxValidator;
+use zk_ee::system::validator::TxValidator;
 use zk_ee::utils::Bytes32;
 use zksync_os_interface::traits::EncodedTx;
 use zksync_os_interface::traits::TxListSource;
@@ -281,6 +283,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         };
 
         let mut nop_tracer = NopTracer::default();
+        let mut nop_validator = NopTxValidator;
 
         let block_output: BlockOutput = forward_system::run::run_block_with_oracle_dump_ext::<
             _,
@@ -297,6 +300,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             None,
             None,
             &mut nop_tracer,
+            &mut nop_validator,
         )
         .unwrap();
 
@@ -328,6 +332,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             da_commitment_scheme,
             run_config,
             &mut NopTracer::default(),
+            &mut NopTxValidator,
         )
         .unwrap()
         .0
@@ -353,6 +358,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             da_commitment_scheme,
             run_config,
             &mut NopTracer::default(),
+            &mut NopTxValidator,
             oracle_factory,
         )
         .unwrap()
@@ -375,6 +381,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             run_config.unwrap_or_default(),
             &factory,
             &mut NopTracer::default(),
+            &mut NopTxValidator,
         )
         .map(|r| r.0)
     }
@@ -387,6 +394,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
+        validator: &mut impl TxValidator<ForwardRunningSystem>,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
         let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
         self.run_inner(
@@ -396,10 +404,12 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             run_config.unwrap_or_default(),
             &factory,
             tracer,
+            validator,
         )
     }
 
     #[allow(clippy::result_large_err)]
+    #[allow(clippy::too_many_arguments)]
     pub fn run_block_with_extra_stats_with_oracle_factory<
         OF: TestingOracleFactory<RANDOMIZED_TREE>,
     >(
@@ -409,6 +419,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         da_commitment_scheme: Option<DACommitmentScheme>,
         run_config: Option<RunConfig>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
+        validator: &mut impl TxValidator<ForwardRunningSystem>,
         oracle_factory: &OF,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
         self.run_inner(
@@ -418,10 +429,12 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             run_config.unwrap_or_default(),
             oracle_factory,
             tracer,
+            validator,
         )
     }
 
     #[allow(clippy::result_large_err)]
+    #[allow(clippy::too_many_arguments)]
     fn run_inner<OF: TestingOracleFactory<RANDOMIZED_TREE>>(
         &mut self,
         transactions: Vec<EncodedTx>,
@@ -430,6 +443,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         run_config: RunConfig,
         oracle_factory: &OF,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
+        validator: &mut impl TxValidator<ForwardRunningSystem>,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>), BootloaderSubsystemError> {
         let RunConfig {
             profiler_config,
@@ -509,6 +523,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             forward_oracle,
             &mut result_keeper,
             tracer,
+            validator,
         )?;
 
         let block_output: BlockOutput = result_keeper.into();
@@ -843,6 +858,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         // Forward run:
         let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);
         let mut nop_tracer = NopTracer::default();
+        let mut nop_validator = NopTxValidator;
 
         BasicBootloader::<
             EthereumStorageSystemTypesWithPostOps<_>,
@@ -852,6 +868,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             &mut (),
             &mut result_keeper,
             &mut nop_tracer,
+            &mut nop_validator,
         )
         .expect("must succeed");
         let oracle = Self::make_eth_block_oracle(transactions, witness, block_header, withdrawals);
