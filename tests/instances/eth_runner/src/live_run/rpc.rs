@@ -9,6 +9,7 @@ use anyhow::{anyhow, Context};
 use anyhow::Result;
 use rig::log::{debug, warn};
 use std::{io::Read, str::FromStr, time::Duration};
+use std::sync::OnceLock;
 use serde_json::json;
 use serde::Deserialize;
 use serde_json::Deserializer;
@@ -233,7 +234,11 @@ fn decompress_response(
     }
 }
 
-
+/// Returns a static HTTP agent for sending requests.
+fn http_agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(ureq::agent)
+}
 
 /// Sends JSON-RPC request to endpoint with retry logic and compression support.
 fn send(endpoint: &str, body: serde_json::Value) -> Result<String> {
@@ -246,7 +251,8 @@ fn send(endpoint: &str, body: serde_json::Value) -> Result<String> {
     // Make the request and process it in one go
     let mut last_error = None;
     for attempt in 0..=MAX_RETRIES {
-        match ureq::post(endpoint)
+        match http_agent()
+            .post(endpoint)
             .header("Content-Type", "application/json")
             .header("Accept-Encoding", "zstd, gzip")
             .send_json(&body)
@@ -428,34 +434,43 @@ pub fn get_all_block_traces_batch(
     let group_start = std::time::Instant::now();
     let mut results = std::collections::HashMap::new();
     
+    let mut response_map: std::collections::HashMap<u64, &serde_json::Value> =
+        std::collections::HashMap::with_capacity(responses.len());
+    for resp in &responses {
+        if !resp.is_object() {
+            continue;
+        }
+        let id = resp.get("id")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow!("Missing or invalid id in batch response"))?;
+        response_map.insert(id, resp);
+    }
+    
     for block_idx in 0..block_numbers.len() {
         let block_number = block_numbers[block_idx];
         let base_id = block_idx * 5;
         
-        // Extract results for this block
         let mut block_result = None;
         let mut prestate_result = None;
         let mut diff_result = None;
         let mut receipts_result = None;
         let mut call_result = None;
+        let mut failed = false;
         
-        for resp in &responses {
-            if !resp.is_object() {
-                continue;
-            }
+        for offset in 0..5 {
+            let id = (base_id + offset) as u64;
+            let resp = match response_map.get(&id) {
+                Some(resp) => *resp,
+                None => {
+                    warn!("Missing response for block {} (id={})", block_number, id);
+                    failed = true;
+                    break;
+                }
+            };
             
-            let id = resp.get("id")
-                .and_then(|v| v.as_u64())
-                .ok_or_else(|| anyhow!("Missing or invalid id in batch response"))?;
-            
-            // Check if this response belongs to this block
-            if id < base_id as u64 || id >= (base_id + 5) as u64 {
-                continue;
-            }
-            
-            // Check for errors - skip this block if any call failed
             if let Some(error) = resp.get("error") {
                 warn!("RPC error for block {} (id={}): {}", block_number, id, error);
+                failed = true;
                 break;
             }
             
@@ -463,11 +478,12 @@ pub fn get_all_block_traces_batch(
                 Some(r) => r,
                 None => {
                     warn!("Missing result for block {} (id={})", block_number, id);
+                    failed = true;
                     break;
                 }
             };
             
-            match id as usize - base_id {
+            match offset {
                 0 => block_result = Some(result.clone()),
                 1 => prestate_result = Some(result.clone()),
                 2 => diff_result = Some(result.clone()),
@@ -477,8 +493,13 @@ pub fn get_all_block_traces_batch(
             }
         }
         
+        if failed {
+            warn!("Failed to fetch all traces for block {}, skipping", block_number);
+            continue;
+        }
+        
         // Only add to results if we got all 5 responses
-        if let (Some(block_res), Some(prestate_res), Some(diff_res), Some(receipts_res), Some(call_res)) = 
+        if let (Some(block_res), Some(prestate_res), Some(diff_res), Some(receipts_res), Some(call_res)) =
             (block_result, prestate_result, diff_result, receipts_result, call_result) {
             
             // Deserialize each result
