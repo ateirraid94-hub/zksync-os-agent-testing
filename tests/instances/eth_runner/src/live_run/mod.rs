@@ -26,6 +26,7 @@ pub fn live_run(
     single_tx: Option<u64>,
     only_forward: bool,
     backup_endpoint: Option<String>,
+    call_tracing_enabled: bool,
 ) -> Result<()> {
     let run_start = Instant::now();
     
@@ -84,6 +85,7 @@ pub fn live_run(
             &mut stats.total_prefetch_time,
             &mut stats.total_blocks_prefetched,
             skip_successful,
+            call_tracing_enabled,
         )?;
         
         // Check if we should skip this block
@@ -112,6 +114,7 @@ pub fn live_run(
                 chain_id,
                 webhook.as_ref(),
                 &mut stats,
+                call_tracing_enabled,
             )? {
                 Some(traces) => traces,
                 None => continue, // Block skipped due to trace fetch failure
@@ -131,15 +134,81 @@ pub fn live_run(
             gpu_state,
             only_forward,
             block_traces,
+            call_tracing_enabled,
         );
         let block_time = block_start.elapsed();
         stats.total_block_time += block_time;
         
-        // Retry block execution with backup endpoint if primary execution failed
         let result = match primary_result {
             Ok(BlockStatus::Success) => Ok(BlockStatus::Success),
             failed_result => {
-                if let Some(backup) = backup_endpoint.as_ref() {
+                if !call_tracing_enabled {
+                    match rpc::get_all_block_traces(&endpoint, n, true) {
+                        Ok((block, prestate, diff, receipts, call)) => {
+                            let retry_traces = BlockTraces {
+                                block,
+                                prestate,
+                                diff,
+                                receipts,
+                                call,
+                            };
+                            let retry_start = Instant::now();
+                            let retry_result = block_execution::run_block(
+                                n,
+                                &db,
+                                &endpoint,
+                                witness_output_dir.clone(),
+                                persist_all,
+                                chain_id,
+                                single_tx,
+                                gpu_state,
+                                only_forward,
+                                retry_traces,
+                                true,
+                            );
+                            stats.total_block_time += retry_start.elapsed();
+                            if matches!(retry_result, Ok(BlockStatus::Success)) {
+                                retry_result
+                            } else if let Some(backup) = backup_endpoint.as_ref() {
+                                error_handling::retry_block_with_backup_endpoint(
+                                    n,
+                                    backup,
+                                    &db,
+                                    witness_output_dir.clone(),
+                                    persist_all,
+                                    chain_id,
+                                    single_tx,
+                                    gpu_state,
+                                    only_forward,
+                                    &mut stats.total_block_time,
+                                    true,
+                                )
+                            } else {
+                                retry_result
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Failed to refetch call trace for block {n}: {err}");
+                            if let Some(backup) = backup_endpoint.as_ref() {
+                                error_handling::retry_block_with_backup_endpoint(
+                                    n,
+                                    backup,
+                                    &db,
+                                    witness_output_dir.clone(),
+                                    persist_all,
+                                    chain_id,
+                                    single_tx,
+                                    gpu_state,
+                                    only_forward,
+                                    &mut stats.total_block_time,
+                                    true,
+                                )
+                            } else {
+                                failed_result
+                            }
+                        }
+                    }
+                } else if let Some(backup) = backup_endpoint.as_ref() {
                     error_handling::retry_block_with_backup_endpoint(
                         n,
                         backup,
@@ -151,6 +220,7 @@ pub fn live_run(
                         gpu_state,
                         only_forward,
                         &mut stats.total_block_time,
+                        true,
                     )
                 } else {
                     failed_result

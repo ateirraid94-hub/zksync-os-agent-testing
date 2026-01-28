@@ -50,6 +50,7 @@ pub fn run_block(
     gpu_shared_state: &mut Option<&mut GpuSharedState>,
     only_forward: bool,
     block_traces: BlockTraces,
+    call_tracing_enabled: bool,
 ) -> Result<BlockStatus> {
     let block_start = Instant::now();
     let traces_clone = block_traces.clone();
@@ -70,7 +71,7 @@ pub fn run_block(
     
     let block_context = block.get_block_context();
     let (transactions, skipped, calls_unsupported_precompile) =
-        block.get_transactions(&call, single_tx);
+        block.get_transactions(&call, single_tx, call_tracing_enabled);
     if calls_unsupported_precompile {
         // Here it makes little sense to run the block, as the post check is gonna fail
         // We just skip it, marking it as successful

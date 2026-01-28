@@ -6,11 +6,14 @@ use std::collections::HashSet;
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct CallTraceItem {
-    pub from: Address,
+    #[serde(default)]
+    pub from: Option<Address>,
     pub to: Option<Address>,
     pub value: Option<U256>,
-    pub gas: U256,
-    pub gas_used: U256,
+    #[serde(default)]
+    pub gas: Option<U256>,
+    #[serde(default)]
+    pub gas_used: Option<U256>,
     #[serde(skip)]
     pub input: (),
     #[serde(skip)]
@@ -26,7 +29,8 @@ pub struct CallTraceItem {
 #[serde(rename_all = "camelCase")]
 pub struct TxCallTraces {
     pub result: CallTraceItem,
-    pub tx_hash: B256,
+    #[serde(default)]
+    pub tx_hash: Option<B256>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

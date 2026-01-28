@@ -1,6 +1,6 @@
 use crate::{
     block::Block,
-    calltrace::CallTrace,
+    calltrace::{CallTrace, CallTraceItem, TxCallTraces},
     prestate::{DiffTrace, PrestateTrace},
     receipts::BlockReceipts,
 };
@@ -30,6 +30,35 @@ const MAX_RETRIES: u32 = 5;
 /// Initial delay in milliseconds before retrying a failed RPC request.
 /// Subsequent retries use exponential backoff: delay = INITIAL_RETRY_DELAY_MS * (2^attempt).
 const INITIAL_RETRY_DELAY_MS: u64 = 100;
+
+fn call_tracer_config() -> serde_json::Value {
+    json!({
+        "onlyTopCall": false,
+        "withLog": false
+    })
+}
+
+fn empty_call_trace(len: usize) -> CallTrace {
+    let mut result = Vec::with_capacity(len);
+    for _ in 0..len {
+        result.push(TxCallTraces {
+            result: CallTraceItem {
+                from: None,
+                to: None,
+                value: None,
+                gas: None,
+                gas_used: None,
+                input: (),
+                output: (),
+                calls: None,
+                call_type: None,
+                error: None,
+            },
+            tx_hash: None,
+        });
+    }
+    CallTrace { result }
+}
 
 /// Converts u64 to hex string with "0x" prefix.
 fn to_hex(n: u64) -> String {
@@ -328,11 +357,12 @@ fn send(endpoint: &str, body: serde_json::Value) -> Result<String> {
 pub fn get_all_block_traces(
     endpoint: &str,
     block_number: u64,
+    call_tracing_enabled: bool,
 ) -> Result<(Block, PrestateTrace, DiffTrace, BlockReceipts, CallTrace)> {
     debug!("RPC: get_all_block_traces({block_number}) - batched");
     
     // Use batch function internally for code reuse
-    let mut results = get_all_block_traces_batch(endpoint, &[block_number])?;
+    let mut results = get_all_block_traces_batch(endpoint, &[block_number], call_tracing_enabled)?;
     
     results.remove(&block_number)
         .ok_or_else(|| anyhow!("Batch function did not return result for block {}", block_number))
@@ -345,6 +375,7 @@ pub fn get_all_block_traces(
 pub fn get_all_block_traces_batch(
     endpoint: &str,
     block_numbers: &[u64],
+    call_tracing_enabled: bool,
 ) -> Result<std::collections::HashMap<u64, (Block, PrestateTrace, DiffTrace, BlockReceipts, CallTrace)>> {
     if block_numbers.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -352,13 +383,15 @@ pub fn get_all_block_traces_batch(
     
     debug!("RPC: get_all_block_traces_batch({} blocks) - batched", block_numbers.len());
     
-    // Create a batched JSON-RPC request with 5 calls per block
-    // ID format: (block_index * 5) + call_type
+    let calls_per_block = if call_tracing_enabled { 5 } else { 4 };
+    
+    // Create a batched JSON-RPC request with multiple calls per block.
+    // ID format: (block_index * calls_per_block) + call_type
     // call_type: 0=block, 1=prestate, 2=diff, 3=receipts, 4=call
     let mut batch = Vec::new();
     for (block_idx, &block_number) in block_numbers.iter().enumerate() {
         let block_hex = to_hex(block_number);
-        let base_id = block_idx * 5;
+        let base_id = block_idx * calls_per_block;
         
         batch.push(json!({
             "method": "eth_getBlockByNumber",
@@ -391,14 +424,17 @@ pub fn get_all_block_traces_batch(
             "jsonrpc": "2.0"
         }));
         
-        batch.push(json!({
-            "method": "debug_traceBlockByNumber",
-            "params": [block_hex, {
-                "tracer": "callTracer",
-            }],
-            "id": base_id + 4,
-            "jsonrpc": "2.0"
-        }));
+        if call_tracing_enabled {
+            batch.push(json!({
+                "method": "debug_traceBlockByNumber",
+                "params": [block_hex, {
+                    "tracer": "callTracer",
+                    "tracerConfig": call_tracer_config(),
+                }],
+                "id": base_id + 4,
+                "jsonrpc": "2.0"
+            }));
+        }
     }
     
     let response = send(endpoint, json!(batch))?;
@@ -425,7 +461,7 @@ pub fn get_all_block_traces_batch(
         return Err(anyhow!("Expected batched response (array), got single response: {}", response_value));
     };
     
-    let expected_responses = block_numbers.len() * 5;
+    let expected_responses = block_numbers.len() * calls_per_block;
     if responses.len() != expected_responses {
         return Err(anyhow!("Expected {} responses in batch, got {}. Response: {}", expected_responses, responses.len(), response));
     }
@@ -448,7 +484,7 @@ pub fn get_all_block_traces_batch(
     
     for block_idx in 0..block_numbers.len() {
         let block_number = block_numbers[block_idx];
-        let base_id = block_idx * 5;
+        let base_id = block_idx * calls_per_block;
         
         let mut block_result = None;
         let mut prestate_result = None;
@@ -457,7 +493,7 @@ pub fn get_all_block_traces_batch(
         let mut call_result = None;
         let mut failed = false;
         
-        for offset in 0..5 {
+        for offset in 0..calls_per_block {
             let id = (base_id + offset) as u64;
             let resp = match response_map.get(&id) {
                 Some(resp) => *resp,
@@ -499,8 +535,8 @@ pub fn get_all_block_traces_batch(
         }
         
         // Only add to results if we got all 5 responses
-        if let (Some(block_res), Some(prestate_res), Some(diff_res), Some(receipts_res), Some(call_res)) =
-            (block_result, prestate_result, diff_result, receipts_result, call_result) {
+        if let (Some(block_res), Some(prestate_res), Some(diff_res), Some(receipts_res)) =
+            (block_result, prestate_result, diff_result, receipts_result) {
             
             // Deserialize each result
             let deserialize_start = std::time::Instant::now();
@@ -536,17 +572,28 @@ pub fn get_all_block_traces_batch(
             let receipts: BlockReceipts = serde_json::from_value(receipts_json)
                 .context(format!("Failed to deserialize receipts for block {}", block_number))?;
             
-            // CallTrace needs special handling due to recursion limit
-            let call_json = json!({
-                "jsonrpc": "2.0",
-                "result": call_res,
-                "id": base_id + 4
-            });
-            let call_str = serde_json::to_string(&call_json)?;
-            let mut de = Deserializer::from_str(&call_str);
-            de.disable_recursion_limit();
-            let call: CallTrace = CallTrace::deserialize(&mut de)
-                .context(format!("Failed to deserialize call trace for block {}", block_number))?;
+            let call = if call_tracing_enabled {
+                let call_res = match call_result {
+                    Some(call_res) => call_res,
+                    None => {
+                        warn!("Missing call trace for block {}, skipping", block_number);
+                        continue;
+                    }
+                };
+                // CallTrace needs special handling due to recursion limit
+                let call_json = json!({
+                    "jsonrpc": "2.0",
+                    "result": call_res,
+                    "id": base_id + 4
+                });
+                let call_str = serde_json::to_string(&call_json)?;
+                let mut de = Deserializer::from_str(&call_str);
+                de.disable_recursion_limit();
+                CallTrace::deserialize(&mut de)
+                    .context(format!("Failed to deserialize call trace for block {}", block_number))?
+            } else {
+                empty_call_trace(prestate.result.len())
+            };
             
             let deserialize_time = deserialize_start.elapsed();
             if block_idx == 0 {

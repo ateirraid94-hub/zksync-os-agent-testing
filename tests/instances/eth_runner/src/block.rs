@@ -39,9 +39,32 @@ impl Block {
         self,
         calltrace: &CallTrace,
         single_tx: Option<u64>,
+        check_unsupported_precompile: bool,
     ) -> (Vec<EncodedTx>, HashSet<usize>, bool) {
         let mut skipped: HashSet<usize> = HashSet::new();
         let mut has_call_to_unsupported_precompile = false;
+        if !check_unsupported_precompile {
+            let txs = self
+                .result
+                .transactions
+                .into_transactions()
+                .enumerate()
+                .filter_map(|(i, tx)| {
+                    let transaction_type = tx.ty();
+                    let supported_tx_type = transaction_type <= 3;
+                    let single_tx_cond = single_tx.is_none_or(|idx| idx as usize == i);
+                    if single_tx_cond && supported_tx_type {
+                        Some(encode_alloy_rpc_tx(tx))
+                    } else {
+                        warn!("Skipping unsupported transaction of type {transaction_type:?}");
+                        skipped.insert(i);
+                        None
+                    }
+                })
+                .collect();
+            return (txs, skipped, false);
+        }
+
         (
             self.result
                 .transactions

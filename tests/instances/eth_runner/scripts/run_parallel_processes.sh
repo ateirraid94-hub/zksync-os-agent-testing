@@ -90,6 +90,7 @@ for i in $(seq 1 $NUM_PROCESSES); do
         
         CMD="$CMD cargo run --manifest-path tests/instances/eth_runner/Cargo.toml --release --features rig/no_print,rig/unlimited_native -- \
             live-run \
+            --disable-call-trace \
             --start-block $CURRENT_START \
             --end-block $CURRENT_END \
             --endpoint \"$ENDPOINT\" \

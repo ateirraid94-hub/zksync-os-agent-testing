@@ -47,12 +47,13 @@ pub fn retry_block_with_backup_endpoint(
     gpu_state: &mut Option<&mut GpuSharedState>,
     only_forward: bool,
     total_block_time: &mut std::time::Duration,
+    call_tracing_enabled: bool,
 ) -> Result<BlockStatus> {
     warn!("Block {block_number} failed with primary endpoint. Retrying with backup endpoint...");
     
     let backup_traces_result = {
         let rpc_start = Instant::now();
-        match rpc::get_all_block_traces(backup_endpoint, block_number)
+        match rpc::get_all_block_traces(backup_endpoint, block_number, call_tracing_enabled)
             .context(format!("Failed to fetch block traces from backup endpoint for {block_number}"))
         {
             std::result::Result::Ok((block, prestate, diff, receipts, call)) => {
@@ -87,6 +88,7 @@ pub fn retry_block_with_backup_endpoint(
                 gpu_state,
                 only_forward,
                 backup_traces,
+                call_tracing_enabled,
             );
             let backup_block_time = backup_block_start.elapsed();
             *total_block_time += backup_block_time;
@@ -126,9 +128,10 @@ pub fn fetch_block_traces_with_backup(
     chain_id: u64,
     webhook: Option<&String>,
     stats: &mut RunStatistics,
+    call_tracing_enabled: bool,
 ) -> Result<Option<BlockTraces>> {
     // Try primary endpoint first
-    match fetch_block_traces(block_number, db, primary_endpoint) {
+    match fetch_block_traces(block_number, db, primary_endpoint, call_tracing_enabled) {
         std::result::Result::Ok(traces) => Ok(Some(traces)),
         std::result::Result::Err(primary_err) => {
             error!("Failed to fetch traces for block {block_number} from primary endpoint: {primary_err:?}");
@@ -136,7 +139,7 @@ pub fn fetch_block_traces_with_backup(
             // Try backup endpoint if available
             let traces_result = if let Some(backup) = backup_endpoint {
                 warn!("Trying backup endpoint for block {block_number} trace fetch...");
-                match rpc::get_all_block_traces(backup, block_number)
+                match rpc::get_all_block_traces(backup, block_number, call_tracing_enabled)
                     .context(format!("Failed to fetch block traces from backup endpoint for {block_number}"))
                 {
                     std::result::Result::Ok((block, prestate, diff, receipts, call)) => {

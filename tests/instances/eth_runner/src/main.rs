@@ -48,6 +48,8 @@ enum Command {
         only_forward: bool,
         #[arg(long)]
         backup_endpoint: Option<String>,
+        #[arg(long)]
+        disable_call_trace: bool,
     },
     // Run a single block from JSON files
     SingleRun {
@@ -121,6 +123,7 @@ fn main() -> anyhow::Result<()> {
             single_tx,
             only_forward,
             backup_endpoint,
+            disable_call_trace,
         } => live_run::live_run(
             start_block,
             end_block,
@@ -133,6 +136,7 @@ fn main() -> anyhow::Result<()> {
             single_tx,
             only_forward,
             backup_endpoint,
+            !disable_call_trace,
         ),
         Command::ExportRatios { db, path } => live_run::export_block_ratios(db, path),
         Command::ShowStatus { db } => live_run::show_status(db),

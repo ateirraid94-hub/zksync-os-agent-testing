@@ -16,8 +16,13 @@ const PREFETCH_SIZE: usize = 4;  // Can be adjusted depending on the RPC rate li
 ///
 /// Returns traces from database if available, otherwise fetches from RPC using batched calls.
 /// This is a convenience wrapper around `fetch_block_traces_batch` for single blocks.
-pub fn fetch_block_traces(block_number: u64, db: &Database, endpoint: &str) -> Result<BlockTraces> {
-    let mut result = fetch_block_traces_batch(&[block_number], db, endpoint)?;
+pub fn fetch_block_traces(
+    block_number: u64,
+    db: &Database,
+    endpoint: &str,
+    call_tracing_enabled: bool,
+) -> Result<BlockTraces> {
+    let mut result = fetch_block_traces_batch(&[block_number], db, endpoint, call_tracing_enabled)?;
     result.remove(&block_number)
         .ok_or_else(|| anyhow::anyhow!("Block {} not found in batch result", block_number))
 }
@@ -28,6 +33,7 @@ pub fn fetch_block_traces_batch(
     block_numbers: &[u64],
     db: &Database,
     endpoint: &str,
+    call_tracing_enabled: bool,
 ) -> Result<std::collections::HashMap<u64, BlockTraces>> {
     let total_start = Instant::now();
     
@@ -56,7 +62,7 @@ pub fn fetch_block_traces_batch(
     );
     
     let rpc_start = Instant::now();
-    let batch_results = rpc::get_all_block_traces_batch(endpoint, &blocks_to_fetch)
+    let batch_results = rpc::get_all_block_traces_batch(endpoint, &blocks_to_fetch, call_tracing_enabled)
         .context("Failed to fetch block traces in batch")?;
     let rpc_time = rpc_start.elapsed();
     
@@ -73,6 +79,7 @@ pub fn fetch_block_traces_batch(
     let parse_time = parse_start.elapsed();
     
     let total_time = total_start.elapsed();
+    let calls_per_block = if call_tracing_enabled { 5 } else { 4 };
     info!("Batched RPC call for {} blocks: total={:.2}ms (DB check: {:.2}ms, RPC: {:.2}ms, parse: {:.2}ms, {:.2}ms per block, {:.1} RPC calls)",
         blocks_to_fetch.len(),
         total_time.as_secs_f64() * 1000.0,
@@ -80,7 +87,7 @@ pub fn fetch_block_traces_batch(
         rpc_time.as_secs_f64() * 1000.0,
         parse_time.as_secs_f64() * 1000.0,
         total_time.as_secs_f64() * 1000.0 / blocks_to_fetch.len() as f64,
-        blocks_to_fetch.len() * 5
+        blocks_to_fetch.len() * calls_per_block
     );
     
     Ok(results)
@@ -101,6 +108,7 @@ pub fn prefetch_next_batch(
     total_prefetch_time: &mut std::time::Duration,
     total_blocks_prefetched: &mut u64,
     skip_successful: bool,
+    call_tracing_enabled: bool,
 ) -> Result<()> {
     if prefetch_cache.is_empty() && *next_block_to_prefetch <= end_block {
         let prefetch_timing_start = Instant::now();
@@ -133,7 +141,7 @@ pub fn prefetch_next_batch(
                 prefetch_blocks.last().unwrap()
             );
             
-            match fetch_block_traces_batch(&prefetch_blocks, db, endpoint) {
+            match fetch_block_traces_batch(&prefetch_blocks, db, endpoint, call_tracing_enabled) {
                 std::result::Result::Ok(batch_results) => {
                     let prefetched_count = batch_results.len() as u64;
                     *total_blocks_prefetched += prefetched_count;
