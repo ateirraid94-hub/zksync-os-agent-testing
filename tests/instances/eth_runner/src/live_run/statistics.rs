@@ -6,6 +6,7 @@ pub struct RunStatistics {
     pub total_block_time: std::time::Duration,
     pub total_overhead_time: std::time::Duration,
     pub total_prefetch_time: std::time::Duration,
+    pub total_prefetch_wait_time: std::time::Duration,
     pub blocks_actually_processed: u64,
     pub blocks_skipped_trace_fetch: u64,
     pub blocks_skipped_already_succeeded: u64,
@@ -22,6 +23,7 @@ impl RunStatistics {
             total_block_time: std::time::Duration::ZERO,
             total_overhead_time: std::time::Duration::ZERO,
             total_prefetch_time: std::time::Duration::ZERO,
+            total_prefetch_wait_time: std::time::Duration::ZERO,
             blocks_actually_processed: 0,
             blocks_skipped_trace_fetch: 0,
             blocks_skipped_already_succeeded: 0,
@@ -47,7 +49,7 @@ pub fn log_run_statistics(
         .saturating_sub(init_time)
         .saturating_sub(stats.total_block_time)
         .saturating_sub(stats.total_overhead_time)
-        .saturating_sub(stats.total_prefetch_time);
+        .saturating_sub(stats.total_prefetch_wait_time);
     
     info!("=== Live Run Completed ===");
     info!("Blocks in range: {} ({} to {})", blocks_in_range as u64, start_block, end_block);
@@ -63,9 +65,12 @@ pub fn log_run_statistics(
         info!("  Block execution:      {:6.2}ms ({:5.1}%)", stats.total_block_time.as_secs_f64() * 1000.0, stats.total_block_time.as_secs_f64() / total_time.as_secs_f64() * 100.0);
         info!("  Per-block overhead:  {:6.2}ms ({:5.1}%)", stats.total_overhead_time.as_secs_f64() * 1000.0, stats.total_overhead_time.as_secs_f64() / total_time.as_secs_f64() * 100.0);
         info!("    (webhooks, error handling)");
+        if stats.total_prefetch_wait_time.as_secs_f64() > 0.0 {
+            info!("  Trace fetch wait:    {:6.2}ms ({:5.1}%)", stats.total_prefetch_wait_time.as_secs_f64() * 1000.0, stats.total_prefetch_wait_time.as_secs_f64() / total_time.as_secs_f64() * 100.0);
+        }
         if stats.total_prefetch_time.as_secs_f64() > 0.0 {
-            info!("  Prefetching:          {:6.2}ms ({:5.1}%)", stats.total_prefetch_time.as_secs_f64() * 1000.0, stats.total_prefetch_time.as_secs_f64() / total_time.as_secs_f64() * 100.0);
-            info!("    Blocks prefetched: {} (avg {:.2}ms per block)", 
+            info!("  Background prefetch: {:6.2}ms (not on critical path)", stats.total_prefetch_time.as_secs_f64() * 1000.0);
+            info!("    Blocks prefetched: {} (avg {:.2}ms per block)",
                 stats.total_blocks_prefetched,
                 stats.total_prefetch_time.as_secs_f64() * 1000.0 / stats.total_blocks_prefetched.max(1) as f64
             );

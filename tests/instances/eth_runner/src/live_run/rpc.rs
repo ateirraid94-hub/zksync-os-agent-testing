@@ -9,7 +9,6 @@ use anyhow::{anyhow, Context};
 use anyhow::Result;
 use rig::log::{debug, warn};
 use std::{io::Read, str::FromStr, time::Duration};
-use std::sync::OnceLock;
 use serde_json::json;
 use serde::Deserialize;
 use serde_json::Deserializer;
@@ -234,14 +233,29 @@ fn decompress_response(
             0.0
         };
         
-        debug!("RPC zstd: read={:.2}ms ({} bytes compressed), decompress={:.2}ms ({} bytes decompressed, {:.1}% saved), total={:.2}ms", 
-            read_time.as_secs_f64() * 1000.0,
-            compressed_size,
-            decompress_time.as_secs_f64() * 1000.0,
-            decompressed.len(),
-            space_saved,
-            (read_time + decompress_time).as_secs_f64() * 1000.0
-        );
+        let total_time = read_time + decompress_time;
+        let read_time_ms = read_time.as_secs_f64() * 1000.0;
+        
+        // Warn if read time is very slow (likely network issue)
+        if read_time_ms > 30000.0 {
+            warn!("RPC zstd: very slow read={:.2}ms ({} bytes compressed), decompress={:.2}ms ({} bytes decompressed, {:.1}% saved), total={:.2}ms - this may indicate network issues", 
+                read_time_ms,
+                compressed_size,
+                decompress_time.as_secs_f64() * 1000.0,
+                decompressed.len(),
+                space_saved,
+                total_time.as_secs_f64() * 1000.0
+            );
+        } else {
+            debug!("RPC zstd: read={:.2}ms ({} bytes compressed), decompress={:.2}ms ({} bytes decompressed, {:.1}% saved), total={:.2}ms", 
+                read_time_ms,
+                compressed_size,
+                decompress_time.as_secs_f64() * 1000.0,
+                decompressed.len(),
+                space_saved,
+                total_time.as_secs_f64() * 1000.0
+            );
+        }
         
         Ok(decompressed)
     } else {
@@ -263,11 +277,6 @@ fn decompress_response(
     }
 }
 
-/// Returns a static HTTP agent for sending requests.
-fn http_agent() -> &'static ureq::Agent {
-    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT.get_or_init(ureq::agent)
-}
 
 /// Sends JSON-RPC request to endpoint with retry logic and compression support.
 fn send(endpoint: &str, body: serde_json::Value) -> Result<String> {
@@ -280,8 +289,9 @@ fn send(endpoint: &str, body: serde_json::Value) -> Result<String> {
     // Make the request and process it in one go
     let mut last_error = None;
     for attempt in 0..=MAX_RETRIES {
-        match http_agent()
-            .post(endpoint)
+        // Use ureq::post() directly - it creates a temporary agent internally
+        // This avoids mutex contention from shared agents while keeping code simple
+        match ureq::post(endpoint)
             .header("Content-Type", "application/json")
             .header("Accept-Encoding", "zstd, gzip")
             .send_json(&body)
@@ -469,6 +479,7 @@ pub fn get_all_block_traces_batch(
     // Group responses by block
     let group_start = std::time::Instant::now();
     let mut results = std::collections::HashMap::new();
+    let mut blocks_skipped = 0usize;
     
     let mut response_map: std::collections::HashMap<u64, &serde_json::Value> =
         std::collections::HashMap::with_capacity(responses.len());
@@ -530,6 +541,7 @@ pub fn get_all_block_traces_batch(
         }
         
         if failed {
+            blocks_skipped += 1;
             warn!("Failed to fetch all traces for block {}, skipping", block_number);
             continue;
         }
@@ -602,14 +614,17 @@ pub fn get_all_block_traces_batch(
             
             results.insert(block_number, (block, prestate, diff, receipts, call));
         } else {
+            blocks_skipped += 1;
             warn!("Failed to fetch all traces for block {}, skipping", block_number);
         }
     }
     
     let group_time = group_start.elapsed();
-    debug!("RPC group/deserialize: {:.2}ms ({} blocks)", 
+    debug!(
+        "RPC group/deserialize: {:.2}ms ({} blocks, {} skipped)",
         group_time.as_secs_f64() * 1000.0,
-        block_numbers.len()
+        block_numbers.len(),
+        blocks_skipped
     );
     
     Ok(results)

@@ -7,10 +7,9 @@ use std::time::Instant;
 /// Prefetch size: number of blocks to prefetch in one batch.
 ///
 /// Each block requires 5 RPC calls (block, prestate, diff, receipts, calltrace).
-/// With PREFETCH_SIZE=4, we make 4*5=20 RPC calls per batch, which is under
-/// the typical rate limit of 50 requests/second. This allows for some headroom
-/// to account for network delays and other overhead.
-const PREFETCH_SIZE: usize = 4;  // Can be adjusted depending on the RPC rate limit, threads, etc.
+/// With PREFETCH_SIZE=4 and call tracing enabled, we make 4*5=20 RPC calls per batch.
+/// Tune this based on your RPC provider's rate limits and latency.
+pub const PREFETCH_SIZE: usize = 2;  // Can be adjusted depending on the RPC rate limit, threads, etc.
 
 /// Fetches block traces from database or RPC endpoint.
 ///
@@ -95,7 +94,7 @@ pub fn fetch_block_traces_batch(
 
 /// Prefetches the next batch of block traces using batched RPC calls.
 ///
-/// Fetches up to `PREFETCH_SIZE` blocks (default: 4) in a single batched HTTP request and stores
+/// Fetches up to `PREFETCH_SIZE` blocks in a single batched HTTP request and stores
 /// them in the cache. This reduces network latency by batching requests and having traces ready
 /// when needed. Only prefetches when the cache is empty and skips blocks already in the database
 /// or blocks that have already been successfully processed (when skip_successful=true).
