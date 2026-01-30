@@ -139,7 +139,7 @@ where
             InvalidTransaction::OutOfGasDuringValidation,
         ))
     } else {
-        let gas_limit_for_tx = gas_limit - intrinsic_overhead;
+        let gas_limit_for_tx = gas_limit.saturating_sub(intrinsic_overhead);
         let ergs = gas_limit_for_tx.saturating_mul(ERGS_PER_GAS); // we checked at the very start that gas_limit * ERGS_PER_GAS doesn't overflow
         let main_resources = S::Resources::from_ergs_and_native(Ergs(ergs), native_limit);
 
