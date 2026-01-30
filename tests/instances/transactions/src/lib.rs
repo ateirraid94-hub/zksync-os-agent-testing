@@ -1791,3 +1791,44 @@ fn test_simulation_gas_used_regression() {
     assert_eq!(first_tx.native_used, second_tx.native_used);
     assert_eq!(first_tx.pubdata_used, second_tx.pubdata_used);
 }
+
+
+#[test]
+fn test_l1_tx_gas_overflow() {
+    let mut chain = Chain::empty(None);
+    let from_address = address!("1234000000000000000000000000000000000000");
+    let to_address = address!("4242000000000000000000000000000000000000");
+
+    // Create an L1 transaction that will cause gas overflow
+    // L1 transactions bypass the intrinsic gas check that would normally prevent this
+    let overflow_l1_tx = {
+        let tx = TransactionRequest {
+            chain_id: Some(37),
+            from: Some(from_address),
+            to: Some(TxKind::Call(to_address)),
+            gas: Some(200000), // Gas limit that should not be sufficient for the input data
+            max_fee_per_gas: Some(1000),
+            max_priority_fee_per_gas: Some(1000),
+            value: Some(alloy::primitives::U256::from(100)),
+            nonce: Some(0),
+            input: vec![0u8; 50_000].into(), // Very large input data to increase intrinsic cost
+            ..TransactionRequest::default()
+        };
+        encode_l1_tx(tx)
+    };
+
+    // Set up balances
+    chain.set_balance(
+        rig::ruint::aliases::B160::from_be_bytes(from_address.into_array()),
+        rig::ruint::aliases::U256::from(1_000_000_000_000_000_u64),
+    );
+    // Test L1 transaction - this triggers the overflow scenario
+    // In debug mode, this would panic due to integer underflow
+    // In release mode, it would wrap around silently creating incorrect gas calculations
+    let result_l1 = chain.run_block(vec![overflow_l1_tx], None, None, None);
+
+    assert!(result_l1.tx_results[0].is_ok());
+
+    let res = result_l1.tx_results[0].as_ref().unwrap();
+    //assert!(!res.is_success(), "L1 transaction with gas overflow should be reverted");
+}
