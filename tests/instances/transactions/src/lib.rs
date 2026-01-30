@@ -1792,7 +1792,6 @@ fn test_simulation_gas_used_regression() {
     assert_eq!(first_tx.pubdata_used, second_tx.pubdata_used);
 }
 
-
 #[test]
 fn test_l1_tx_gas_overflow() {
     let mut chain = Chain::empty(None);
