@@ -203,10 +203,10 @@ fn test_l2_tx_high_ratio() {
     run_tx(tx, gas_price, native_price, true, false)
 }
 
-// Test with 0 gas limit, both l1 and l2 txs.
+// Test with 0 gas limit on l2 txs.
 // Also call as simulation to skip validation step.
 #[test]
-fn test_0_gas_limit() {
+fn test_0_gas_limit_l2_tx() {
     let wallet = PrivateKeySigner::from_str(WALLET).unwrap();
     let native_price = 10;
     let gas_price = native_price * AVG_RATIO;
@@ -226,7 +226,17 @@ fn test_0_gas_limit() {
     };
     run_tx(tx.clone(), gas_price, native_price, false, false);
     run_tx(tx, gas_price, native_price, false, true);
+}
 
+// Test with 0 gas limit on l1 txs, should fail,
+// as L1 must check that gas limit covers intrinsic costs.
+// Also call as simulation to skip validation step.
+#[test]
+#[should_panic]
+fn test_0_gas_limit_l1_tx() {
+    let wallet = PrivateKeySigner::from_str(WALLET).unwrap();
+    let native_price = 10;
+    let gas_price = native_price * AVG_RATIO;
     let tx = {
         let tx = TransactionRequest {
             chain_id: Some(37),
