@@ -259,7 +259,7 @@ where
         &mut resources,
     )?;
 
-    // Mint fee to bootloader
+    // Transfer fee from treasury to operator
     // We already checked that total_gas_refund <= gas_limit
     let pay_to_operator = U256::from(gas_used)
         .checked_mul(U256::from(gas_price))
@@ -267,7 +267,7 @@ where
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
 
     let coinbase = system.get_coinbase();
-    mint_token::<S>(
+    transfer_from_treasury::<S>(
         system,
         &pay_to_operator,
         &coinbase,
@@ -313,7 +313,7 @@ where
     }?;
     if to_refund_recipient > U256::ZERO {
         let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
-        mint_token::<S>(
+        transfer_from_treasury::<S>(
             system,
             &to_refund_recipient,
             &refund_recipient,
@@ -407,11 +407,11 @@ where
     // Start a frame, to revert minting of value if execution fails
     let rollback_handle = system.start_global_frame()?;
 
-    // First we mint value
+    // First we transfer value from treasury
     if value > U256::ZERO {
         resources
             .with_infinite_ergs(|inf_resources| {
-                mint_token::<S>(
+                transfer_from_treasury::<S>(
                     system,
                     &value,
                     &from,
@@ -503,10 +503,12 @@ where
     ))
 }
 
+/// Transfers [value] from the treasury account to address [to].
 ///
-/// Mints [value] to address [to].
-///
-pub fn mint_token<'a, S: EthereumLikeTypes + 'a>(
+/// Returns `TreasuryTransferFailed` if:
+/// - Treasury has insufficient balance
+/// - Balance overflow occurs
+pub fn transfer_from_treasury<'a, S: EthereumLikeTypes + 'a>(
     system: &mut System<S>,
     nominal_token_value: &U256,
     to: &B160,
@@ -516,16 +518,41 @@ pub fn mint_token<'a, S: EthereumLikeTypes + 'a>(
 where
     S::IO: IOSubsystemExt,
 {
-    system_log!(system, "Minting {nominal_token_value:?} tokens to {to:?}\n");
+    system_log!(
+        system,
+        "Transferring {nominal_token_value:?} tokens from treasury to {to:?}\n"
+    );
 
-    let _old_balance = system
+    let treasury_address = &system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS;
+
+    let _ = system
+        .io
+        .update_account_nominal_token_balance(
+            zk_ee::execution_environment_type::ExecutionEnvironmentType::EVM,
+            resources,
+            treasury_address,
+            nominal_token_value,
+            true, // true = subtract from balance
+            fee_payment_in_simulation,
+        )
+        .map_err(|e| -> BootloaderSubsystemError {
+            match e {
+                SubsystemError::LeafUsage(balance_error) => {
+                    system_log!(system, "Treasury transfer failed: {balance_error:?}");
+                    interface_error!(BootloaderInterfaceError::TreasuryTransferFailed)
+                }
+                _ => wrap_error!(e),
+            }
+        })?;
+
+    let _ = system
         .io
         .update_account_nominal_token_balance(
             zk_ee::execution_environment_type::ExecutionEnvironmentType::EVM,
             resources,
             to,
             nominal_token_value,
-            false,
+            false, // false = add to balance
             fee_payment_in_simulation,
         )
         .map_err(|e| -> BootloaderSubsystemError {

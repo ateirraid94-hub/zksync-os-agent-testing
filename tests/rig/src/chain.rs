@@ -155,6 +155,7 @@ pub struct RunConfig {
     // Only to be used when state-diffs-pi feature is enabled in the binary and
     // only_forward is false
     pub check_storage_diff_hashes: bool,
+    pub skip_minting_tokens_to_treasury: bool,
 }
 
 impl Chain<false> {
@@ -452,7 +453,13 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             app,
             only_forward,
             check_storage_diff_hashes,
+            skip_minting_tokens_to_treasury,
         } = run_config;
+
+        if !skip_minting_tokens_to_treasury {
+            self.mint_tokens_to_treasury();
+        }
+
         let block_context = block_context.unwrap_or_default();
         let block_metadata = BlockMetadataFromOracle {
             chain_id: self.chain_id,
@@ -957,6 +964,21 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         self.state_tree
             .storage_tree
             .insert(&flat_key, &properties_hash);
+    }
+
+    ///
+    /// Initialize the L2 base token treasury with 2^128 - 1 balance.
+    ///
+    /// This should be called during chain setup to pre-fund the treasury account.
+    /// The treasury is used by the system to distribute tokens instead of minting them.
+    ///
+    pub fn mint_tokens_to_treasury(&mut self) {
+        use system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS;
+
+        // Set treasury balance to 2^128 - 1
+        let treasury_balance = (U256::ONE << 128) - U256::ONE;
+
+        self.set_balance(BASE_TOKEN_HOLDER_ADDRESS, treasury_balance);
     }
 
     ///
