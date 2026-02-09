@@ -57,7 +57,7 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
             ..
         } = value;
 
-        let mut block_computaional_native_used = 0;
+        let mut block_computational_native_used = 0;
 
         // We cannot simply use `enumerate` here, because some transactions can be invalid
         // Invalid transactions are not counted in the tx_number for events/logs, so we need
@@ -80,7 +80,7 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
                         } else {
                             ExecutionResult::Revert(output.output)
                         };
-                        block_computaional_native_used += output.computational_native_used;
+                        block_computational_native_used += output.computational_native_used;
                         let o = TxOutput {
                             gas_used: output.gas_used,
                             gas_refunded: output.gas_refunded,
@@ -135,7 +135,7 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
             account_diffs,
             published_preimages,
             pubdata,
-            computaional_native_used: block_computaional_native_used,
+            computational_native_used: block_computational_native_used,
         }
     }
 }
