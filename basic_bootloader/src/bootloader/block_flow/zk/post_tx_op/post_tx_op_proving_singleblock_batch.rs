@@ -94,9 +94,11 @@ where
             &mut io,
         );
 
+        let multichain_root = read_multichain_root(&mut io);
+
         let mut full_root_hasher = crypto::sha3::Keccak256::new();
         full_root_hasher.update(io.logs_storage.tree_root().as_u8_ref());
-        full_root_hasher.update([0u8; 32]); // aggregated root 0 for now
+        full_root_hasher.update(multichain_root.as_u8_ref());
         let full_l2_to_l1_logs_root = full_root_hasher.finalize().into();
 
         let (priority_operations_hash, number_of_layer_1_txs) =

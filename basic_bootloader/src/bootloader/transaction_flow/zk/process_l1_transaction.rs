@@ -1,7 +1,7 @@
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
-    L1_TX_INTRINSIC_NATIVE_COST, L1_TX_INTRINSIC_PUBDATA, L1_TX_NATIVE_PRICE,
-    UPGRADE_TX_NATIVE_PER_GAS,
+    FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_NATIVE_COST, L1_TX_INTRINSIC_PUBDATA,
+    L1_TX_NATIVE_PRICE,
 };
 use crate::bootloader::errors::BootloaderInterfaceError;
 use crate::bootloader::errors::TxError;
@@ -90,7 +90,7 @@ where
         native_per_gas,
         native_per_pubdata,
         minimal_gas_used,
-    } = prepare_and_check_resources::<S, Config>(
+    } = prepare_and_check_resources::<S>(
         system,
         transaction,
         is_priority_op,
@@ -366,11 +366,7 @@ struct ResourceAndFeeInfo<S: EthereumLikeTypes> {
 /// The approach is to use saturating arithmetic and emit a system
 /// log if this situation ever happens.
 ///
-fn prepare_and_check_resources<
-    'a,
-    S: EthereumLikeTypes + 'a,
-    Config: BasicBootloaderExecutionConfig,
->(
+fn prepare_and_check_resources<'a, S: EthereumLikeTypes + 'a>(
     system: &mut System<S>,
     transaction: &AbiEncodedTransaction<S::Allocator>,
     is_priority_op: bool,
@@ -386,17 +382,8 @@ where
     // For L1->L2 txs, we use a constant native price to avoid censorship.
     let native_price = L1_TX_NATIVE_PRICE;
     let native_per_gas = if is_priority_op {
-        if Config::SIMULATION && gas_price.is_zero() {
-            // For simulation, if gas price isn't set, we use base fee
-            // for native calculation
-            u256_try_to_u64(&system.get_eip1559_basefee().div_ceil(native_price))
-                .unwrap_or_else(|| {
-                    system_log!(
-                        system,
-                        "Native per gas calculation for L1 tx simulation overflows, using saturated arithmetic instead"
-                    );
-                    u64::MAX
-                })
+        if gas_price.is_zero() {
+            FREE_L1_TX_NATIVE_PER_GAS
         } else {
             u256_try_to_u64(&gas_price.div_ceil(native_price))
                 .unwrap_or_else(|| {
@@ -407,7 +394,8 @@ where
                 })
         }
     } else {
-        UPGRADE_TX_NATIVE_PER_GAS
+        // Upgrade txs are paid by the protocol, so we use a fixed native per gas
+        FREE_L1_TX_NATIVE_PER_GAS
     };
 
     let native_per_pubdata = (gas_per_pubdata as u64)

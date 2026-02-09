@@ -67,7 +67,7 @@ pub struct BatchOutput {
     /// L2 logs tree root.
     /// Note that it's full root, it's keccak256 of:
     /// - merkle root of l2 -> l1 logs in the batch .
-    /// - aggregated root - commitment to logs emitted on chains that settle on the current.
+    /// - multichain root - commitment to logs emitted on chains that settle on the current.
     pub l2_logs_tree_root: Bytes32,
     /// Protocol upgrade tx hash (0 if there wasn't)
     pub upgrade_tx_hash: Bytes32,

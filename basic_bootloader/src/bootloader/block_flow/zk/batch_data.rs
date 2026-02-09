@@ -27,6 +27,7 @@ pub struct ZKBatchDataKeeper<A: alloc::alloc::Allocator, O: IOOracle> {
     pub logs_storage: ArrayVec<Bytes32, 16384>,
     enforced_txs_accumulator: TransactionsRollingKeccakHasher,
     upgrade_tx_hash: Option<Bytes32>,
+    multichain_root: Bytes32,
     interop_roots_rolling_hash: Bytes32,
     settlement_layer_chain_id: Option<U256>,
 }
@@ -46,6 +47,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
             // keccak256([])
             enforced_txs_accumulator: TransactionsRollingKeccakHasher::empty(),
             upgrade_tx_hash: None,
+            multichain_root: Bytes32::zero(),
             interop_roots_rolling_hash: Bytes32::ZERO,
             settlement_layer_chain_id: None,
         }
@@ -62,6 +64,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
         block_timestamp: u64,
         chain_id: U256,
         upgrade_tx_hash: Bytes32,
+        multichain_root: Bytes32,
         interop_roots: impl Iterator<Item = &'a InteropRoot>,
         settlement_layer_chain_id: U256,
     ) {
@@ -88,6 +91,8 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
                 Some(settlement_layer_chain_id)
             );
         }
+        // we always override multichain root with latest
+        self.multichain_root = multichain_root;
 
         self.interop_roots_rolling_hash = calculate_interop_roots_rolling_hash(
             self.interop_roots_rolling_hash,
@@ -102,10 +107,10 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
     pub fn into_public_input(self, mut logger: impl Logger, oracle: &mut O) -> BatchPublicInput {
         assert!(!self.is_first_block);
 
-        let mut full_root_hasher = crypto::sha3::Keccak256::new();
-        full_root_hasher.update(Self::l2_logs_root(self.logs_storage).as_u8_ref());
-        full_root_hasher.update([0u8; 32]); // aggregated root 0 for now
-        let full_l2_to_l1_logs_root = full_root_hasher.finalize();
+        let mut chain_batch_root_hasher = crypto::sha3::Keccak256::new();
+        chain_batch_root_hasher.update(Self::l2_logs_root(self.logs_storage).as_u8_ref());
+        chain_batch_root_hasher.update(self.multichain_root.as_u8_ref());
+        let chain_batch_root = chain_batch_root_hasher.finalize();
 
         let (priority_operations_hash, number_of_layer_1_txs) =
             self.enforced_txs_accumulator.finish();
@@ -117,7 +122,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
             pubdata_commitment: self.da_commitment_generator.unwrap().finalize(oracle),
             number_of_layer_1_txs: U256::from(number_of_layer_1_txs),
             priority_operations_hash,
-            l2_logs_tree_root: full_l2_to_l1_logs_root.into(),
+            l2_logs_tree_root: chain_batch_root.into(),
             upgrade_tx_hash: self.upgrade_tx_hash.unwrap(),
             interop_roots_rolling_hash: self.interop_roots_rolling_hash,
             settlement_layer_chain_id: self.settlement_layer_chain_id.unwrap(),

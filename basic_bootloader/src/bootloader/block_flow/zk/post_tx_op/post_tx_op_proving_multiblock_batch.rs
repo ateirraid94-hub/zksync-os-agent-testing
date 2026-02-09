@@ -119,6 +119,8 @@ where
             assert_eq!(new_settlement_layer_chain_id, &settlement_layer_chain_id)
         }
 
+        let multichain_root = read_multichain_root(&mut io);
+
         let (mut state_commitment, last_block_timestamp) = {
             let proof_data: ProofData<FlatStorageCommitment<TREE_HEIGHT>> =
                 ZKProofDataQuery::get(&mut io.oracle, &())
@@ -182,6 +184,7 @@ where
             metadata.block_timestamp(),
             U256::from(metadata.chain_id()),
             upgrade_tx_hash,
+            multichain_root,
             io.interop_root_storage.iter(),
             settlement_layer_chain_id,
         );
