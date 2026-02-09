@@ -4,8 +4,7 @@ use core::alloc::Allocator;
 ///
 /// A stack constructor. Abstracts over the creation of `Stack<T, A>` trait instance.
 ///
-#[const_trait]
-pub trait StackCtor<C: const StackCtorConst> {
+pub const trait StackCtor<C: const StackCtorConst> {
     /// Adds an extra constant parameter, used for the skip list implementation
     type Stack<T: Sized, const N: usize, A: Allocator + Clone>: Stack<T, A>;
 
@@ -19,8 +18,7 @@ pub trait StackCtor<C: const StackCtorConst> {
 ///
 /// A constant trait counterpart for the `StackCtor`.
 ///
-#[const_trait]
-pub trait StackCtorConst {
+pub const trait StackCtorConst {
     fn extra_const_param<T, A: Allocator>() -> usize;
 }
 
@@ -75,7 +73,10 @@ impl<T: Sized, A: Allocator> Stack<T, A> for Vec<T, A> {
         self.last_mut()
     }
     fn try_push(&mut self, value: T) -> Result<(), ()> {
-        Vec::push_within_capacity(self, value).map_err(|_| ())
+        match Vec::push_within_capacity(self, value) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(()),
+        }
     }
     fn clear(&mut self) {
         Vec::clear(self)

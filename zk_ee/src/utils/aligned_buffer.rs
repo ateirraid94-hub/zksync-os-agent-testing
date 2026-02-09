@@ -135,14 +135,13 @@ pub fn copy_bytes_to_usize_buffer(
     src: &[u8],
     dst: &mut impl crate::oracle::UsizeWriteable,
 ) -> usize {
-    let mut it = src.array_chunks::<USIZE_SIZE>();
+    let (it, remainder) = src.as_chunks::<USIZE_SIZE>();
     let mut written = it.len();
-    for src in &mut it {
+    for src in &mut it.into_iter() {
         unsafe {
             dst.write_usize(usize::from_le_bytes(*src));
         }
     }
-    let remainder = it.remainder();
     if !remainder.is_empty() {
         written += 1;
         let mut buffer = 0usize.to_le_bytes();
@@ -166,16 +165,16 @@ pub fn copy_bytes_iter_to_usize_buffer(
             dst.write_usize(usize::from_ne_bytes(src));
         }
     }
-    if let Some(remainder) = it.into_remainder() {
-        if remainder.len() > 0 {
-            written += 1;
-            let mut buffer = 0usize.to_ne_bytes();
-            for (dst, src) in buffer.iter_mut().zip(remainder) {
-                *dst = src;
-            }
-            unsafe {
-                dst.write_usize(usize::from_le_bytes(buffer));
-            }
+
+    let remainder = it.into_remainder();
+    if remainder.len() > 0 {
+        written += 1;
+        let mut buffer = 0usize.to_ne_bytes();
+        for (dst, src) in buffer.iter_mut().zip(remainder) {
+            *dst = src;
+        }
+        unsafe {
+            dst.write_usize(usize::from_le_bytes(buffer));
         }
     }
 
@@ -198,16 +197,15 @@ pub fn copy_bytes_iter_to_usize_slice(
             dst = dst.add(1);
         }
     }
-    if let Some(remainder) = it.into_remainder() {
-        if remainder.len() > 0 {
-            written += 1;
-            let mut buffer = 0usize.to_ne_bytes();
-            for (dst, src) in buffer.iter_mut().zip(remainder) {
-                *dst = src;
-            }
-            unsafe {
-                dst.write(usize::from_ne_bytes(buffer));
-            }
+    let remainder = it.into_remainder();
+    if remainder.len() > 0 {
+        written += 1;
+        let mut buffer = 0usize.to_ne_bytes();
+        for (dst, src) in buffer.iter_mut().zip(remainder) {
+            *dst = src;
+        }
+        unsafe {
+            dst.write(usize::from_ne_bytes(buffer));
         }
     }
 

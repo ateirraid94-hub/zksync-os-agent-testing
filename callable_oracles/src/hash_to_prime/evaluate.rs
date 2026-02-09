@@ -36,7 +36,7 @@ impl<M: MemorySource> OracleQueryProcessor<M> for HashToPrimeSource<M> {
         use crypto::MiniDigest;
         assert!(MAX_ENTROPY_BYTES <= 64);
         let mut entropy = [0u8; 64];
-        for (idx, dst) in entropy.array_chunks_mut::<32>().enumerate() {
+        for (idx, dst) in entropy.as_chunks_mut::<32>().0.iter_mut().enumerate() {
             let mut hasher = Blake2s256::new();
             hasher.update(&(idx as u32).to_le_bytes());
             hasher.update(&entropy_source);
