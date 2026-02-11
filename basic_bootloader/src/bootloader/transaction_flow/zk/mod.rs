@@ -38,6 +38,7 @@ use zk_ee::system_log;
 use zk_ee::types_config::EthereumIOTypesConfig;
 use zk_ee::utils::Bytes32;
 use zk_ee::{interface_error, internal_error, out_of_native_resources, wrap_error};
+use alloc::format;
 
 use super::gas_helpers::check_enough_resources_for_pubdata;
 
