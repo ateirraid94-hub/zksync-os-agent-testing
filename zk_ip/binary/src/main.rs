@@ -15,73 +15,10 @@ pub mod quasi_uart;
 use riscv_common::csr_read_word;
 use riscv_common::zksync_os_finish_success;
 use std::collections::BTreeMap;
+use crypto::{MiniDigest, blake2s::Blake2s256};
 
 #[global_allocator]
 static GLOBAL_ALLOC: allocator::OptionalGlobalAllocator = allocator::OptionalGlobalAllocator;
-
-#[inline(always)]
-fn csr_trigger_delegation(
-    states_ptr: *mut u32,
-    input_ptr: *const u32,
-    round_mask: u32,
-    control_mask: u32,
-) {
-    unsafe {
-        core::arch::asm!(
-            "csrrw x0, 0x7c7, x0",
-            in("x10") states_ptr.addr(),
-            in("x11") input_ptr.addr(),
-            in("x12") round_mask,
-            in("x13") control_mask,
-            options(nostack, preserves_flags)
-        )
-    }
-}
-
-// We have to be sure that the memory that we pass to the delegation is properly aligned.
-#[repr(align(65536))]
-struct Aligner;
-
-pub const CONFIGURED_IV: [u32; 8] = [
-    0x6A09E667 ^ 0x01010000 ^ 32,
-    0xBB67AE85,
-    0x3C6EF372,
-    0xA54FF53A,
-    0x510E527F,
-    0x9B05688C,
-    0x1F83D9AB,
-    0x5BE0CD19,
-];
-
-// Blake magic.
-pub const EXTENDED_IV: [u32; 16] = [
-    0x6A09E667 ^ 0x01010000 ^ 32,
-    0xBB67AE85,
-    0x3C6EF372,
-    0xA54FF53A,
-    0x510E527F,
-    0x9B05688C,
-    0x1F83D9AB,
-    0x5BE0CD19,
-    0x6A09E667,
-    0xBB67AE85,
-    0x3C6EF372,
-    0xA54FF53A,
-    0x510E527F,
-    0x9B05688C,
-    0x1F83D9AB,
-    0x5BE0CD19,
-];
-
-#[repr(C)]
-struct BlakeState {
-    pub _aligner: Aligner,
-    pub state: [u32; 8],
-    pub ext_state: [u32; 16],
-    pub input_buffer: [u32; 16],
-    pub round_bitmask: u32,
-    pub t: u32, // we limit ourselves to <4Gb inputs
-}
 
 type H256 = [u32; 8];
 
@@ -89,8 +26,7 @@ type H256 = [u32; 8];
 struct Balance {
     asset_id: H256,
     index: u32,
-    prev_balance: H256,
-    new_balance: H256,
+    balance: H256,
     path: Vec<H256>,
 }
 
@@ -100,59 +36,28 @@ struct TreeNode {
     path: Vec<H256>,
 }
 
+fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
+    std::array::from_fn(|i| input[i / 4].to_be_bytes()[i % 4])
+}
+
+fn u8_array_to_u32_array(input: [u8; 32]) -> [u32; 8] {
+    std::array::from_fn(|i| {
+        u32::from_be_bytes([
+            input[i * 4],
+            input[i * 4 + 1],
+            input[i * 4 + 2],
+            input[i * 4 + 3],
+        ])
+    })
+}
+
 fn blake_hash_parts(left: H256, right: H256) -> H256 {
-    let mut state = BlakeState {
-        _aligner: Aligner,
-        // The order here is extremely important - as it has to match
-        // the expected 'ABI' of the delegation circuit.
-        // When we later call the csr_trigger_delegation, it will look at all the fields
-        // below.
-        state: CONFIGURED_IV,
-        ext_state: EXTENDED_IV,
-        input_buffer: [0u32; 16],
-        round_bitmask: 0,
-        t: 0,
-    };
-
-    // We are hashing 64 bytes
-    state.t = 64;
-
-    // our data - no alignment requirements
-    let mut input_buffer = [0u32; 16];
-    input_buffer[..8].copy_from_slice(&left);
-    input_buffer[8..].copy_from_slice(&right);
-
-    const NORMAL_MODE_FIRST_ROUNDS_CONTROL_REGISTER: u32 = 0b000;
-    const NORMAL_MODE_LAST_ROUND_CONTROL_REGISTER: u32 = 0b001;
-
-    // This is some Blake initialization magic.
-    state.ext_state[12] = state.t ^ EXTENDED_IV[12];
-    state.ext_state[14] = 0xffffffff ^ EXTENDED_IV[14];
-
-    // Now we have to call the 'precompile' - blake requires us to actually call it 10 times.
-    let mut round_bitmask = 1;
-    for _round_idx in 0..9 {
-        // We are passing the pointer to the state, but the code inside is actually reading
-        // other fields from the BlakeState too (including input_buffer and round bitmask).
-        // That's why we're in the 'unsafe' block.
-        csr_trigger_delegation(
-            ((&mut state) as *mut BlakeState).cast::<u32>(),
-            input_buffer.as_ptr(),
-            round_bitmask,
-            NORMAL_MODE_FIRST_ROUNDS_CONTROL_REGISTER,
-        );
-        // Every time, we're pushing the bitmask, that is used internally to figure out which round it is.
-        round_bitmask <<= 1;
-    }
-    // final one with final xor
-    csr_trigger_delegation(
-        ((&mut state) as *mut BlakeState).cast::<u32>(),
-        input_buffer.as_ptr(),
-        round_bitmask,
-        NORMAL_MODE_LAST_ROUND_CONTROL_REGISTER,
-    );
-
-    state.state
+    // TODO: suboptimal to convert back and forth
+    let mut input = [0; 64];
+    input[..32].copy_from_slice(&u32_array_to_u8_array(left));
+    input[32..].copy_from_slice(&u32_array_to_u8_array(right));
+    let digest = Blake2s256::digest(input);
+    u8_array_to_u32_array(digest)
 }
 
 fn read_h256() -> H256 {
@@ -198,8 +103,7 @@ unsafe fn workload() -> ! {
             }
             parity >>= 1;
         }
-        // TODO compare hash with prev_root
-        // assert!(hash == prev_root);
+        assert_eq!(hash, prev_root, "prev_root mismatch");
 
         assert!(!balances.contains_key(&index));
         // TODO: assert asset_id is unique
@@ -208,8 +112,7 @@ unsafe fn workload() -> ! {
             Balance {
                 asset_id,
                 index,
-                prev_balance,
-                new_balance: [0; 8],
+                balance: prev_balance,
                 path,
             },
         );
@@ -231,25 +134,22 @@ unsafe fn workload() -> ! {
             Balance {
                 asset_id,
                 index,
-                prev_balance: [0; 8],
-                new_balance: [0; 8],
+                balance: [0; 8],
                 path,
             },
         );
     }
 
     let n = csr_read_word(); // number of logs to parse
-                             // TODO index balances by asset id prob
-                             // TODO: read logs instead of raw [asset, index, new, old] diffs and calculate the log tree root from them
     for _i in 0..n {
-        // TODO: parse logs and update new_balance for each token
+        // TODO: parse logs and update balance for each token
     }
 
     for (index, balance) in balances.into_iter() {
         tree_layer.insert(
             index,
             TreeNode {
-                hash: blake_hash_parts(balance.asset_id, balance.new_balance),
+                hash: blake_hash_parts(balance.asset_id, balance.balance),
                 path: balance.path,
             },
         );
@@ -257,8 +157,7 @@ unsafe fn workload() -> ! {
 
     let tree_height = tree_height(tree_size);
     let mut new_layer = BTreeMap::new();
-    for i in 0..tree_height - 1 {
-        // FIXME: off by 1 or no?
+    for i in 0..tree_height {
         for (index, node) in tree_layer.iter() {
             let left;
             let right;
@@ -270,6 +169,7 @@ unsafe fn workload() -> ! {
                     .unwrap_or(node.path[i]);
             } else {
                 if tree_layer.contains_key(&(index - 1)) {
+                    // we've already computed this node
                     continue;
                 } else {
                     left = node.path[i];
@@ -290,10 +190,7 @@ unsafe fn workload() -> ! {
     }
 
     zksync_os_finish_success(&blake_hash_parts(tree_layer[&0].hash, prev_root));
-    // zksync_os_finish_success(&blake_hash_parts([0; 8], [0; 8]));
 }
-
-// TODO NEXT: a test
 
 #[inline(never)]
 fn main() -> ! {

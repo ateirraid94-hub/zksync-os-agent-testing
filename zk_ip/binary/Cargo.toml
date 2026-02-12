@@ -10,20 +10,11 @@ keywords = ["blockchain", "zksync", "zk", "risc-v"]
 categories = ["cryptography"]
 
 [dependencies]
-# riscv_common = { path = "../zksync-airbender/riscv_common", features = ["uart", "custom_panic", "custom_allocator", "boot_sequence"] }
 riscv_common = { package = "riscv_common", git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", features = ["uart", "custom_panic", "custom_allocator", "boot_sequence"] }
 crypto = { path = "../../crypto", features = ["bigint_ops"] }
-# proof_running_system = { path = "../zksync-os/proof_running_system" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = { version = "2", features = ["serde"]}
-
-# zksync_tee_prover_interface = { path = "../zksync-era/core/lib/tee_prover_interface" }
-# zksync_tee_verifier = { path = "../zksync-era/core/lib/tee_verifier" }
-
-# zkevm_opcode_defs = { path = "../vm_setup/zksync-protocol/crates/zkevm_opcode_defs" }
-# zksync_vm2_interface = { path = "../vm_setup/vm2/crates/vm2-interface" }
-# zksync_vm2 = { path = "../vm_setup/vm2/crates/vm2" }
 
 getrandom = { version = "0.2.17", features = ["custom"] }
 
