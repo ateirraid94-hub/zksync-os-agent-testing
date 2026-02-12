@@ -14,11 +14,10 @@ pub mod quasi_uart;
 
 use riscv_common::csr_read_word;
 use riscv_common::zksync_os_finish_success;
+use std::collections::BTreeMap;
 
 #[global_allocator]
 static GLOBAL_ALLOC: allocator::OptionalGlobalAllocator = allocator::OptionalGlobalAllocator;
-
-use crypto::bigint_delegation::u256::{self, U256};
 
 #[inline(always)]
 fn csr_trigger_delegation(
@@ -84,18 +83,22 @@ struct BlakeState {
     pub t: u32, // we limit ourselves to <4Gb inputs
 }
 
+type H256 = [u32; 8];
+
 #[repr(C)]
-#[derive(Default)]
-struct BalanceDiff {
+struct Balance {
     asset_id: H256,
-    sign: u32,
-    prev_balance: U256,
-    amount: U256,
     index: u32,
-    // path: Vec<H256>
+    prev_balance: H256,
+    new_balance: H256,
+    path: Vec<H256>,
 }
 
-type H256 = [u32; 8];
+#[repr(C)]
+struct TreeNode {
+    hash: H256,
+    path: Vec<H256>,
+}
 
 fn blake_hash_parts(left: H256, right: H256) -> H256 {
     let mut state = BlakeState {
@@ -152,19 +155,12 @@ fn blake_hash_parts(left: H256, right: H256) -> H256 {
     state.state
 }
 
-
 fn read_h256() -> H256 {
     core::array::from_fn(|i| csr_read_word())
 }
 
-fn read_u256() -> (U256, [u32; 8]) {
-    let mut bytes = [0u8; 32];
-    let mut words = [0u32; 8];
-    for j in 0..8 {
-        words[j] = csr_read_word();
-        bytes[j * 4..(j + 1) * 4].copy_from_slice(&words[j].to_be_bytes());
-    }
-    (u256::from_bytes_unchecked(&bytes), words)
+fn tree_height(tree_size: u32) -> usize {
+    (u32::BITS - (tree_size - 1).leading_zeros()) as usize
 }
 
 unsafe fn workload() -> ! {
@@ -174,28 +170,27 @@ unsafe fn workload() -> ! {
     );
 
     let prev_root = read_h256();
-    let tree_height = csr_read_word();
-    let n = csr_read_word();
+    let prev_tree_size = csr_read_word(); // assume there is < 4billion tokens and > 0
+    let prev_tree_height = tree_height(prev_tree_size);
 
-    let mut some_root = H256::default();
+    let mut tree_size = prev_tree_size;
 
-    let mut diffs = Vec::with_capacity(n as usize);
+    let mut tree_layer = BTreeMap::new(); // sparse tree layer: index -> hash
 
+    let mut balances = BTreeMap::new(); // index -> balance diff
+
+    let n = csr_read_word(); // number of existing tokens
     for _i in 0..n {
-        let sign = csr_read_word();
-        let (amount, amount_raw) = read_u256();
         let asset_id = read_h256();
-        let (prev_balance, _) = read_u256();
-
-        if sign == 0 {
-            assert!(amount.lt(&prev_balance));
-        }
-
         let index = csr_read_word();
+        let prev_balance = read_h256();
+
         let mut parity = index;
-        let mut hash = blake_hash_parts(asset_id, amount_raw);
-        for _j in 0..tree_height {
+        let mut hash = blake_hash_parts(asset_id, prev_balance);
+        let mut path = Vec::with_capacity(prev_tree_height);
+        for _j in 0..prev_tree_height {
             let sibling = read_h256();
+            path.push(sibling);
             if parity % 2 == 0 {
                 hash = blake_hash_parts(hash, sibling);
             } else {
@@ -203,23 +198,102 @@ unsafe fn workload() -> ! {
             }
             parity >>= 1;
         }
-
-        some_root = hash;
-
         // TODO compare hash with prev_root
-        // assert!(hash.eq(&prev_root));
+        // assert!(hash == prev_root);
 
-        diffs.push(BalanceDiff {
-            sign,
-            amount,
-            asset_id,
-            prev_balance,
-            index
-        });
+        assert!(!balances.contains_key(&index));
+        // TODO: assert asset_id is unique
+        balances.insert(
+            index,
+            Balance {
+                asset_id,
+                index,
+                prev_balance,
+                new_balance: [0; 8],
+                path,
+            },
+        );
     }
 
-    zksync_os_finish_success(&some_root);
+    let n = csr_read_word(); // number of new tokens (that weren't in the tree)
+    for _i in 0..n {
+        let asset_id = read_h256();
+        let index = tree_size;
+        tree_size += 1;
+        let tree_height = tree_height(tree_size);
+        // TODO: this can be optimized
+        let mut path = Vec::with_capacity(tree_height);
+        for _j in 0..tree_height {
+            path.push(read_h256());
+        }
+        balances.insert(
+            index,
+            Balance {
+                asset_id,
+                index,
+                prev_balance: [0; 8],
+                new_balance: [0; 8],
+                path,
+            },
+        );
+    }
+
+    let n = csr_read_word(); // number of logs to parse
+                             // TODO index balances by asset id prob
+                             // TODO: read logs instead of raw [asset, index, new, old] diffs and calculate the log tree root from them
+    for _i in 0..n {
+        // TODO: parse logs and update new_balance for each token
+    }
+
+    for (index, balance) in balances.into_iter() {
+        tree_layer.insert(
+            index,
+            TreeNode {
+                hash: blake_hash_parts(balance.asset_id, balance.new_balance),
+                path: balance.path,
+            },
+        );
+    }
+
+    let tree_height = tree_height(tree_size);
+    let mut new_layer = BTreeMap::new();
+    for i in 0..tree_height - 1 {
+        // FIXME: off by 1 or no?
+        for (index, node) in tree_layer.iter() {
+            let left;
+            let right;
+            if index % 2 == 0 {
+                left = node.hash;
+                right = tree_layer
+                    .get(&(index + 1))
+                    .map(|n| n.hash)
+                    .unwrap_or(node.path[i]);
+            } else {
+                if tree_layer.contains_key(&(index - 1)) {
+                    continue;
+                } else {
+                    left = node.path[i];
+                    right = node.hash;
+                }
+            }
+            let hash = blake_hash_parts(left, right);
+            // TODO: cloning path is suboptimal
+            new_layer.insert(
+                *index << 1,
+                TreeNode {
+                    hash,
+                    path: node.path.clone(),
+                },
+            );
+        }
+        (tree_layer, new_layer) = (new_layer, BTreeMap::new());
+    }
+
+    zksync_os_finish_success(&blake_hash_parts(tree_layer[&0].hash, prev_root));
+    // zksync_os_finish_success(&blake_hash_parts([0; 8], [0; 8]));
 }
+
+// TODO NEXT: a test
 
 #[inline(never)]
 fn main() -> ! {

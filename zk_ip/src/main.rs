@@ -1,15 +1,10 @@
-
 use zksync_os_runner::run;
 use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
 use std::str::FromStr;
 use std::path::PathBuf;
 
-/// Quick test that uses the .bin file that computes the n-th fibonacci number.
 fn main() {
     let mut non_determinism_source = QuasiUARTSource::default();
-    // non_determinism_source.oracle.push_back(11);
-    // non_determinism_source.oracle.push_back(11);
-
 
     non_determinism_source.oracle.extend(&[
         1, 2, 3, 4, 5, 6, 7, 8, // prev_root
