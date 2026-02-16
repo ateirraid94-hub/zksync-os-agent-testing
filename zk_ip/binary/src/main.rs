@@ -15,12 +15,10 @@ pub mod quasi_uart;
 use riscv_common::csr_read_word;
 use riscv_common::zksync_os_finish_success;
 use std::collections::BTreeMap;
-use crypto::{MiniDigest, blake2s::Blake2s256};
+use crypto::{MiniDigest, blake2s::Blake2s256, sha3::Keccak256};
 
 #[global_allocator]
 static GLOBAL_ALLOC: allocator::OptionalGlobalAllocator = allocator::OptionalGlobalAllocator;
-
-type H256 = [u32; 8];
 
 #[repr(C)]
 struct Balance {
@@ -36,11 +34,89 @@ struct TreeNode {
     path: Vec<H256>,
 }
 
-fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
+#[repr(C)]
+struct DynamicMerkleTree {
+    next_index: u32,
+    zeros: Vec<H256>,
+    sides: Vec<H256>,
+}
+
+impl DynamicMerkleTree {
+    fn new() -> Self {
+        Self {
+            next_index: 0,
+            // TODO: use constant
+            zeros: vec![Keccak256::digest([0; 88])],
+            sides: vec![[0; 32]]
+        }
+    }
+
+    fn push(&mut self, log: &L2Log) -> H256 {
+        let leaf = hash_log(&log);
+        let mut levels = self.zeros.len() - 1;
+        let mut current_index = self.next_index;
+        self.next_index += 1;
+        if current_index == 1 << levels {
+            let zero = self.zeros[levels];
+            let new_zero = Keccak256::digest([zero, zero].concat());
+            self.zeros.push(new_zero);
+            self.sides.push([0; 32]);
+            levels += 1;
+        }
+        let mut current_level_hash = leaf;
+        for i in 0..levels {
+            let is_left = current_index % 2 == 0;
+
+            let (left, right) = if is_left {
+                self.sides[i] = current_level_hash;
+                (current_level_hash, self.zeros[i])
+            } else {
+                (self.sides[i], current_level_hash)
+            };
+            current_level_hash = Keccak256::digest([left, right].concat());
+            current_index >>= 1;
+        }
+        self.sides[levels] = current_level_hash;
+        current_level_hash
+    }
+
+    fn root(&self) -> H256 {
+        self.sides[self.sides.len() - 1]
+    }
+
+    fn height(&self) -> usize {
+        self.sides.len() - 1
+    }
+}
+
+#[repr(C)]
+struct L2Log {
+    tx_number_in_batch: u16,
+    sender: [u8; 20],
+    key: H256,
+    value: H256,
+    message: Vec<u8>,
+}
+
+type H256 = [u8; 32];
+
+fn hash_log(log: &L2Log) -> H256 {
+    // TODO use constant for length
+    let mut buffer = [0u8; 1+1+2+20+32+32];
+    buffer[0] = 0;
+    buffer[1] = 1;
+    buffer[2..4].copy_from_slice(&log.tx_number_in_batch.to_be_bytes());
+    buffer[4..24].copy_from_slice(&log.sender);
+    buffer[24..56].copy_from_slice(log.key.as_ref());
+    buffer[56..88].copy_from_slice(log.value.as_ref());
+    Keccak256::digest(&buffer)
+}
+
+fn u32_array_to_u8_array<const N: usize>(input: [u32; N]) -> [u8; N * 4] {
     std::array::from_fn(|i| input[i / 4].to_be_bytes()[i % 4])
 }
 
-fn u8_array_to_u32_array(input: [u8; 32]) -> [u32; 8] {
+fn u8_array_to_u32_array(input: H256) -> [u32; 8] {
     std::array::from_fn(|i| {
         u32::from_be_bytes([
             input[i * 4],
@@ -52,16 +128,15 @@ fn u8_array_to_u32_array(input: [u8; 32]) -> [u32; 8] {
 }
 
 fn blake_hash_parts(left: H256, right: H256) -> H256 {
-    // TODO: suboptimal to convert back and forth
-    let mut input = [0; 64];
-    input[..32].copy_from_slice(&u32_array_to_u8_array(left));
-    input[32..].copy_from_slice(&u32_array_to_u8_array(right));
-    let digest = Blake2s256::digest(input);
-    u8_array_to_u32_array(digest)
+    Blake2s256::digest([left, right].concat())
 }
 
 fn read_h256() -> H256 {
-    core::array::from_fn(|i| csr_read_word())
+    u32_array_to_u8_array::<8>(core::array::from_fn(|i| csr_read_word()))
+}
+
+fn read_h160() -> [u8; 20] {
+    u32_array_to_u8_array::<5>(core::array::from_fn(|i| csr_read_word()))
 }
 
 fn tree_height(tree_size: u32) -> usize {
@@ -134,16 +209,43 @@ unsafe fn workload() -> ! {
             Balance {
                 asset_id,
                 index,
-                balance: [0; 8],
+                balance: [0; 32],
                 path,
             },
         );
     }
 
+
+    let mut tree = DynamicMerkleTree::new();
     let n = csr_read_word(); // number of logs to parse
     for _i in 0..n {
+        let tx_number_in_batch = csr_read_word();
+        let sender = read_h160();
+        let key = read_h256();
+        let value = read_h256();
+        // TODO do this better
+        // TODO not every log has a message
+        let message_len = csr_read_word() as usize;
+        let mut message = Vec::with_capacity(message_len);
+        message.resize_with(message_len, || csr_read_word() as u8);
+
+        assert!(tx_number_in_batch < u16::MAX as u32);
+        assert_eq!(Keccak256::digest(&message), value);
+
+        let log = L2Log {
+            tx_number_in_batch: tx_number_in_batch as u16,
+            sender,
+            key,
+            value,
+            message
+        };
+
+        tree.push(&log);
+
         // TODO: parse logs and update balance for each token
     }
+
+    let l2_logs_root = tree.root();
 
     for (index, balance) in balances.into_iter() {
         tree_layer.insert(
@@ -189,7 +291,9 @@ unsafe fn workload() -> ! {
         (tree_layer, new_layer) = (new_layer, BTreeMap::new());
     }
 
-    zksync_os_finish_success(&blake_hash_parts(tree_layer[&0].hash, prev_root));
+    let final_hash =
+        Blake2s256::digest([tree_layer[&0].hash, prev_root, l2_logs_root].concat());
+    zksync_os_finish_success(&u8_array_to_u32_array(final_hash));
 }
 
 #[inline(never)]
