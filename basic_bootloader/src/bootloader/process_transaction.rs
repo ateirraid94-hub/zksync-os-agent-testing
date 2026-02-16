@@ -987,6 +987,9 @@ where
             TxError::Validation(InvalidTransaction::PriorityFeeGreaterThanMaxFee,),
             system
         )?;
+        let _ = system
+            .get_logger()
+            .write_fmt(format_args!("base_fee {base_fee}, max_fee_per_gas: {max_fee_per_gas}\n"));
         require!(
             &base_fee <= max_fee_per_gas,
             TxError::Validation(InvalidTransaction::BaseFeeGreaterThanMaxFee,),
