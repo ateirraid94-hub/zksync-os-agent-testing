@@ -82,11 +82,14 @@ where
             InvalidTransaction::BlockGasLimitTooHigh,
             system
         )?;
-        require!(
-            tx_gas_limit <= block_gas_limit,
-            InvalidTransaction::CallerGasLimitMoreThanBlock,
-            system
-        )?;
+        
+        if !transaction.is_service() {
+            require!(
+                tx_gas_limit <= block_gas_limit,
+                InvalidTransaction::CallerGasLimitMoreThanBlock,
+                system
+            )?;
+        }
     }
 
     // EIP-7623
