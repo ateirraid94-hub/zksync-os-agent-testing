@@ -1,12 +1,12 @@
+use alloy::{primitives::B256, rpc::types::trace::geth::CallFrame};
 use anyhow::Result;
 use clap::Parser;
 
 mod rpc_client;
 mod rpc_oracle;
 
-use rig::chain::RunConfig;
+use rig::{chain::RunConfig, forward_system::system::tracers::call_tracer::CallTracer};
 use rpc_client::RpcClient;
-use ruint::aliases::U256;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Re-execute blocks using external RPC")]
@@ -15,9 +15,9 @@ struct Args {
     #[arg(long, default_value = "http://localhost:8545")]
     endpoint: String,
 
-    /// Block number to re-execute
+    /// Block hash to re-execute
     #[arg(long)]
-    block_number: u64,
+    block_hash: B256,
 
     /// Enable verbose logging
     #[arg(long, short)]
@@ -32,36 +32,33 @@ fn main() -> Result<()> {
 
     println!("Starting block re-execution");
     println!("Endpoint: {}", args.endpoint);
-    println!("Block number: {}", args.block_number);
+    println!("Block hash: {:?}", args.block_hash);
 
     // Fetch block data
     println!("Fetching block data...");
     let rpc_client = RpcClient::new(args.endpoint.clone());
-    let block = rpc_client.get_block(args.block_number)?;
+    let block = rpc_client.get_block_by_hash(args.block_hash)?;
+    let block_number = block.result.header.number;
+    println!("Fetched block number: {}", block_number);
 
     let miner = block.result.header.beneficiary;
     let mut block_context = block.get_block_context();
 
-    // TODO: temp pubdata approximation
-    const NATIVE_PRICE: u128 = 1_000_000;
-    const NATIVE_PER_GAS: u128 = 100;
 
-    // Amount of native resource spent per blob.
-    const NATIVE_PER_BLOB: u64 = 50_000_000;
-    // Effective number of bytes stored in a blob for `SimpleCoder`.
-    const BYTES_USED_PER_BLOB: u64 = (4096 - 1) * 31;
-    // Amount of native resource spent per pubdata byte (assuming blob is fully filled).
-    const NATIVE_PER_BLOB_BYTE: u64 = NATIVE_PER_BLOB / BYTES_USED_PER_BLOB;
+    println!("Fetching block metadata...");
+    // TODO should be replaced with hash or better replay record fetching once available in RPC
+    // Otherwise params can be inconsistent with the actually used
+    let block_metadata = rpc_client.get_block_metadata(block_number)?;
 
-    let native_price = block_context.native_price;
-    println!("NATIVE PRICE: {}", native_price);
+    println!("Native price: {}", block_metadata.result.native_price);
+    println!("Pubdata price: {}", block_metadata.result.pubdata_price_per_byte);
 
-    let base_pubdata_price = U256::from(1_000_000);
-    block_context.pubdata_price = base_pubdata_price * U256::from(50000) + U256::from(NATIVE_PER_BLOB_BYTE) * native_price; // For re-execution, set pubdata price to 0
+    block_context.native_price = block_metadata.result.native_price;
+    block_context.pubdata_price = block_metadata.result.pubdata_price_per_byte;
 
     let transactions = block.clone().get_transactions();
 
-    println!("Block {} has {} transactions", args.block_number, transactions.len());
+    println!("Block {} has {} transactions", block_number, transactions.len());
     println!("Block hash: {:?}", block.result.header.hash);
     println!("Block miner: {:?}", miner);
     println!("Block gas used: {} / {}", block.result.header.gas_used, block.result.header.gas_limit);
@@ -78,7 +75,7 @@ fn main() -> Result<()> {
     
     let oracle_factory = rpc_oracle::RpcValueOracleFactory::new(
         args.endpoint.clone(),
-        args.block_number,
+        block_number,
     );
 
     let chain_id = rpc_client.get_chain_id()?;
@@ -98,12 +95,15 @@ fn main() -> Result<()> {
         check_storage_diff_hashes: false,
     }); // Use default run config
 
-    let block_output = chain.run_block_with_oracle_factory(
+    let mut tracer = CallTracer::default();
+
+    let block_output = chain.run_block_with_oracle_factory_and_tracer(
         transactions,
         Some(block_context),
         da_commitment_scheme,
         run_config,
         &oracle_factory,
+        &mut tracer,
     );
 
     
@@ -112,5 +112,14 @@ fn main() -> Result<()> {
     println!("Block output: transactions = {:?}", block_output.tx_results);
 
     println!("Block re-execution completed");
+
+
+    let trace = tracer.transactions.into_iter().map(|tx| CallFrame::from(tx)).collect::<Vec<_>>();
+
+    // Save the tracer output to a file for further analysis
+    let tracer_output_path = format!("tracer_output_{}.json", block_number);
+    std::fs::write(&tracer_output_path, serde_json::to_string_pretty(&trace)?)?;
+    println!("Tracer output saved to {}", tracer_output_path);
+
     Ok(())
 }

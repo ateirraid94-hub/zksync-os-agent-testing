@@ -11,6 +11,10 @@
 //! missing edge cases, and other limitations that make it unsuitable
 //! for production environments.
 
+use alloy::primitives::{Address, Bytes, B256};
+use alloy::rpc::types::trace::geth::{
+    CallFrame as AlloyCallFrame, CallLogFrame as AlloyCallLogFrame,
+};
 use evm_interpreter::ERGS_PER_GAS;
 use ruint::aliases::{B160, U256};
 use zk_ee::system::{
@@ -55,6 +59,22 @@ impl CallType {
                 CreateType::Create => CallType::Create,
                 CreateType::Create2 => CallType::Create2,
             },
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            CallType::Call => "CALL",
+            CallType::Create => "CREATE",
+            CallType::Create2 => "CREATE2",
+            CallType::Delegate => "DELEGATECALL",
+            CallType::Static => "STATICCALL",
+            CallType::DelegateStatic => "DELEGATESTATICCALL",
+            CallType::EVMCallcode => "CALLCODE",
+            CallType::EVMCallcodeStatic => "STATICCALLCODE",
+            CallType::ZKVMSystem => "ZKVM_SYSTEM",
+            CallType::ZKVMSystemStatic => "ZKVM_SYSTEM_STATIC",
+            CallType::Selfdestruct => "SELFDESTRUCT",
         }
     }
 }
@@ -125,7 +145,11 @@ impl Call {
         let from_formatted = hex::encode(self.from.to_be_bytes_vec());
         let to_formatted = hex::encode(self.to.to_be_bytes_vec());
 
-        writeln!(f, "{}Call from 0x{} to 0x{}", pad, from_formatted, to_formatted)?;
+        writeln!(
+            f,
+            "{}Call from 0x{} to 0x{}",
+            pad, from_formatted, to_formatted
+        )?;
         writeln!(f, "{}Type: {:?}", pad2, self.call_type)?;
         writeln!(f, "{}Value: {}", pad2, self.value)?;
         writeln!(f, "{}Gas: {} used {}", pad2, self.gas, self.gas_used)?;
@@ -166,6 +190,75 @@ impl Call {
 impl std::fmt::Display for Call {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_with_indent(f, 0)
+    }
+}
+
+impl Call {
+    fn to_alloy_call_frame(&self) -> AlloyCallFrame {
+        let is_create = matches!(self.call_type, CallType::Create | CallType::Create2);
+
+        AlloyCallFrame {
+            from: Address::from(self.from.to_be_bytes()),
+            gas: U256::from(self.gas),
+            gas_used: U256::from(self.gas_used),
+            to: if is_create {
+                None
+            } else {
+                Some(Address::from(self.to.to_be_bytes()))
+            },
+            input: Bytes::from(self.input.clone()),
+            output: Some(Bytes::from(self.output.clone())),
+            error: self.error.as_ref().map(|error| match error {
+                CallError::EvmError(err) => format!("{:?}", err),
+                CallError::FatalError(err) => err.clone(),
+            }),
+            revert_reason: None, // TODO skipped for now
+            calls: self.calls.iter().map(Into::into).collect(),
+            logs: self.logs.iter().map(Into::into).collect(),
+            value: Some(self.value),
+            typ: self.call_type.as_str().to_owned(),
+        }
+    }
+}
+
+impl CallLogFrame {
+    fn to_alloy_call_log_frame(&self) -> AlloyCallLogFrame {
+        AlloyCallLogFrame {
+            address: Some(Address::from(self.address.to_be_bytes())),
+            topics: Some(
+                self.topics
+                    .iter()
+                    .map(|topic| B256::from(topic.as_u8_array()))
+                    .collect(),
+            ),
+            data: Some(Bytes::from(self.data.clone())),
+            position: None, // TODO
+            index: None, // TODO
+        }
+    }
+}
+
+impl From<&Call> for AlloyCallFrame {
+    fn from(value: &Call) -> Self {
+        value.to_alloy_call_frame()
+    }
+}
+
+impl From<Call> for AlloyCallFrame {
+    fn from(value: Call) -> Self {
+        (&value).into()
+    }
+}
+
+impl From<&CallLogFrame> for AlloyCallLogFrame {
+    fn from(value: &CallLogFrame) -> Self {
+        value.to_alloy_call_log_frame()
+    }
+}
+
+impl From<CallLogFrame> for AlloyCallLogFrame {
+    fn from(value: CallLogFrame) -> Self {
+        (&value).into()
     }
 }
 

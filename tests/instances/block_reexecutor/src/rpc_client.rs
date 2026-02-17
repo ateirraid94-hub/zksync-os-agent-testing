@@ -1,8 +1,8 @@
-use alloy::primitives::{Address, Bytes, U256};
+use alloy::primitives::{Address, B256, Bytes, U256};
 use anyhow::{anyhow, Result};
 use log::{debug, warn};
 use rig::{utils::encode_alloy_rpc_tx, zksync_os_interface::traits::EncodedTx};
-use ruint::aliases::B160;
+use ruint::aliases::{B160};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{io::Read, str::FromStr};
@@ -49,6 +49,35 @@ impl RpcClient {
             "jsonrpc": "2.0"
         });
         let res = self.send(body)?;
+        let block = serde_json::from_str(&res)?;
+        Ok(block)
+    }
+
+    /// Fetches the full block data with transactions.
+    pub fn get_block_by_hash(&self, block_hash: B256) -> Result<Block> {
+        debug!("RPC: get_block_by_hash({:?})", block_hash);
+        let body = json!({
+            "method": "eth_getBlockByHash",
+            "params": [format!("0x{:x}", block_hash), true],
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        let res = self.send(body)?;
+        let block = serde_json::from_str(&res)?;
+        Ok(block)
+    }
+
+    /// Fetches the ZKsync OS specific block metadata.
+    pub fn get_block_metadata(&self, block_number: u64) -> Result<BlockMetadataResult> {
+        debug!("RPC: zks_getBlockMetadataByNumber({block_number})");
+        let body = json!({
+            "method": "zks_getBlockMetadataByNumber",
+            "params": [block_number],
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        let res = self.send(body)?;
+        println!("Raw block metadata response: {}", res);
         let block = serde_json::from_str(&res)?;
         Ok(block)
     }
@@ -148,6 +177,19 @@ use alloy::eips::Typed2718;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Block {
     pub result: alloy::rpc::types::Block<alloy::rpc::types::Transaction, alloy::rpc::types::Header>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BlockMetadataResult {
+    pub result: BlockMetadata,
+}
+
+/// ZKsync-specific block metadata struct.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BlockMetadata {
+    pub pubdata_price_per_byte: U256,
+    pub native_price: U256,
+    pub execution_version: u32,
 }
 
 impl Block {

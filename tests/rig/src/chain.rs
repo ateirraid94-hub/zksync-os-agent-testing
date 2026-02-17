@@ -337,6 +337,27 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         .0
     }
 
+    pub fn run_block_with_oracle_factory_and_tracer<OF: TestingOracleFactory<RANDOMIZED_TREE>>(
+        &mut self,
+        transactions: Vec<EncodedTx>,
+        block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
+        run_config: Option<RunConfig>,
+        oracle_factory: &OF,
+        tracer: &mut impl Tracer<ForwardRunningSystem>,
+    ) -> BlockOutput {
+        self.run_block_with_extra_stats_with_oracle_factory(
+            transactions,
+            block_context,
+            da_commitment_scheme,
+            run_config,
+            tracer,
+            oracle_factory,
+        )
+        .unwrap()
+        .0
+    }
+
     #[allow(clippy::result_large_err)]
     pub fn run_block_no_panic(
         &mut self,
