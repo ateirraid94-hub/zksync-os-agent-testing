@@ -1,21 +1,23 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use crate::rpc_client::RpcClient;
 
 use alloy::hex;
 use rig::basic_system::system_implementation::flat_storage_model::{
-    FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID, FlatStorageCommitment, TREE_HEIGHT
+    FlatStorageCommitment, FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID, TREE_HEIGHT,
 };
 use rig::chain::TestingOracleFactory;
 use rig::forward_system::run::query_processors::{
-    BlockMetadataResponder, DACommitmentSchemeResponder, TxDataResponder,
-    ZKProofDataResponder,
+    BlockMetadataResponder, DACommitmentSchemeResponder, TxDataResponder, ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
-use rig::utils::{ACCOUNT_PROPERTIES_STORAGE_ADDRESS, address_into_special_storage_key};
+use rig::utils::{address_into_special_storage_key, ACCOUNT_PROPERTIES_STORAGE_ADDRESS};
 use rig::zk_ee::common_structs::derive_flat_storage_key;
-use rig::zk_ee::common_structs::{
-    da_commitment_scheme::DACommitmentScheme, ProofData,
-};
+use rig::zk_ee::common_structs::{da_commitment_scheme::DACommitmentScheme, ProofData};
 use rig::zk_ee::oracle::basic_queries::InitialStorageSlotQuery;
 use rig::zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use rig::zk_ee::oracle::usize_serialization::dyn_usize_iterator::DynUsizeIterator;
@@ -23,40 +25,44 @@ use rig::zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializ
 use rig::zk_ee::storage_types::{InitialStorageSlotData, StorageAddress};
 use rig::zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
 use rig::zk_ee::types_config::EthereumIOTypesConfig;
-use rig::zk_ee::utils::Bytes32;
 use rig::zk_ee::utils::usize_rw::ReadIterWrapper;
+use rig::zk_ee::utils::Bytes32;
 use rig::zksync_os_api;
 use rig::zksync_os_interface::traits::TxListSource;
-use ruint::Bits;
 use ruint::aliases::{B160, U256};
+use ruint::Bits;
 
 /// Oracle responder that fetches initial storage slot values via RPC
 struct RpcStorageResponder {
     client: RpcClient,
     block_number: u64,
     /// Cache to avoid repeated RPC calls for the same slot
-    cache: std::collections::HashMap<(Bits<160, 3>, Bytes32), Bytes32>,
-    preimages: std::collections::HashMap<Bytes32, Vec<u8>>,
+    cache: Arc<Mutex<HashMap<(Bits<160, 3>, Bytes32), Bytes32>>>,
+    preimages: Arc<Mutex<HashMap<Bytes32, Vec<u8>>>>,
 }
 
 impl RpcStorageResponder {
-    pub fn new(endpoint: String, block_number: u64) -> Self {
+    pub fn new(
+        endpoint: String,
+        block_number: u64,
+        cache: Arc<Mutex<HashMap<(Bits<160, 3>, Bytes32), Bytes32>>>,
+        preimages: Arc<Mutex<HashMap<Bytes32, Vec<u8>>>>,
+    ) -> Self {
         Self {
             client: RpcClient::new(endpoint),
             block_number,
-            cache: std::collections::HashMap::new(),
-            preimages: std::collections::HashMap::new(),
+            cache,
+            preimages,
         }
     }
 
-    const SUPPORTED_QUERY_IDS: &[u32] =
-        &[
-            InitialStorageSlotQuery::<EthereumIOTypesConfig>::QUERY_ID,
-            FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID
-        ];
+    const SUPPORTED_QUERY_IDS: &[u32] = &[
+        InitialStorageSlotQuery::<EthereumIOTypesConfig>::QUERY_ID,
+        FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID,
+    ];
 
     pub fn set_account_properties(
-        &mut self,
+        preimages_cache: &Arc<Mutex<HashMap<Bytes32, Vec<u8>>>>,
         address: B160,
         balance: U256,
         nonce: u64,
@@ -64,12 +70,19 @@ impl RpcStorageResponder {
     ) -> Bytes32 {
         use zksync_os_api::helpers::*;
         let mut account_properties = Default::default();
+
+        let mut preimages = preimages_cache
+            .lock()
+            .expect("Failed to lock preimages cache");
         if let Some(bytecode) = bytecode {
             let bytecode_and_artifacts = set_properties_code(&mut account_properties, &bytecode);
             // Save bytecode preimage
-            self.preimages
-                .insert(account_properties.bytecode_hash, bytecode_and_artifacts);
+            preimages.insert(account_properties.bytecode_hash, bytecode_and_artifacts);
         }
+        println!(
+            "RPC set account properties: address={:?}, balance={}, nonce={}",
+            address, balance, nonce
+        );
 
         set_properties_balance(&mut account_properties, balance);
         set_properties_nonce(&mut account_properties, nonce);
@@ -80,15 +93,14 @@ impl RpcStorageResponder {
         let key = address_into_special_storage_key(&address);
         let flat_key = derive_flat_storage_key(&ACCOUNT_PROPERTIES_STORAGE_ADDRESS, &key);
 
-        println!(
+        /*println!(
             "RPC set account properties: address={:?}, hash={:?}",
             address,
             properties_hash
-        );
+        );*/
 
         // Save preimage
-        self.preimages
-            .insert(properties_hash, encoding.to_vec());
+        preimages.insert(properties_hash, encoding.to_vec());
 
         properties_hash
     }
@@ -110,7 +122,6 @@ impl<M: MemorySource> OracleQueryProcessor<M> for RpcStorageResponder {
         _memory: &M,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static> {
         assert!(Self::SUPPORTED_QUERY_IDS.contains(&query_id));
-
         match query_id {
             InitialStorageSlotQuery::<EthereumIOTypesConfig>::QUERY_ID => {
                 let StorageAddress { address, key } = <InitialStorageSlotQuery<
@@ -121,43 +132,67 @@ impl<M: MemorySource> OracleQueryProcessor<M> for RpcStorageResponder {
                 .expect("must deserialize the address/slot");
 
                 if address == ACCOUNT_PROPERTIES_STORAGE_ADDRESS {
-                    println!(
+                    /*println!(
                         "RPC fetch account properties slot: address={:?}, slot={:?}",
                         address, key
-                    );
+                    );*/
 
                     let requested_address: Bits<160, 3> = key.into();
 
-                    let balance = self.client.get_balance(
-                        requested_address.to_be_bytes().into(),
-                        self.block_number - 1,
-                    ).expect("RPC balance fetch failed");
+                    let balance = self
+                        .client
+                        .get_balance(
+                            requested_address.to_be_bytes().into(),
+                            self.block_number - 1,
+                        )
+                        .expect("RPC balance fetch failed");
 
                     // TODO won't work for contracts
-                    let nonce = self.client.get_transaction_count(
-                        requested_address.to_be_bytes().into(),
-                        self.block_number - 1,
-                    ).expect("RPC nonce fetch failed");
+                    let nonce = self
+                        .client
+                        .get_transaction_count(
+                            requested_address.to_be_bytes().into(),
+                            self.block_number - 1,
+                        )
+                        .expect("RPC nonce fetch failed");
 
-                    let bytecode = self.client.get_code(
-                        requested_address.to_be_bytes().into(),
-                        self.block_number - 1,
-                    ).expect("RPC code fetch failed");
+                    let bytecode = self
+                        .client
+                        .get_code(
+                            requested_address.to_be_bytes().into(),
+                            self.block_number - 1,
+                        )
+                        .expect("RPC code fetch failed");
 
-                    let hash = self.set_account_properties(
+                    let hash = Self::set_account_properties(
+                        &self.preimages,
                         requested_address,
                         balance,
                         nonce,
-                        if bytecode.is_empty() { None } else { Some(bytecode.to_vec()) },
+                        if bytecode.is_empty() {
+                            None
+                        } else {
+                            Some(bytecode.to_vec())
+                        },
                     );
 
-                    self.cache.insert((address, key), hash);
+                    self.cache
+                        .lock()
+                        .expect("Failed to lock storage cache")
+                        .insert((address, key), hash);
                 }
 
+                let cached_value = self
+                    .cache
+                    .lock()
+                    .expect("Failed to lock storage cache")
+                    .get(&(address, key))
+                    .copied();
+
                 let slot_data: InitialStorageSlotData<EthereumIOTypesConfig> =
-                    if let Some(cold) = self.cache.get(&(address, key)) {
+                    if let Some(cold) = cached_value {
                         InitialStorageSlotData {
-                            initial_value: *cold,
+                            initial_value: cold,
                             is_new_storage_slot: cold.is_zero(),
                         }
                     } else {
@@ -170,47 +205,54 @@ impl<M: MemorySource> OracleQueryProcessor<M> for RpcStorageResponder {
                             )
                             .expect("RPC storage fetch failed");
                         let bytes32_value = Bytes32::from_u256_be(&value);
-                        self.cache.insert((address, key), bytes32_value);
+                        self.cache
+                            .lock()
+                            .expect("Failed to lock storage cache")
+                            .insert((address, key), bytes32_value);
                         InitialStorageSlotData {
                             initial_value: bytes32_value,
                             is_new_storage_slot: value.is_zero(),
                         }
                     };
 
-                println!(
+                /*println!(
                     "RPC fetch initial storage slot: address={:?}, slot={:?}",
                     address, key
                 );
                 println!(
                     "  -> value={:?}, is_new_storage_slot={}",
                     slot_data.initial_value, slot_data.is_new_storage_slot
-                );
+                );*/
                 DynUsizeIterator::from_constructor(slot_data, UsizeSerializable::iter)
-            },
+            }
             FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID => {
                 let hash = Bytes32::from_iter(&mut query.into_iter())
                     .expect("must deserialize hash value");
 
-                let preimage = if let Some(data) = self.preimages.get(&hash) {
-                    data.clone()
-                } else {
-                    panic!(
-                        "must know a preimage for hash {} for query ID 0x{:016x}",
-                        hex::encode(hash.as_u8_array_ref()),
-                        query_id
-                    )
-                };
+                let preimage = self
+                    .preimages
+                    .lock()
+                    .expect("Failed to lock preimages cache")
+                    .get(&hash)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "must know a preimage for hash {} for query ID 0x{:016x}",
+                            hex::encode(hash.as_u8_array_ref()),
+                            query_id
+                        )
+                    });
 
-                println!(
+                /*println!(
                     "RPC fetch preimage: hash={:?}, length={}",
                     hash,
                     preimage.len()
-                );
+                );*/
 
                 DynUsizeIterator::from_constructor(preimage, |inner_ref| {
                     ReadIterWrapper::from(inner_ref.iter().copied())
                 })
-            },
+            }
             _ => unreachable!(),
         }
     }
@@ -219,6 +261,8 @@ impl<M: MemorySource> OracleQueryProcessor<M> for RpcStorageResponder {
 pub struct RpcValueOracleFactory {
     endpoint: String,
     block_number: u64,
+    pub cache: Arc<Mutex<HashMap<(Bits<160, 3>, Bytes32), Bytes32>>>,
+    pub preimages: Arc<Mutex<HashMap<Bytes32, Vec<u8>>>>,
 }
 
 impl RpcValueOracleFactory {
@@ -226,6 +270,8 @@ impl RpcValueOracleFactory {
         Self {
             endpoint,
             block_number,
+            cache: Arc::new(Mutex::new(HashMap::new())),
+            preimages: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -251,8 +297,12 @@ impl TestingOracleFactory<false> for RpcValueOracleFactory {
         };
 
         // Use the malicious storage responder instead of the tree responder
-        let storage_responder =
-            RpcStorageResponder::new(self.endpoint.clone(), self.block_number);
+        let storage_responder = RpcStorageResponder::new(
+            self.endpoint.clone(),
+            self.block_number,
+            self.cache.clone(),
+            self.preimages.clone(),
+        );
 
         let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
 

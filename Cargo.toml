@@ -20,6 +20,7 @@ members = [
     "supporting_crates/solidity_abi",
     "supporting_crates/solidity_abi_derive",
     "tests/rig",
+    "tests/revm_runner",
     "tests/instances/transactions",
     "tests/instances/erc20",
     "tests/instances/forge_tests",

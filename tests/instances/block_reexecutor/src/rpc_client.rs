@@ -1,8 +1,11 @@
-use alloy::primitives::{Address, B256, Bytes, U256};
+use alloy::{
+    primitives::{Address, Bytes, B256, U256},
+    rpc::types::Transaction,
+};
 use anyhow::{anyhow, Result};
 use log::{debug, warn};
 use rig::{utils::encode_alloy_rpc_tx, zksync_os_interface::traits::EncodedTx};
-use ruint::aliases::{B160};
+use ruint::aliases::B160;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{io::Read, str::FromStr};
@@ -208,20 +211,38 @@ impl Block {
     }
 
     pub fn get_transactions(self) -> Vec<EncodedTx> {
-            self.result
-                .transactions
-                .into_transactions()
-                .enumerate()
-                .filter_map(|(i, tx)| {
-                    let transaction_type = tx.ty();
-                    let supported_tx_type = transaction_type <= 2;
-                    if supported_tx_type {
-                        Some(encode_alloy_rpc_tx(tx))
-                    } else {
-                        warn!("Skipping unsupported transaction of type {transaction_type:?}");
-                        None
-                    }
-                })
-                .collect()
+        self.result
+            .transactions
+            .into_transactions()
+            .enumerate()
+            .filter_map(|(i, tx)| {
+                let transaction_type = tx.ty();
+                let supported_tx_type = transaction_type <= 2;
+                if supported_tx_type {
+                    Some(encode_alloy_rpc_tx(tx))
+                } else {
+                    warn!("Skipping unsupported transaction of type {transaction_type:?}");
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn get_transactions_raw(self) -> Vec<Transaction> {
+        self.result
+            .transactions
+            .into_transactions()
+            .enumerate()
+            .filter_map(|(i, tx)| {
+                let transaction_type = tx.ty();
+                let supported_tx_type = transaction_type <= 2;
+                if supported_tx_type {
+                    Some(tx)
+                } else {
+                    warn!("Skipping unsupported transaction of type {transaction_type:?}");
+                    None
+                }
+            })
+            .collect()
     }
 }
