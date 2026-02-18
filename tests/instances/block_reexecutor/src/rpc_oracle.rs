@@ -15,8 +15,7 @@ use rig::forward_system::run::query_processors::{
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
 use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
-use rig::utils::{address_into_special_storage_key, ACCOUNT_PROPERTIES_STORAGE_ADDRESS};
-use rig::zk_ee::common_structs::derive_flat_storage_key;
+use rig::utils::ACCOUNT_PROPERTIES_STORAGE_ADDRESS;
 use rig::zk_ee::common_structs::{da_commitment_scheme::DACommitmentScheme, ProofData};
 use rig::zk_ee::oracle::basic_queries::InitialStorageSlotQuery;
 use rig::zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
@@ -90,9 +89,6 @@ impl RpcStorageResponder {
         let encoding = account_properties.encoding();
         let properties_hash = account_properties.compute_hash();
 
-        let key = address_into_special_storage_key(&address);
-        let flat_key = derive_flat_storage_key(&ACCOUNT_PROPERTIES_STORAGE_ADDRESS, &key);
-
         /*println!(
             "RPC set account properties: address={:?}, hash={:?}",
             address,
@@ -131,7 +127,14 @@ impl<M: MemorySource> OracleQueryProcessor<M> for RpcStorageResponder {
                 )
                 .expect("must deserialize the address/slot");
 
-                if address == ACCOUNT_PROPERTIES_STORAGE_ADDRESS {
+                let mut cached_value = self
+                    .cache
+                    .lock()
+                    .expect("Failed to lock storage cache")
+                    .get(&(address, key))
+                    .copied();
+
+                if cached_value.is_none() && address == ACCOUNT_PROPERTIES_STORAGE_ADDRESS {
                     /*println!(
                         "RPC fetch account properties slot: address={:?}, slot={:?}",
                         address, key
@@ -180,14 +183,8 @@ impl<M: MemorySource> OracleQueryProcessor<M> for RpcStorageResponder {
                         .lock()
                         .expect("Failed to lock storage cache")
                         .insert((address, key), hash);
+                    cached_value = Some(hash);
                 }
-
-                let cached_value = self
-                    .cache
-                    .lock()
-                    .expect("Failed to lock storage cache")
-                    .get(&(address, key))
-                    .copied();
 
                 let slot_data: InitialStorageSlotData<EthereumIOTypesConfig> =
                     if let Some(cold) = cached_value {
@@ -281,7 +278,7 @@ impl TestingOracleFactory<false> for RpcValueOracleFactory {
         &self,
         block_metadata: BlockMetadataFromOracle,
         _state_tree: InMemoryTree<false>,
-        preimage_source: InMemoryPreimageSource,
+        _preimage_source: InMemoryPreimageSource,
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,

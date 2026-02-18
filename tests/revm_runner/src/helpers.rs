@@ -34,7 +34,10 @@ pub fn zk_tx_into_revm_tx(
         .access_list(tx.access_list().cloned().unwrap_or_default())
         .tx_type(Some(tx.ty()))
         .chain_id(tx.chain_id())
-        .blob_hashes(tx.blob_versioned_hashes().map_or_else(Vec::new, |hashes| hashes.to_vec()))
+        .blob_hashes(
+            tx.blob_versioned_hashes()
+                .map_or_else(Vec::new, |hashes| hashes.to_vec()),
+        )
         .max_fee_per_blob_gas(tx.max_fee_per_blob_gas().unwrap_or_default());
 
     if let Some(priority_fee) = tx.max_priority_fee_per_gas() {

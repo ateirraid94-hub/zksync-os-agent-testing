@@ -133,7 +133,7 @@ pub struct RunConfig {
     // Only to be used when state-diffs-pi feature is enabled in the binary and
     // only_forward is false
     pub check_storage_diff_hashes: bool,
-    pub not_update_state_after_block_execution: bool
+    pub not_update_state_after_block_execution: bool,
 }
 
 impl Chain<false> {
@@ -447,7 +447,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             app,
             only_forward,
             check_storage_diff_hashes,
-                not_update_state_after_block_execution,
+            not_update_state_after_block_execution,
         } = run_config;
         let block_context = block_context.unwrap_or_default();
         let block_metadata = BlockMetadataFromOracle {

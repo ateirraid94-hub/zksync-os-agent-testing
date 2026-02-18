@@ -1,31 +1,28 @@
-use alloy::{
-    primitives::{Address, B256},
-    rpc::types::trace::geth::CallFrame,
-    serde::storage,
-};
+use alloy::{primitives::B256, rpc::types::trace::geth::CallFrame};
 use anyhow::Result;
 use clap::Parser;
+use std::collections::HashMap;
 
+mod cache;
 mod rpc_client;
 mod rpc_oracle;
+mod state_view;
+mod trace_conv;
+mod tx_check;
 
+use cache::{
+    block_params_cache_path, load_or_fetch_block_params, load_oracle_caches, oracle_cache_paths,
+    save_oracle_caches,
+};
 use rig::{
-    chain::RunConfig,
-    forward_system::{run::ReadStorage, system::tracers::call_tracer::CallTracer},
-    utils::AccountProperties,
-    zk_ee::{common_structs::derive_flat_storage_key, utils::Bytes32},
-    zksync_os_interface::{
-        self,
-        traits::{PreimageSource, ReadStorage as InterfaceReadStorage},
-    },
-    BlockContext, Chain,
+    chain::RunConfig, forward_system::system::tracers::call_tracer::CallTracer,
+    zk_ee::common_structs::derive_flat_storage_key,
 };
 use rpc_client::RpcClient;
-use zksync_os_revm_runner::{
-    convert_alloy::{FromAlloy, IntoAlloy},
-    revm_runner,
-    revm_state_provider::ViewState,
-};
+use state_view::{generate_block_context_interface, ChainStateView};
+use trace_conv::convert_call_frames_to_revm_trace;
+use tx_check::{check_tx_outputs_against_receipts, filter_supported_receipts};
+use zksync_os_revm_runner::revm_runner;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Re-execute blocks using external RPC")]
@@ -46,27 +43,23 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Initialize logger
     rig::init_logger();
 
     println!("Starting block re-execution");
     println!("Endpoint: {}", args.endpoint);
     println!("Block hash: {:?}", args.block_hash);
 
-    // Fetch block data
-    println!("Fetching block data...");
     let rpc_client = RpcClient::new(args.endpoint.clone());
-    let block = rpc_client.get_block_by_hash(args.block_hash)?;
-    let block_number = block.result.header.number;
-    println!("Fetched block number: {}", block_number);
+    let block_params_path = block_params_cache_path(args.block_hash);
+    let loaded = load_or_fetch_block_params(&rpc_client, args.block_hash, &block_params_path)?;
+    let block = loaded.block;
+    let block_metadata = loaded.block_metadata;
+    let chain_id = loaded.chain_id;
+    let cached_or_fetched_receipts = loaded.receipts;
 
+    let block_number = block.result.header.number;
     let miner = block.result.header.beneficiary;
     let mut block_context = block.get_block_context();
-
-    println!("Fetching block metadata...");
-    // TODO should be replaced with hash or better replay record fetching once available in RPC
-    // Otherwise params can be inconsistent with the actually used
-    let block_metadata = rpc_client.get_block_metadata(block_number)?;
 
     println!("Native price: {}", block_metadata.result.native_price);
     println!(
@@ -91,7 +84,6 @@ fn main() -> Result<()> {
         block.result.header.gas_used, block.result.header.gas_limit
     );
 
-    // For now, skip transaction execution since it requires complex encoding
     if transactions.is_empty() {
         println!("No transactions to execute, skipping block");
         return Ok(());
@@ -102,39 +94,67 @@ fn main() -> Result<()> {
         block_context.timestamp, block_context.gas_limit, block_context.coinbase
     );
 
-    let oracle_factory =
-        rpc_oracle::RpcValueOracleFactory::new(args.endpoint.clone(), block_number);
+    let oracle_factory = rpc_oracle::RpcValueOracleFactory::new(args.endpoint, block_number);
+    let (storage_cache_path, preimages_cache_path) = oracle_cache_paths(args.block_hash);
+    let (cached_storage, cached_preimages) =
+        match load_oracle_caches(&storage_cache_path, &preimages_cache_path) {
+            Ok(caches) => caches,
+            Err(err) => {
+                eprintln!("Failed to load oracle cache from disk: {err}");
+                (HashMap::new(), HashMap::new())
+            }
+        };
+    if !cached_storage.is_empty() || !cached_preimages.is_empty() {
+        println!(
+            "Loaded oracle cache from disk: storage_slots={}, preimages={}",
+            cached_storage.len(),
+            cached_preimages.len()
+        );
+    }
 
-    let chain_id = rpc_client.get_chain_id()?;
+    oracle_factory
+        .cache
+        .lock()
+        .expect("failed to lock oracle cache")
+        .extend(cached_storage);
+    oracle_factory
+        .preimages
+        .lock()
+        .expect("failed to lock oracle preimages")
+        .extend(cached_preimages);
 
     let mut chain = rig::Chain::empty(Some(chain_id));
 
-    // For now, skip transaction processing due to complexity of EncodedTx conversion
-    // We'll run an empty block to test the oracle_factory functionality
     println!(
         "Running block with {} transactions using RPC oracle...",
         transactions.len()
     );
 
-    let da_commitment_scheme = None; // Use default DA commitment scheme
     let run_config = Some(RunConfig {
         profiler_config: None,
         witness_output_file: None,
         app: None,
         only_forward: true,
         check_storage_diff_hashes: false,
-        not_update_state_after_block_execution: true, // don't apply state changes to the chain, since we want to keep it unchanged for revm
-    }); // Use default run config
+        not_update_state_after_block_execution: true,
+    });
 
     let mut tracer = CallTracer::default();
 
     let block_output = chain.run_block_with_oracle_factory_and_tracer(
         transactions,
         Some(block_context.clone()),
-        da_commitment_scheme,
+        None,
         run_config,
         &oracle_factory,
         &mut tracer,
+    );
+
+    let receipts = filter_supported_receipts(&block, cached_or_fetched_receipts)?;
+    check_tx_outputs_against_receipts(&block_output, &receipts)?;
+    println!(
+        "Transaction output check passed against {} cached RPC receipts",
+        receipts.len()
     );
 
     let preimages = oracle_factory
@@ -148,14 +168,25 @@ fn main() -> Result<()> {
         .expect("failed to lock oracle cache")
         .clone();
 
-    // Insert preimages and storage values into the chain's state view so that they can be accessed during REVM execution
-    for (hash, preimage) in preimages {
-        chain.preimage_source.inner.insert(hash, preimage);
+    save_oracle_caches(
+        &storage_cache_path,
+        &preimages_cache_path,
+        &storage,
+        &preimages,
+    )?;
+    println!(
+        "Saved oracle cache to disk: storage_slots={}, preimages={}",
+        storage.len(),
+        preimages.len()
+    );
+
+    for (hash, preimage) in &preimages {
+        chain.preimage_source.inner.insert(*hash, preimage.clone());
     }
 
-    for ((address, slot), value) in storage {
+    for ((address, slot), value) in &storage {
         let flat_key = derive_flat_storage_key(&address, &slot);
-        chain.state_tree.cold_storage.insert(flat_key, value);
+        chain.state_tree.cold_storage.insert(flat_key, *value);
     }
 
     println!("Block execution completed successfully!");
@@ -167,10 +198,10 @@ fn main() -> Result<()> {
     let trace = tracer
         .transactions
         .into_iter()
-        .map(|tx| CallFrame::from(tx))
+        .map(CallFrame::from)
         .collect::<Vec<_>>();
+    let trace = convert_call_frames_to_revm_trace(trace);
 
-    // Save the tracer output to a file for further analysis
     let tracer_output_path = format!("tracer_output_{}.json", block_number);
     std::fs::write(&tracer_output_path, serde_json::to_string_pretty(&trace)?)?;
     println!("Tracer output saved to {}", tracer_output_path);
@@ -178,70 +209,19 @@ fn main() -> Result<()> {
     println!("Runnning ZKsync OS REVM");
 
     let block_context = generate_block_context_interface(&chain, &block_context);
-
-    let state_view = ChainStateView { chain: chain };
-
+    let state_view = ChainStateView { chain };
     let raw_transactions = block.get_transactions_raw();
 
     let mut revm_runner = revm_runner::RevmRunner::new(state_view);
 
-    revm_runner.run(raw_transactions, block_context, Some(block_output))?;
+    let revm_trace =
+        revm_runner.run_with_call_traces(raw_transactions, block_context, Some(block_output))?;
+    let revm_trace_output_path = format!("revm_call_trace_{}.json", block_number);
+    std::fs::write(
+        &revm_trace_output_path,
+        serde_json::to_string_pretty(&revm_trace)?,
+    )?;
+    println!("REVM call trace saved to {}", revm_trace_output_path);
 
     Ok(())
-}
-
-#[derive(Clone)]
-pub struct ChainStateView {
-    pub chain: Chain,
-}
-
-impl PreimageSource for ChainStateView {
-    fn get_preimage(&mut self, hash: B256) -> Option<Vec<u8>> {
-        let hash = Bytes32::from_alloy(hash);
-        self.chain.preimage_source.inner.get(&hash).cloned()
-    }
-}
-
-impl InterfaceReadStorage for ChainStateView {
-    fn read(&mut self, key: B256) -> Option<B256> {
-        let key = Bytes32::from_alloy(key);
-        let value = self.chain.state_tree.read(key);
-
-        value.map(|v| v.into_alloy())
-    }
-}
-
-impl ViewState for ChainStateView {
-    fn get_account(&mut self, address: Address) -> Option<AccountProperties> {
-        let address = ruint::aliases::B160::from_alloy(address);
-        self.chain.get_account_properties_maybe(&address)
-    }
-
-    fn account_nonce(&mut self, address: Address) -> Option<u64> {
-        let account = self.get_account(address);
-
-        account.map(|account| account.nonce)
-    }
-}
-
-use zksync_os_interface::types::BlockContext as BlockContextInterface;
-pub fn generate_block_context_interface(
-    chain: &Chain,
-    rig_block_context: &BlockContext,
-) -> BlockContextInterface {
-    BlockContextInterface {
-        block_number: chain.next_block_number(),
-        timestamp: rig_block_context.timestamp,
-        eip1559_basefee: rig_block_context.eip1559_basefee,
-        chain_id: chain.chain_id(),
-        block_hashes: zksync_os_interface::types::BlockHashes(chain.block_hashes()),
-        pubdata_price: rig_block_context.pubdata_price,
-        native_price: rig_block_context.native_price,
-        coinbase: rig_block_context.coinbase.into_alloy(),
-        gas_limit: rig_block_context.gas_limit,
-        pubdata_limit: rig_block_context.pubdata_limit,
-        mix_hash: rig_block_context.mix_hash,
-        execution_version: 0, // TODO meaningless here
-        blob_fee: Default::default(),
-    }
 }

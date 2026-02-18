@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, Bloom, Bytes, B256, U256},
     rpc::types::Transaction,
 };
 use anyhow::{anyhow, Result};
@@ -14,11 +14,6 @@ use ureq::json;
 /// Simple RPC client with the basic methods we need
 pub struct RpcClient {
     endpoint: String,
-}
-
-/// Converts u64 to hex string with "0x" prefix.
-fn to_hex(n: u64) -> String {
-    format!("0x{n:x}")
 }
 
 impl RpcClient {
@@ -40,20 +35,6 @@ impl RpcClient {
         let mut out = String::new();
         response.into_reader().read_to_string(&mut out)?;
         Ok(out)
-    }
-
-    /// Fetches the full block data with transactions.
-    pub fn get_block(&self, block_number: u64) -> Result<Block> {
-        debug!("RPC: get_block({block_number})");
-        let body = json!({
-            "method": "eth_getBlockByNumber",
-            "params": [to_hex(block_number), true],
-            "id": 1,
-            "jsonrpc": "2.0"
-        });
-        let res = self.send(body)?;
-        let block = serde_json::from_str(&res)?;
-        Ok(block)
     }
 
     /// Fetches the full block data with transactions.
@@ -173,6 +154,20 @@ impl RpcClient {
         let storage = U256::from_str(storage_hex)?;
         Ok(storage)
     }
+
+    /// Fetch receipts for all block transactions.
+    pub fn get_block_receipts(&self, block_number: u64) -> Result<BlockReceipts> {
+        debug!("RPC: get_block_receipts({block_number})");
+        let body = json!({
+            "method": "eth_getBlockReceipts",
+            "params": [Self::to_hex(block_number)],
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        let res = self.send(body)?;
+        let receipts = serde_json::from_str(&res)?;
+        Ok(receipts)
+    }
 }
 
 use alloy::eips::Typed2718;
@@ -195,6 +190,60 @@ pub struct BlockMetadata {
     pub execution_version: u32,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionReceipt {
+    pub transaction_hash: B256,
+    pub transaction_index: U256,
+    pub block_hash: B256,
+    pub block_number: U256,
+    pub from: Address,
+    pub to: Option<Address>,
+    pub cumulative_gas_used: U256,
+    pub gas_used: U256,
+    pub contract_address: Option<Address>,
+    pub logs: Vec<ReceiptLog>,
+    pub logs_bloom: Bloom,
+    pub status: Option<U256>,
+    #[serde(rename = "type")]
+    pub tx_type: Option<U256>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptLog {
+    pub address: Address,
+    pub topics: Vec<B256>,
+    pub data: Bytes,
+    pub block_number: U256,
+    pub transaction_hash: B256,
+    pub transaction_index: U256,
+    pub block_hash: B256,
+    pub log_index: U256,
+    pub removed: Option<bool>,
+}
+
+impl ReceiptLog {
+    pub fn is_equal_to_excluding_data(&self, log: &rig::zksync_os_interface::types::Log) -> bool {
+        let address_check = || self.address == log.address;
+        let topics_length_check = || self.topics.len() == log.topics().len();
+        let topics_check = || {
+            self.topics
+                .iter()
+                .zip(log.topics().iter())
+                .all(|(l, r)| l == r)
+        };
+        address_check() && topics_length_check() && topics_check()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BlockReceipts {
+    pub result: Vec<TransactionReceipt>,
+}
+
 impl Block {
     pub fn get_block_context(&self) -> rig::BlockContext {
         let base_fee = U256::from(self.result.header.base_fee_per_gas.unwrap_or(1000));
@@ -214,8 +263,7 @@ impl Block {
         self.result
             .transactions
             .into_transactions()
-            .enumerate()
-            .filter_map(|(i, tx)| {
+            .filter_map(|tx| {
                 let transaction_type = tx.ty();
                 let supported_tx_type = transaction_type <= 2;
                 if supported_tx_type {
@@ -232,8 +280,7 @@ impl Block {
         self.result
             .transactions
             .into_transactions()
-            .enumerate()
-            .filter_map(|(i, tx)| {
+            .filter_map(|tx| {
                 let transaction_type = tx.ty();
                 let supported_tx_type = transaction_type <= 2;
                 if supported_tx_type {

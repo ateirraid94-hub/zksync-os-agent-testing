@@ -79,84 +79,80 @@ impl CompareReport {
         self.storage.is_empty() && self.accounts.is_empty()
     }
 
-    /// Print a structured summary via `tracing`
+    /// Print a structured summary via `log`
     /// - INFO when everything matches
     /// - WARN + INFO details when mismatches exist
-    pub fn log_tracing(&self, _max_show: usize) {
-        // TODO: implement logging
-        /*
+    pub fn log_tracing(&self, max_show: usize) {
         if self.is_empty() {
-            tracing::info!(
-                storage_mismatches = 0,
-                account_mismatches = 0,
-                "State diffs match"
-            );
+            log::info!("State diffs match (storage_mismatches=0 account_mismatches=0)");
             return;
         }
 
-        tracing::warn!(
-            storage_mismatches = self.storage.len(),
-            account_mismatches = self.accounts.len(),
-            "State diffs do not match"
+        log::warn!(
+            "State diffs do not match (storage_mismatches={} account_mismatches={})",
+            self.storage.len(),
+            self.accounts.len()
         );
 
         // STORAGE
-        tracing::info!(total = self.storage.len(), "=== STORAGE DIFFS ===");
+        log::info!("=== STORAGE DIFFS === total={}", self.storage.len());
         for m in self.storage.iter().take(max_show) {
             match (m.revm_value, m.zk_value) {
                 (Some(r), Some(z)) if r != z => {
-                    tracing::info!(
-                        addr = ?m.addr,
-                        slot = ?m.slot,
-                        revm = ?r,
-                        zk = ?z,
-                        "storage value mismatch"
+                    log::info!(
+                        "storage value mismatch addr={:?} slot={:?} revm={:?} zk={:?}",
+                        m.addr,
+                        m.slot,
+                        r,
+                        z
                     );
                 }
                 (Some(r), None) => {
-                    tracing::info!(
-                        addr = ?m.addr,
-                        slot = ?m.slot,
-                        revm = ?r,
-                        zk = "none",
-                        "storage missing in zksync"
+                    log::info!(
+                        "storage missing in zksync addr={:?} slot={:?} revm={:?} zk=none",
+                        m.addr,
+                        m.slot,
+                        r
                     );
                 }
                 (None, Some(z)) => {
-                    tracing::info!(
-                        addr = ?m.addr,
-                        slot = ?m.slot,
-                        revm = "none",
-                        zk = ?z,
-                        "storage missing in revm"
+                    log::info!(
+                        "storage missing in revm addr={:?} slot={:?} revm=none zk={:?}",
+                        m.addr,
+                        m.slot,
+                        z
                     );
                 }
                 _ => {}
             }
         }
         if self.storage.len() > max_show {
-            tracing::info!(
-                remaining = self.storage.len() - max_show,
-                "additional storage mismatches not shown"
+            log::info!(
+                "additional storage mismatches not shown remaining={}",
+                self.storage.len() - max_show
             );
         }
 
         // ACCOUNTS
-        tracing::info!(total = self.accounts.len(), "=== ACCOUNT DIFFS ===");
+        log::info!("=== ACCOUNT DIFFS === total={}", self.accounts.len());
         for m in self.accounts.iter().take(max_show) {
             // Header per account
-            tracing::info!(addr = ?m.addr, "account mismatch");
+            log::info!("account mismatch addr={:?}", m.addr);
 
             if let Some(p) = m.nonce {
                 match (p.revm, p.zk) {
                     (Some(r), Some(z)) if r != z => {
-                        tracing::info!(addr = ?m.addr, revm = r, zk = z, "nonce mismatch");
+                        log::info!("nonce mismatch addr={:?} revm={} zk={}", m.addr, r, z);
                     }
                     (Some(r), None) => {
-                        tracing::info!(addr = ?m.addr, revm = r, zk = "none", "nonce missing in zksync");
+                        log::info!(
+                            "nonce missing in zksync addr={:?} revm={} zk=none",
+                            m.addr,
+                            r
+                        );
                     }
                     (None, Some(z)) => {
-                        tracing::info!(addr = ?m.addr, revm = "none", zk = z, "nonce missing in revm");
+                        log::info!("nonce missing in revm addr={:?} revm=none zk={}", m.addr, z);
                     }
                     _ => {}
                 }
@@ -164,13 +160,21 @@ impl CompareReport {
             if let Some(p) = m.balance {
                 match (p.revm, p.zk) {
                     (Some(r), Some(z)) if r != z => {
-                        tracing::info!(addr = ?m.addr, revm = ?r, zk = ?z, "balance mismatch");
+                        log::info!("balance mismatch addr={:?} revm={:?} zk={:?}", m.addr, r, z);
                     }
                     (Some(r), None) => {
-                        tracing::info!(addr = ?m.addr, revm = ?r, zk = "none", "balance missing in zksync");
+                        log::info!(
+                            "balance missing in zksync addr={:?} revm={:?} zk=none",
+                            m.addr,
+                            r
+                        );
                     }
                     (None, Some(z)) => {
-                        tracing::info!(addr = ?m.addr, revm = "none", zk = ?z, "balance missing in revm");
+                        log::info!(
+                            "balance missing in revm addr={:?} revm=none zk={:?}",
+                            m.addr,
+                            z
+                        );
                     }
                     _ => {}
                 }
@@ -178,26 +182,37 @@ impl CompareReport {
             if let Some(p) = m.bytecode_hash {
                 match (p.revm, p.zk) {
                     (Some(r), Some(z)) if !code_hash_equivalent(r, z) => {
-                        tracing::info!(addr = ?m.addr, revm = ?r, zk = ?z, "bytecode hash mismatch");
+                        log::info!(
+                            "bytecode hash mismatch addr={:?} revm={:?} zk={:?}",
+                            m.addr,
+                            r,
+                            z
+                        );
                     }
                     (Some(r), None) => {
-                        tracing::info!(addr = ?m.addr, revm = ?r, zk = "none", "codehash missing in zksync");
+                        log::info!(
+                            "codehash missing in zksync addr={:?} revm={:?} zk=none",
+                            m.addr,
+                            r
+                        );
                     }
                     (None, Some(z)) => {
-                        tracing::info!(addr = ?m.addr, revm = "none", zk = ?z, "codehash missing in revm");
+                        log::info!(
+                            "codehash missing in revm addr={:?} revm=none zk={:?}",
+                            m.addr,
+                            z
+                        );
                     }
                     _ => {}
                 }
             }
         }
         if self.accounts.len() > max_show {
-            tracing::info!(
-                remaining = self.accounts.len() - max_show,
-                "additional account mismatches not shown"
+            log::info!(
+                "additional account mismatches not shown remaining={}",
+                self.accounts.len() - max_show
             );
         }
-
-        */
     }
 }
 
@@ -263,6 +278,7 @@ where
         };
 
         let prev_account = cache_db.db.basic_ref(*addr)?.unwrap_or_default();
+
         let changed = prev_account.nonce != acc.info.nonce
             || prev_account.balance != acc.info.balance
             || prev_account.code_hash != acc.info.code_hash;

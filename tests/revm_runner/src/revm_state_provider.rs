@@ -1,4 +1,7 @@
-use crate::{convert_alloy::{FromAlloy, IntoAlloy}, helpers::get_unpadded_code};
+use crate::{
+    convert_alloy::{FromAlloy, IntoAlloy},
+    helpers::get_unpadded_code,
+};
 use alloy::primitives::{Address, B256, KECCAK256_EMPTY};
 use basic_system::system_implementation::flat_storage_model::{
     address_into_special_storage_key, AccountProperties, ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
@@ -23,9 +26,18 @@ pub trait ViewState: ReadStorage + PreimageSource + Send + Clone {
             &ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
             &address_into_special_storage_key(&FromAlloy::from_alloy(address)),
         );
-        self.read(key.into_alloy()).map(|hash| {
-            AccountProperties::decode(&self.get_preimage(hash).unwrap().try_into().unwrap())
-        })
+        let hash = self.read(key.into_alloy());
+        if let Some(hash) = hash {
+            if hash != B256::ZERO {
+                Some(AccountProperties::decode(
+                    &self.get_preimage(hash).unwrap().try_into().unwrap(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// Get account's nonce by its address.
@@ -85,9 +97,8 @@ where
             .clone()
             .get_account(address)
             .map(|props| -> Result<_, Self::Error> {
-                let observable_code_hash = {
-                    let is_acc_empty = props.nonce == 0 && props.balance.is_zero();
-                    if props.observable_bytecode_hash.is_zero() && !is_acc_empty {
+                let internal_code_hash = {
+                    if props.observable_bytecode_hash.is_zero() {
                         KECCAK256_EMPTY
                     } else {
                         props.observable_bytecode_hash.into_alloy()
@@ -104,7 +115,7 @@ where
                 Ok(AccountInfo {
                     nonce: props.nonce,
                     balance: props.balance,
-                    code_hash: observable_code_hash,
+                    code_hash: internal_code_hash,
                     code,
                 })
             })
