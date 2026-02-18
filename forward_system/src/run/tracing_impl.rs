@@ -1,3 +1,4 @@
+use crate::run::convert_alloy::IntoAlloy;
 use alloy::primitives::{Address, U256};
 use std::marker::PhantomData;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
@@ -96,9 +97,9 @@ impl<'a, T: zksync_os_interface::tracing::EvmTracer, S: EthereumLikeTypes> Trace
     ) {
         self.0.on_storage_read(
             is_transient,
-            address.to_be_bytes().into(),
-            key.as_u8_array().into(),
-            value.as_u8_array().into(),
+            address.into_alloy(),
+            key.into_alloy(),
+            value.into_alloy(),
         )
     }
 
@@ -112,9 +113,9 @@ impl<'a, T: zksync_os_interface::tracing::EvmTracer, S: EthereumLikeTypes> Trace
     ) {
         self.0.on_storage_write(
             is_transient,
-            address.to_be_bytes().into(),
-            key.as_u8_array().into(),
-            value.as_u8_array().into(),
+            address.into_alloy(),
+            key.into_alloy(),
+            value.into_alloy(),
         )
     }
 
@@ -127,9 +128,9 @@ impl<'a, T: zksync_os_interface::tracing::EvmTracer, S: EthereumLikeTypes> Trace
         new_observable_bytecode_length: u32,
     ) {
         self.0.on_bytecode_change(
-            address.to_be_bytes().into(),
+            address.into_alloy(),
             new_raw_bytecode,
-            new_internal_bytecode_hash.as_u8_array().into(),
+            new_internal_bytecode_hash.into_alloy(),
             new_observable_bytecode_length,
         )
     }
@@ -142,11 +143,8 @@ impl<'a, T: zksync_os_interface::tracing::EvmTracer, S: EthereumLikeTypes> Trace
         data: &[u8],
     ) {
         self.0.on_event(
-            address.to_be_bytes().into(),
-            topics
-                .iter()
-                .map(|b| b.as_u8_array().into())
-                .collect::<Vec<_>>(),
+            (*address).into_alloy(),
+            topics.iter().map(|b| b.into_alloy()).collect::<Vec<_>>(),
             data,
         )
     }
@@ -201,7 +199,7 @@ impl<'a, T: zksync_os_interface::tracing::EvmTracer, S: EthereumLikeTypes> EvmTr
         frame_state: &impl EvmFrameInterface<S>,
     ) {
         self.0.on_selfdestruct(
-            beneficiary.to_be_bytes().into(),
+            beneficiary.into_alloy(),
             token_value,
             EvmFrameInterfaceWrapped::from(frame_state),
         )
@@ -224,11 +222,11 @@ impl<'a, 'b, S: EthereumLikeTypes> EvmRequest
     }
 
     fn caller(&self) -> Address {
-        self.0.external_call.caller.to_be_bytes().into()
+        self.0.external_call.caller.into_alloy()
     }
 
     fn callee(&self) -> Address {
-        self.0.external_call.callee.to_be_bytes().into()
+        self.0.external_call.callee.into_alloy()
     }
 
     fn modifier(&self) -> zksync_os_interface::tracing::CallModifier {
@@ -276,11 +274,11 @@ impl<'a, S: EthereumLikeTypes, T: EvmFrameInterface<S>>
     }
 
     fn caller(&self) -> Address {
-        self.inner.caller().to_be_bytes().into()
+        self.inner.caller().into_alloy()
     }
 
     fn address(&self) -> Address {
-        self.inner.address().to_be_bytes().into()
+        self.inner.address().into_alloy()
     }
 
     fn calldata(&self) -> &[u8] {

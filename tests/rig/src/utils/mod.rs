@@ -7,20 +7,17 @@ use crate::Chain;
 use alloy::consensus::SidecarBuilder;
 use alloy::consensus::SimpleCoder;
 use alloy::consensus::TxEip1559;
-use alloy::consensus::TxEnvelope;
-use alloy::primitives::Address;
 use alloy::primitives::TxKind;
-use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol_types::sol;
-use ethers::abi::AbiEncode;
-use ethers::types::U256;
+use forward_system::run::convert_alloy::FromAlloy;
 use std::io::Read;
 use std::path::PathBuf;
-use std::str::FromStr;
 pub use zksync_os_api::helpers::*;
-use zksync_os_interface::traits::EncodedTx;
 use zksync_os_interface::types::BlockOutput;
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::l1_tx::ZKsyncL1Tx;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 pub use basic_system::system_implementation::flat_storage_model::{
     address_into_special_storage_key, AccountProperties, ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
@@ -73,95 +70,16 @@ pub fn load_sol_bytecode(project_name: &str, contract_name: &str) -> Vec<u8> {
 /// Creates calldata with given selector and data chunks, in fact it will just merge given hex values into byte array.
 ///
 pub fn construct_calldata(selector: &str, data: &[&str]) -> Vec<u8> {
-    let mut cd = ethers::utils::hex::decode(selector).unwrap();
+    let mut cd = alloy::hex::decode(selector).unwrap();
     for val in data {
-        let mut x = U256::from_str(val).unwrap().encode();
+        let mut x = alloy::primitives::U256::from_str_radix(val, 16)
+            .unwrap()
+            .to_be_bytes::<32>()
+            .to_vec();
         cd.append(&mut x);
     }
 
     cd
-}
-
-#[allow(deprecated)]
-pub fn encode_alloy_rpc_tx(tx: alloy::rpc::types::Transaction) -> EncodedTx {
-    let from = tx.as_recovered().signer().into_array();
-    let env: TxEnvelope = tx.into();
-    let bytes = encode_envelope_2718(&env);
-    EncodedTx::Rlp(bytes, Address::from_slice(&from))
-}
-
-///
-/// Sign and encode ethers legacy transaction using provided `wallet`.
-///
-/// It's assumed that chain id is set for wallet or tx.
-///
-pub fn sign_and_encode_ethers_legacy_tx(
-    tx: ethers::types::TransactionRequest,
-    wallet: &ethers::signers::LocalWallet,
-) -> EncodedTx {
-    use ethers::signers::Signer;
-    use ethers::types::transaction::eip2718::TypedTransaction;
-    let ttx: TypedTransaction = tx.into();
-    let sig = wallet.sign_transaction_sync(&ttx).unwrap();
-    let raw = ttx.rlp_signed(&sig);
-    let from = {
-        let a = wallet.address();
-        Address::from_slice(a.as_bytes())
-    };
-    EncodedTx::Rlp(raw.to_vec(), from)
-}
-
-///
-/// Encode given request as l1 -> l2 transaction.
-///
-/// Panics if needed fields are unset/set incorrectly.
-///
-pub fn encode_l1_tx(tx: TransactionRequest) -> EncodedTx {
-    let tx_type = 0x7f;
-    encode_special_tx_type(tx, tx_type)
-}
-
-///
-/// Encode given request as an upgrade transaction.
-///
-/// Panics if needed fields are unset/set incorrectly.
-///
-pub fn encode_upgrade_tx(tx: TransactionRequest) -> EncodedTx {
-    let tx_type = 0x7e;
-    encode_special_tx_type(tx, tx_type)
-}
-
-pub fn encode_special_tx_type(tx: TransactionRequest, tx_type: u8) -> EncodedTx {
-    let from = tx.from.unwrap().into_array();
-    let to = Some(tx.to.unwrap().to().unwrap().into_array());
-    let gas_limit = tx.gas.unwrap() as u128;
-    let gas_per_pubdata_byte_limit = Some(0u128);
-    let max_fee_per_gas = tx.max_fee_per_gas.unwrap();
-    let max_priority_fee_per_gas = Some(tx.max_priority_fee_per_gas.unwrap_or_default());
-    let paymaster = Some([0u8; 20]);
-    let nonce = tx.nonce.unwrap() as u128;
-    let value = tx.value.unwrap_or_default().to_be_bytes();
-    let data = tx.input.input.unwrap_or_default().to_vec();
-    let signature = vec![];
-    let paymaster_input = Some(vec![]);
-
-    encode_tx(
-        tx_type,
-        from,
-        to,
-        gas_limit,
-        gas_per_pubdata_byte_limit,
-        max_fee_per_gas,
-        max_priority_fee_per_gas,
-        paymaster,
-        nonce,
-        value,
-        data,
-        signature,
-        paymaster_input,
-        None,
-        true,
-    )
 }
 
 pub const ERC_20_BYTECODE: &str = "608060405234801561000f575f80fd5b50600436106100a7575f3560e01c806342966c681161006f57806342966c681461016557806370a082311461018157806395d89b41146101b1578063a0712d68146101cf578063a9059cbb146101eb578063dd62ed3e1461021b576100a7565b806306fdde03146100ab578063095ea7b3146100c957806318160ddd146100f957806323b872dd14610117578063313ce56714610147575b5f80fd5b6100b361024b565b6040516100c09190610985565b60405180910390f35b6100e360048036038101906100de9190610a36565b6102d7565b6040516100f09190610a8e565b60405180910390f35b6101016103c4565b60405161010e9190610ab6565b60405180910390f35b610131600480360381019061012c9190610acf565b6103c9565b60405161013e9190610a8e565b60405180910390f35b61014f61056e565b60405161015c9190610b3a565b60405180910390f35b61017f600480360381019061017a9190610b53565b610580565b005b61019b60048036038101906101969190610b7e565b610652565b6040516101a89190610ab6565b60405180910390f35b6101b9610667565b6040516101c69190610985565b60405180910390f35b6101e960048036038101906101e49190610b53565b6106f3565b005b61020560048036038101906102009190610a36565b6107c5565b6040516102129190610a8e565b60405180910390f35b61023560048036038101906102309190610ba9565b6108db565b6040516102429190610ab6565b60405180910390f35b6003805461025890610c14565b80601f016020809104026020016040519081016040528092919081815260200182805461028490610c14565b80156102cf5780601f106102a6576101008083540402835291602001916102cf565b820191905f5260205f20905b8154815290600101906020018083116102b257829003601f168201915b505050505081565b5f8160025f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20819055508273ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925846040516103b29190610ab6565b60405180910390a36001905092915050565b5f5481565b5f8160025f8673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546104519190610c71565b925050819055508160015f8673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546104a49190610c71565b925050819055508160015f8573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546104f79190610ca4565b925050819055508273ffffffffffffffffffffffffffffffffffffffff168473ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef8460405161055b9190610ab6565b60405180910390a3600190509392505050565b60055f9054906101000a900460ff1681565b8060015f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546105cc9190610c71565b92505081905550805f808282546105e39190610c71565b925050819055505f73ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef836040516106479190610ab6565b60405180910390a350565b6001602052805f5260405f205f915090505481565b6004805461067490610c14565b80601f01602080910402602001604051908101604052809291908181526020018280546106a090610c14565b80156106eb5780601f106106c2576101008083540402835291602001916106eb565b820191905f5260205f20905b8154815290600101906020018083116106ce57829003601f168201915b505050505081565b8060015f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f82825461073f9190610ca4565b92505081905550805f808282546107569190610ca4565b925050819055503373ffffffffffffffffffffffffffffffffffffffff165f73ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef836040516107ba9190610ab6565b60405180910390a350565b5f8160015f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546108129190610c71565b925050819055508160015f8573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546108659190610ca4565b925050819055508273ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef846040516108c99190610ab6565b60405180910390a36001905092915050565b6002602052815f5260405f20602052805f5260405f205f91509150505481565b5f81519050919050565b5f82825260208201905092915050565b5f5b83811015610932578082015181840152602081019050610917565b5f8484015250505050565b5f601f19601f8301169050919050565b5f610957826108fb565b6109618185610905565b9350610971818560208601610915565b61097a8161093d565b840191505092915050565b5f6020820190508181035f83015261099d818461094d565b905092915050565b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6109d2826109a9565b9050919050565b6109e2816109c8565b81146109ec575f80fd5b50565b5f813590506109fd816109d9565b92915050565b5f819050919050565b610a1581610a03565b8114610a1f575f80fd5b50565b5f81359050610a3081610a0c565b92915050565b5f8060408385031215610a4c57610a4b6109a5565b5b5f610a59858286016109ef565b9250506020610a6a85828601610a22565b9150509250929050565b5f8115159050919050565b610a8881610a74565b82525050565b5f602082019050610aa15f830184610a7f565b92915050565b610ab081610a03565b82525050565b5f602082019050610ac95f830184610aa7565b92915050565b5f805f60608486031215610ae657610ae56109a5565b5b5f610af3868287016109ef565b9350506020610b04868287016109ef565b9250506040610b1586828701610a22565b9150509250925092565b5f60ff82169050919050565b610b3481610b1f565b82525050565b5f602082019050610b4d5f830184610b2b565b92915050565b5f60208284031215610b6857610b676109a5565b5b5f610b7584828501610a22565b91505092915050565b5f60208284031215610b9357610b926109a5565b5b5f610ba0848285016109ef565b91505092915050565b5f8060408385031215610bbf57610bbe6109a5565b5b5f610bcc858286016109ef565b9250506020610bdd858286016109ef565b9150509250929050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f6002820490506001821680610c2b57607f821691505b602082108103610c3e57610c3d610be7565b5b50919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f610c7b82610a03565b9150610c8683610a03565b9250828203905081811115610c9e57610c9d610c44565b5b92915050565b5f610cae82610a03565b9150610cb983610a03565b9250828201905080821115610cd157610cd0610c44565b5b9291505056fea2646970667358221220e7eaeda016ee21bde1fe83a42b83295125e0b6ebbba41a7b5bd87491d6bdf6ce64736f6c63430008160033";
@@ -226,28 +144,25 @@ pub fn run_block_of_erc20_with_fee<const RANDOMIZED: bool>(
                 access_list: Default::default(),
                 input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
             };
-            sign_and_encode_alloy_tx(transfer_tx, wallet)
+            ZKsyncTxEnvelope::from_eth_tx(transfer_tx, wallet.clone()).encode()
         })
         .collect();
 
     let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
 
     dsts.iter().for_each(|to| {
-        chain.set_evm_bytecode(
-            ruint::aliases::B160::from_be_bytes(to.into_array()),
-            &bytecode,
-        );
+        chain.set_evm_bytecode(ruint::aliases::B160::from_alloy(to), &bytecode);
     });
 
     wallets.iter().zip(dsts.clone()).for_each(|(wallet, to)| {
         chain.set_balance(
-            ruint::aliases::B160::from_be_bytes(wallet.address().0 .0),
+            ruint::aliases::B160::from_alloy(wallet.address()),
             ruint::aliases::U256::from(1_000_000_000_000_000_u64),
         );
         let key = compute_erc20_balance_slot(wallet.address());
         let value =
             ruint::aliases::B256::from(ruint::aliases::U256::from(1_000_000_000_000_000_u64));
-        chain.set_storage_slot(ruint::aliases::B160::from_be_bytes(to.0 .0), key, value)
+        chain.set_storage_slot(ruint::aliases::B160::from_alloy(to), key, value)
     });
 
     let output = chain.run_block(
@@ -363,4 +278,118 @@ pub fn encode_pubdata_for_4844_blobs(data: &[u8]) -> Vec<u8> {
     vec.extend_from_slice(data);
 
     vec
+}
+
+pub struct L1TxBuilder {
+    pub from: alloy::primitives::Address,
+    pub to: alloy::primitives::Address,
+    pub gas_price: u128,
+    pub gas_limit: u128,
+    pub input: Vec<u8>,
+    pub value: alloy::primitives::U256,
+    pub nonce: u128,
+    pub refund_recipient: Option<alloy::primitives::Address>,
+    pub to_mint: Option<alloy::primitives::U256>,
+    pub factory_deps: Vec<alloy::primitives::B256>,
+    pub gas_per_pubdata_byte_limit: u128,
+}
+
+impl Default for L1TxBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl L1TxBuilder {
+    pub fn new() -> Self {
+        Self {
+            from: Default::default(),
+            to: Default::default(),
+            gas_price: 0,
+            gas_limit: 0,
+            input: Vec::new(),
+            value: Default::default(),
+            nonce: 0,
+            refund_recipient: Default::default(),
+            to_mint: Default::default(),
+            factory_deps: Vec::new(),
+            gas_per_pubdata_byte_limit: 0,
+        }
+    }
+
+    pub fn from(mut self, from: alloy::primitives::Address) -> Self {
+        self.from = from;
+        self
+    }
+
+    pub fn to(mut self, to: alloy::primitives::Address) -> Self {
+        self.to = to;
+        self
+    }
+
+    pub fn gas_price(mut self, gas_price: u128) -> Self {
+        self.gas_price = gas_price;
+        self
+    }
+
+    pub fn gas_limit(mut self, gas_limit: u128) -> Self {
+        self.gas_limit = gas_limit;
+        self
+    }
+
+    pub fn input(mut self, input: Vec<u8>) -> Self {
+        self.input = input;
+        self
+    }
+
+    pub fn value(mut self, value: alloy::primitives::U256) -> Self {
+        self.value = value;
+        self
+    }
+
+    pub fn nonce(mut self, nonce: u128) -> Self {
+        self.nonce = nonce;
+        self
+    }
+
+    pub fn refund_recipient(mut self, recipient: alloy::primitives::Address) -> Self {
+        self.refund_recipient = Some(recipient);
+        self
+    }
+
+    pub fn to_mint(mut self, to_mint: alloy::primitives::U256) -> Self {
+        self.to_mint = Some(to_mint);
+        self
+    }
+
+    pub fn factory_deps(mut self, factory_deps: Vec<alloy::primitives::B256>) -> Self {
+        self.factory_deps = factory_deps;
+        self
+    }
+
+    pub fn gas_per_pubdata_byte_limit(mut self, limit: u128) -> Self {
+        self.gas_per_pubdata_byte_limit = limit;
+        self
+    }
+
+    pub fn build(self) -> ZKsyncTxEnvelope {
+        ZKsyncL1Tx {
+            from: self.from,
+            to: self.to,
+            max_fee_per_gas: self.gas_price,
+            max_priority_fee_per_gas: self.gas_price,
+            gas_limit: self.gas_limit,
+            to_mint: self.to_mint.unwrap_or_else(|| {
+                alloy::primitives::U256::from(self.gas_limit)
+                    * alloy::primitives::U256::from(self.gas_price)
+            }),
+            input: self.input.into(),
+            nonce: self.nonce,
+            refund_recipient: self.refund_recipient.unwrap_or_default(),
+            factory_deps: self.factory_deps,
+            gas_per_pubdata_byte_limit: self.gas_per_pubdata_byte_limit,
+            value: self.value,
+        }
+        .into()
+    }
 }

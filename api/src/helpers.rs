@@ -122,6 +122,8 @@ pub fn set_properties_code(account: &mut AccountProperties, evm_code: &[u8]) -> 
 ///
 /// Internal tx encoding method.
 ///
+/// TODO: cleanup
+///
 #[allow(clippy::too_many_arguments)]
 pub fn encode_tx(
     tx_type: u8,

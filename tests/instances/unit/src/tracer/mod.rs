@@ -7,10 +7,13 @@ pub mod tracer_storage_hooks;
 
 use rig::alloy::consensus::TxEip2930;
 use rig::alloy::primitives::{Address, TxKind, U256};
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::system::tracers::call_tracer::CallTracer;
 use rig::ruint::aliases::B160;
 use rig::zk_ee::system::validator::NopTxValidator;
 use rig::{BlockContext, Chain};
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 pub(crate) fn run_chain_with_tracer(
     to: Address,
@@ -22,12 +25,12 @@ pub(crate) fn run_chain_with_tracer(
     let wallet = chain.random_signer();
 
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000_u64),
     );
 
     for (address, bytecode) in contracts {
-        chain.set_evm_bytecode(B160::from_be_bytes(address.into_array()), &bytecode);
+        chain.set_evm_bytecode(B160::from_alloy(address), &bytecode);
     }
 
     // Create transaction to call the contract
@@ -42,7 +45,7 @@ pub(crate) fn run_chain_with_tracer(
             input: Default::default(),
             access_list: Default::default(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
 
     let _ = chain.run_block_with_extra_stats(

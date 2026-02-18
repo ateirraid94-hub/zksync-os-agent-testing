@@ -21,7 +21,6 @@ pub use chain::Chain;
 #[cfg(feature = "airbender_cli")]
 pub use cli_lib;
 pub use crypto;
-pub use ethers;
 pub use forward_system;
 #[cfg(feature = "gpu")]
 pub use gpu_prover;
@@ -34,6 +33,7 @@ pub use system_hooks;
 pub use zk_ee;
 pub use zksync_os_api;
 pub use zksync_os_interface;
+pub use zksync_os_tests_common;
 pub use zksync_web3_rs;
 
 static INIT_LOGGER_ONCE: Once = Once::new();

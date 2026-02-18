@@ -7,12 +7,16 @@
 
 use rig::alloy::consensus::TxLegacy;
 use rig::alloy::primitives::{address, TxKind};
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::system::system_types::ForwardRunningSystem;
 use rig::ruint::aliases::{B160, U256};
+use rig::utils::L1TxBuilder;
 use rig::zk_ee::system::tracer::NopTracer;
 use rig::zk_ee::system::validator::{TxValidationError, TxValidator};
 use rig::zksync_os_interface::error::InvalidTransaction;
 use rig::Chain;
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 #[derive(Default)]
 struct LoggingTxValidator {
@@ -74,7 +78,7 @@ fn test_tx_validator_filters_out_tx_without_bumping_counter() {
     let from = wallet.address();
 
     chain.set_balance(
-        B160::from_be_bytes(from.into_array()),
+        B160::from_alloy(from),
         U256::from(1_000_000_000_000_000_u64),
     );
 
@@ -93,7 +97,7 @@ fn test_tx_validator_filters_out_tx_without_bumping_counter() {
             value: U256::from(value),
             input: withdrawal_calldata.clone().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
 
     let tx0 = mk_withdrawal(0, 10);
@@ -159,7 +163,7 @@ fn test_no_custom_validator_does_not_restrict_tx_flow() {
     let from = wallet.address();
 
     chain.set_balance(
-        B160::from_be_bytes(from.into_array()),
+        B160::from_alloy(from),
         U256::from(1_000_000_000_000_000_u64),
     );
 
@@ -179,7 +183,7 @@ fn test_no_custom_validator_does_not_restrict_tx_flow() {
             value: U256::from(value),
             input: withdrawal_calldata.clone().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
 
     // Normal nonces (0 then 1), because nothing is filtered.
@@ -223,8 +227,6 @@ fn test_no_custom_validator_does_not_restrict_tx_flow() {
 
 #[test]
 fn test_l1_transactions_are_not_filtered_by_validator() {
-    use rig::alloy::rpc::types::TransactionRequest;
-
     let mut chain = Chain::empty(None);
     let wallet = chain.random_signer();
     let from = wallet.address();
@@ -237,18 +239,16 @@ fn test_l1_transactions_are_not_filtered_by_validator() {
     chain.set_balance(B160::from_be_bytes(from.0 .0), U256::from(10_000_000));
 
     let mk_l1_tx = |nonce: u64, value: u64| {
-        let tx = TransactionRequest {
-            from: Some(from),
-            chain_id: Some(37u64.into()),
-            nonce: Some(nonce),
-            max_fee_per_gas: Some(1000u128.into()),
-            gas: Some(500_000u64.into()),
-            to: Some(TxKind::Call(withdrawal_to)),
-            value: Some(U256::from(value)),
-            input: withdrawal_calldata.clone().into(),
-            ..TransactionRequest::default()
-        };
-        rig::utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(from)
+            .to(withdrawal_to)
+            .gas_price(1000u128.into())
+            .gas_limit(500_000u64.into())
+            .value(U256::from(value))
+            .input(withdrawal_calldata.clone().into())
+            .nonce(nonce.into())
+            .build();
+        tx.encode()
     };
 
     let tx0 = mk_l1_tx(0, 10);
@@ -311,7 +311,7 @@ fn test_tx_validator_filters_out_tx_on_begin_tx() {
     let from = wallet.address();
 
     chain.set_balance(
-        B160::from_be_bytes(from.into_array()),
+        B160::from_alloy(from),
         U256::from(1_000_000_000_000_000_u64),
     );
 
@@ -330,7 +330,7 @@ fn test_tx_validator_filters_out_tx_on_begin_tx() {
             value: U256::from(value),
             input: withdrawal_calldata.clone().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
 
     // Both txs with nonce 0 (first will be filtered, second should succeed with same nonce)

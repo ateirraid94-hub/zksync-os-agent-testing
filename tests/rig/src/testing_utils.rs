@@ -1,13 +1,12 @@
-use alloy::{
-    primitives::{Address, TxKind},
-    rpc::types::TransactionRequest,
-};
+use alloy::primitives::Address;
+use forward_system::run::convert_alloy::FromAlloy;
 use forward_system::system::tracers::call_tracer::CallTracer;
 use once_cell::sync::Lazy;
 use ruint::aliases::B160;
 use zk_ee::{system::validator, utils::Bytes32};
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
 
-use crate::{utils, Chain};
+use crate::{utils::L1TxBuilder, Chain};
 use system_hooks::addresses_constants::{
     CONTRACT_DEPLOYER_ADDRESS, L1_MESSENGER_ADDRESS, L2_BASE_TOKEN_ADDRESS,
 };
@@ -47,7 +46,7 @@ pub fn get_first_traced_call_to(
     address: Address,
     tracer: &CallTracer,
 ) -> Option<&forward_system::system::tracers::call_tracer::Call> {
-    let expected_to = B160::from_be_bytes(address.into_array());
+    let expected_to = B160::from_alloy(address);
     for tx in tracer.transactions.iter().flatten() {
         let search_res = get_first_traced_subcall_to(&expected_to, tx);
         if search_res.is_some() {
@@ -70,7 +69,7 @@ pub fn call_address_and_measure_gas_cost(
 
     if value != 0 {
         let value_encoded = alloy::primitives::U256::from(value);
-        chain.set_balance(B160::from_be_bytes(sender.into_array()), value_encoded);
+        chain.set_balance(B160::from_alloy(sender), value_encoded);
     }
 
     // Needed to test force deploys
@@ -79,19 +78,17 @@ pub fn call_address_and_measure_gas_cost(
     }
 
     let encoded_tx = {
-        let tx = TransactionRequest {
-            chain_id: Some(37),
-            from: Some(sender),
-            to: Some(TxKind::Call(address)),
-            input: calldata.into(),
-            gas: Some(200_000),
-            max_fee_per_gas: Some(1000),
-            max_priority_fee_per_gas: Some(1000),
-            value: Some(alloy::primitives::U256::from(value)),
-            nonce: Some(0),
-            ..TransactionRequest::default()
-        };
-        utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(sender)
+            .to(address)
+            .gas_price(1000)
+            .gas_limit(200_000)
+            .value(alloy::primitives::U256::from(value))
+            .input(calldata)
+            .nonce(0)
+            .build();
+
+        tx.encode()
     };
     let transactions = vec![encoded_tx];
 
