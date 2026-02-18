@@ -64,17 +64,17 @@ impl CallType {
 
     fn as_str(&self) -> &'static str {
         match self {
-            CallType::Call => "Call",
-            CallType::Create => "Create",
-            CallType::Create2 => "Create2",
-            CallType::Delegate => "DelegateCall",
-            CallType::Static => "StaticCall",
-            CallType::DelegateStatic => "DelegateStaticCall",
-            CallType::EVMCallcode => "CallCode",
-            CallType::EVMCallcodeStatic => "StaticCallCode",
-            CallType::ZKVMSystem => "ZKVMSystem",
-            CallType::ZKVMSystemStatic => "ZKVMSystemStatic",
-            CallType::Selfdestruct => "Selfdestruct",
+            CallType::Call => "CALL",
+            CallType::Create => "CREATE",
+            CallType::Create2 => "CREATE2",
+            CallType::Delegate => "DELEGATECALL",
+            CallType::Static => "STATICCALL",
+            CallType::DelegateStatic => "DELEGATECALL",
+            CallType::EVMCallcode => "CALLCODE",
+            CallType::EVMCallcodeStatic => "CALLCODE",
+            CallType::ZKVMSystem => "ZKVM_SYSTEM",
+            CallType::ZKVMSystemStatic => "ZKVM_SYSTEM_STATIC",
+            CallType::Selfdestruct => "SELFDESTRUCT",
         }
     }
 }
@@ -233,7 +233,7 @@ impl CallLogFrame {
             ),
             data: Some(Bytes::from(self.data.clone())),
             position: None, // TODO
-            index: None,    // TODO
+            index: None, // TODO
         }
     }
 }

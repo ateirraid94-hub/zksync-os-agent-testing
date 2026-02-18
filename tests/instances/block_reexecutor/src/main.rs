@@ -7,7 +7,6 @@ mod cache;
 mod rpc_client;
 mod rpc_oracle;
 mod state_view;
-mod trace_conv;
 mod tx_check;
 
 use cache::{
@@ -20,7 +19,6 @@ use rig::{
 };
 use rpc_client::RpcClient;
 use state_view::{generate_block_context_interface, ChainStateView};
-use trace_conv::convert_call_frames_to_revm_trace;
 use tx_check::{check_tx_outputs_against_receipts, filter_supported_receipts};
 use zksync_os_revm_runner::revm_runner;
 
@@ -200,7 +198,11 @@ fn main() -> Result<()> {
         .into_iter()
         .map(CallFrame::from)
         .collect::<Vec<_>>();
-    let trace = convert_call_frames_to_revm_trace(trace);
+    let trace = apply_root_gas_used_from_block_output(trace, &block_output);
+    let trace = trace
+        .into_iter()
+        .map(normalize_call_frame_for_geth_output)
+        .collect::<Vec<_>>();
 
     let tracer_output_path = format!("tracer_output_{}.json", block_number);
     std::fs::write(&tracer_output_path, serde_json::to_string_pretty(&trace)?)?;
@@ -224,4 +226,46 @@ fn main() -> Result<()> {
     println!("REVM call trace saved to {}", revm_trace_output_path);
 
     Ok(())
+}
+
+fn apply_root_gas_used_from_block_output(
+    mut traces: Vec<CallFrame>,
+    block_output: &rig::zksync_os_interface::types::BlockOutput,
+) -> Vec<CallFrame> {
+    if traces.len() != block_output.tx_results.len() {
+        eprintln!(
+            "trace/result length mismatch: traces={} tx_results={}",
+            traces.len(),
+            block_output.tx_results.len()
+        );
+    }
+
+    for (frame, tx_result) in traces.iter_mut().zip(block_output.tx_results.iter()) {
+        if let Ok(tx_output) = tx_result {
+            frame.gas_used = alloy::primitives::U256::from(tx_output.gas_used);
+        }
+    }
+
+    traces
+}
+
+fn normalize_call_frame_for_geth_output(mut frame: CallFrame) -> CallFrame {
+    frame.calls = frame
+        .calls
+        .into_iter()
+        .map(normalize_call_frame_for_geth_output)
+        .collect();
+
+    if matches!(frame.typ.as_str(), "STATICCALL") {
+        frame.value = None;
+    }
+
+    if frame
+        .output
+        .as_ref()
+        .is_some_and(|output| output.is_empty())
+    {
+        frame.output = None;
+    }
+    frame
 }

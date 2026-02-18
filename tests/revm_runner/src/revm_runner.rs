@@ -1,8 +1,9 @@
 use alloy::primitives::U256;
-use alloy::rpc::types::Transaction;
+use alloy::rpc::types::{trace::geth::CallFrame, Transaction};
 use reth_revm::context::ContextTr;
 use reth_revm::inspector::InspectCommitEvm;
 use reth_revm::{db::CacheDB, Context};
+use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
 use zksync_os_interface::types::BlockContext;
 use zksync_os_interface::types::BlockOutput;
 use zksync_os_revm::DefaultZk;
@@ -10,8 +11,6 @@ use zksync_os_revm::ZkBuilder;
 use zksync_os_revm::ZkSpecId;
 
 use crate::helpers::zk_tx_into_revm_tx;
-use crate::revm_call_tracing::RevmCallInspector;
-pub use crate::revm_call_tracing::{RevmCallTrace, RevmTxCallTrace};
 use crate::revm_state_provider::{RevmStateProvider, ViewState};
 use crate::storage_diff_comp::CompareReport;
 
@@ -45,7 +44,7 @@ where
         transactions: Vec<Transaction>,
         block_context: BlockContext,
         block_output: Option<BlockOutput>,
-    ) -> anyhow::Result<Vec<RevmTxCallTrace>> {
+    ) -> anyhow::Result<Vec<CallFrame>> {
         let state_provider = RevmStateProvider::new(
             self.state.clone(),
             block_context.block_hashes,
@@ -66,7 +65,7 @@ where
                 block.gas_limit = block_context.gas_limit;
                 block.prevrandao = Some(block_context.mix_hash.into());
             })
-            .build_zk_with_inspector(RevmCallInspector::default());
+            .build_zk_with_inspector(TracingInspector::new(TracingInspectorConfig::default_geth()));
 
         let revm_txs: Vec<_> = if let Some(block_output) = block_output.as_ref() {
             transactions
@@ -91,13 +90,18 @@ where
                 .collect()
         };
 
-        let mut execution_result = Vec::with_capacity(revm_txs.len());
-        for (tx_index, tx) in revm_txs.into_iter().enumerate() {
-            evm.0.inspector.begin_transaction(tx_index);
-            execution_result.push(evm.inspect_tx_commit(tx)?);
+        let mut call_traces = Vec::with_capacity(revm_txs.len());
+        for tx in revm_txs {
+            let tx_execution = evm.inspect_tx_commit(tx)?;
+            let raw_trace = evm
+                .0
+                .inspector
+                .geth_builder()
+                .geth_call_traces(Default::default(), tx_execution.gas_used());
+            let trace: CallFrame = serde_json::from_value(serde_json::to_value(raw_trace)?)?;
+            call_traces.push(trace);
+            evm.0.inspector.fuse();
         }
-
-        let call_traces = evm.0.inspector.export();
 
         if let Some(block_output) = block_output {
             // TODO: maybe it should be a separate function
@@ -109,7 +113,6 @@ where
             if !compare_report.is_empty() {
                 println!("************* State mismatch found *************");
                 compare_report.log_tracing(100);
-                //anyhow::bail!("State mismatch found. See logs for details.");
             }
         }
 
