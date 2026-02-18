@@ -53,3 +53,11 @@ pub const COMPRESSOR_ADDRESS: B160 = B160::from_limbs([0x800e, 0, 0]);
 pub const COMPLEX_UPGRADER_ADDRESS: B160 = B160::from_limbs([0x800f, 0, 0]);
 pub const KECCAK_SYSTEM_CONTRACT_ADDRESS: B160 = B160::from_limbs([0x8010, 0, 0]);
 pub const PUBDATA_CHUNK_PUBLISHER_ADDRESS: B160 = B160::from_limbs([0x8011, 0, 0]);
+
+// Built-in user space contracts (offset 0x10000)
+/// L2 Chain Asset Handler address (0x1000a)
+pub const L2_CHAIN_ASSET_HANDLER_ADDRESS: B160 = B160::from_limbs([0x1000a, 0, 0]);
+/// L2 Asset Tracker address (0x1000f)
+pub const L2_ASSET_TRACKER_ADDRESS: B160 = B160::from_limbs([0x1000f, 0, 0]);
+/// L2 Base Token Holder address (0x10011)
+pub const L2_BASE_TOKEN_HOLDER_ADDRESS: B160 = B160::from_limbs([0x10011, 0, 0]);

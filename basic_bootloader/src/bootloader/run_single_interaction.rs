@@ -1,5 +1,9 @@
 use crate::bootloader::runner::{run_till_completion, RunnerMemoryBuffers};
+use crypto::sha3::{Digest, Keccak256};
 use errors::BootloaderSubsystemError;
+use system_hooks::addresses_constants::{
+    L2_ASSET_TRACKER_ADDRESS, L2_BASE_TOKEN_HOLDER_ADDRESS, L2_CHAIN_ASSET_HANDLER_ADDRESS,
+};
 use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::internal_error;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
