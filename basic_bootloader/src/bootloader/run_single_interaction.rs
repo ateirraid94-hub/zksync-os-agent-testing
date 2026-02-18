@@ -164,6 +164,12 @@ where
             )
             .unwrap_or(U256::ZERO);
 
+        // Skip saving if _zkosPreV31TotalSupply hasn't been set yet (e.g. during genesis upgrade).
+        // Once the admin sets it via setZkosPreV31TotalSupply, the next mint will save the real value.
+        if pre_v31_supply.is_zero() {
+            return Ok(());
+        }
+
         // 6. Write savedTotalSupply[migrationNumber][assetId] = {isSaved: true, amount: totalSupply}
         //    Struct slot 0: isSaved (bool, value = 1)
         //    Struct slot 1: amount (uint256)
