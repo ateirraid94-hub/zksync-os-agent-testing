@@ -7,12 +7,14 @@
 pub mod account_cache;
 mod account_cache_entry;
 pub mod cost_constants;
+pub mod get_proof;
 pub mod preimage_cache;
 mod simple_growable_storage;
 pub mod storage_cache;
 
 pub use self::account_cache::*;
 pub use self::account_cache_entry::*;
+pub use self::get_proof::*;
 pub use self::preimage_cache::*;
 pub use self::simple_growable_storage::*;
 pub use self::storage_cache::*;
