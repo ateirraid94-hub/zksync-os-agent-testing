@@ -8,6 +8,7 @@ use forward_system::run::{
 };
 use oracle_provider::ReadWitnessSource;
 use zksync_os_interface::traits::TxListSource;
+pub mod get_proof;
 pub mod helpers;
 
 /// Runs the batch, and returns the output (that contains gas usage, transaction status etc.).
