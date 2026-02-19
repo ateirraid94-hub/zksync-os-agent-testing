@@ -483,6 +483,7 @@ where
         &L2_BASE_TOKEN_ADDRESS,
         &nominal_token_value,
         true,
+        false,
     ) {
         Ok(_) => Ok(()),
         // TODO this has to be properly propagated
