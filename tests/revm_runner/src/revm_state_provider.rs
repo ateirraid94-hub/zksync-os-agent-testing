@@ -154,7 +154,7 @@ where
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
         if let Some(diff) = self.state_block_number.checked_sub(number) {
             if diff < 256 {
-                Ok(self.block_hashes.0[256 - diff as usize].into())
+                Ok(self.block_hashes.0[255 - diff as usize].into())
             } else {
                 Ok(B256::default())
             }

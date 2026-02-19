@@ -48,7 +48,7 @@ where
         let state_provider = RevmStateProvider::new(
             self.state.clone(),
             block_context.block_hashes,
-            block_context.block_number,
+            block_context.block_number - 1,
         );
         let mut cache_db = CacheDB::new(state_provider);
         let mut evm = Context::default()
