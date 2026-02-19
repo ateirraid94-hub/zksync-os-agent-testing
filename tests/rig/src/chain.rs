@@ -208,6 +208,10 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         self.block_hashes = block_hashes
     }
 
+    pub fn set_timestamp(&mut self, timestamp: u64) {
+        self.block_timestamp = timestamp;
+    }
+
     /// TODO: duplicated from API, unify.
     /// Runs a block in riscV - using zksync_os binary - and returns the
     /// witness that can be passed to the prover subsystem.

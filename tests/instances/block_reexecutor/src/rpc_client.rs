@@ -8,7 +8,7 @@ use rig::{utils::encode_alloy_rpc_tx, zksync_os_interface::traits::EncodedTx};
 use ruint::aliases::B160;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{io::Read, str::FromStr};
+use std::{io::Read, str::FromStr, thread, time::Duration};
 use ureq::json;
 
 /// Simple RPC client with the basic methods we need
@@ -28,13 +28,33 @@ impl RpcClient {
 
     /// Send JSON-RPC request
     fn send(&self, body: Value) -> Result<String> {
-        let response = ureq::post(&self.endpoint)
-            .set("Content-Type", "application/json")
-            .send_json(body)?;
+        const MAX_502_RETRIES: usize = 3;
+        const RETRY_DELAY: Duration = Duration::from_secs(3);
 
-        let mut out = String::new();
-        response.into_reader().read_to_string(&mut out)?;
-        Ok(out)
+        for attempt in 0..=MAX_502_RETRIES {
+            match ureq::post(&self.endpoint)
+                .set("Content-Type", "application/json")
+                .send_json(body.clone())
+            {
+                Ok(response) => {
+                    let mut out = String::new();
+                    response.into_reader().read_to_string(&mut out)?;
+                    return Ok(out);
+                }
+                Err(ureq::Error::Status(502, _)) if attempt < MAX_502_RETRIES => {
+                    warn!(
+                        "RPC returned 502 (attempt {}/{}), retrying in {}s",
+                        attempt + 1,
+                        MAX_502_RETRIES + 1,
+                        RETRY_DELAY.as_secs()
+                    );
+                    thread::sleep(RETRY_DELAY);
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        unreachable!("retry loop must either return success or an error")
     }
 
     /// Fetches the full block data with transactions.
@@ -49,6 +69,44 @@ impl RpcClient {
         let res = self.send(body)?;
         let block = serde_json::from_str(&res)?;
         Ok(block)
+    }
+
+    /// Fetches the full block data by number with transactions.
+    pub fn get_block_by_number(&self, block_number: u64) -> Result<Block> {
+        debug!("RPC: get_block_by_number({block_number})");
+        let body = json!({
+            "method": "eth_getBlockByNumber",
+            "params": [Self::to_hex(block_number), true],
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        let res = self.send(body)?;
+        let block = serde_json::from_str(&res)?;
+        Ok(block)
+    }
+
+    /// Fetch block hash by number.
+    pub fn get_block_hash_by_number(&self, block_number: u64) -> Result<Option<B256>> {
+        debug!("RPC: get_block_hash_by_number({block_number})");
+        let body = json!({
+            "method": "eth_getBlockByNumber",
+            "params": [Self::to_hex(block_number), false],
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        let res = self.send(body)?;
+        let response: Value = serde_json::from_str(&res)?;
+        let Some(block) = response.get("result") else {
+            return Err(anyhow!("No result field in eth_getBlockByNumber response"));
+        };
+        if block.is_null() {
+            return Ok(None);
+        }
+        let hash_hex = block["hash"]
+            .as_str()
+            .ok_or_else(|| anyhow!("No block hash in eth_getBlockByNumber response"))?;
+        let hash = B256::from_str(hash_hex)?;
+        Ok(Some(hash))
     }
 
     /// Fetches the ZKsync OS specific block metadata.
@@ -168,6 +226,20 @@ impl RpcClient {
         let receipts = serde_json::from_str(&res)?;
         Ok(receipts)
     }
+
+    /// Fetch transaction receipt by tx hash.
+    pub fn get_transaction_receipt(&self, tx_hash: B256) -> Result<Option<TransactionReceipt>> {
+        debug!("RPC: get_transaction_receipt({tx_hash:#x})");
+        let body = json!({
+            "method": "eth_getTransactionReceipt",
+            "params": [format!("0x{:x}", tx_hash)],
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        let res = self.send(body)?;
+        let receipt: MaybeTransactionReceipt = serde_json::from_str(&res)?;
+        Ok(receipt.result)
+    }
 }
 
 use alloy::eips::Typed2718;
@@ -242,6 +314,11 @@ impl ReceiptLog {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BlockReceipts {
     pub result: Vec<TransactionReceipt>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MaybeTransactionReceipt {
+    pub result: Option<TransactionReceipt>,
 }
 
 impl Block {

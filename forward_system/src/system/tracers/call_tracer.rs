@@ -233,7 +233,7 @@ impl CallLogFrame {
             ),
             data: Some(Bytes::from(self.data.clone())),
             position: None, // TODO
-            index: None, // TODO
+            index: None,    // TODO
         }
     }
 }

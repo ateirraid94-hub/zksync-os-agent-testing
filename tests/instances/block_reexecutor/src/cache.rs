@@ -6,7 +6,7 @@ use std::{
 use alloy::{hex, primitives::B256};
 use anyhow::{Context, Result};
 use rig::zk_ee::utils::Bytes32;
-use ruint::aliases::B160;
+use ruint::aliases::{B160, U256};
 
 use crate::rpc_client::{Block, BlockMetadataResult, RpcClient, TransactionReceipt};
 
@@ -16,6 +16,7 @@ pub struct LoadedBlockParams {
     pub block_metadata: BlockMetadataResult,
     pub chain_id: u64,
     pub receipts: Vec<TransactionReceipt>,
+    pub historical_block_hashes: [U256; 256],
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -39,6 +40,8 @@ struct DiskBlockParams {
     chain_id: u64,
     #[serde(default)]
     receipts: Vec<TransactionReceipt>,
+    #[serde(default)]
+    historical_block_hashes: Vec<String>,
 }
 
 pub fn block_params_cache_path(block_hash: B256) -> PathBuf {
@@ -73,20 +76,36 @@ pub fn load_or_fetch_block_params(
                     cached.receipts.len(),
                     cached_block_tx_count
                 );
-            } else {
-                println!(
-                    "Loaded block params from disk cache: {:?} (block_number={}, chain_id={}, receipts={})",
-                    cache_path,
-                    cached.block.result.header.number,
-                    cached.chain_id,
-                    cached.receipts.len()
+            } else if cached.historical_block_hashes.len() != 256 {
+                eprintln!(
+                    "Block params cache is stale (historical block hash count mismatch: expected 256, got {}), refetching",
+                    cached.historical_block_hashes.len()
                 );
-                return Ok(LoadedBlockParams {
-                    block: cached.block,
-                    block_metadata: cached.block_metadata,
-                    chain_id: cached.chain_id,
-                    receipts: cached.receipts,
-                });
+            } else {
+                match decode_historical_block_hashes(&cached.historical_block_hashes) {
+                    Ok(historical_block_hashes) => {
+                        println!(
+                            "Loaded block params from disk cache: {:?} (block_number={}, chain_id={}, receipts={}, historical_block_hashes={})",
+                            cache_path,
+                            cached.block.result.header.number,
+                            cached.chain_id,
+                            cached.receipts.len(),
+                            cached.historical_block_hashes.len()
+                        );
+                        return Ok(LoadedBlockParams {
+                            block: cached.block,
+                            block_metadata: cached.block_metadata,
+                            chain_id: cached.chain_id,
+                            receipts: cached.receipts,
+                            historical_block_hashes,
+                        });
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "Block params cache is stale (invalid historical block hashes), refetching: {err}"
+                        );
+                    }
+                }
             }
         }
         Ok(None) => {
@@ -108,6 +127,7 @@ pub fn load_or_fetch_block_params(
     let block_metadata = rpc_client.get_block_metadata(block_number)?;
     let chain_id = rpc_client.get_chain_id()?;
     let receipts = rpc_client.get_block_receipts(block_number)?.result;
+    let historical_block_hashes = fetch_historical_block_hashes(rpc_client, block_number)?;
 
     if let Err(err) = save_block_params_cache(
         cache_path,
@@ -116,15 +136,17 @@ pub fn load_or_fetch_block_params(
         &block_metadata,
         chain_id,
         &receipts,
+        &historical_block_hashes,
     ) {
         eprintln!("Failed to save block params cache: {err}");
     } else {
         println!(
-            "Saved block params cache to disk: {:?} (block_number={}, chain_id={}, receipts={})",
+            "Saved block params cache to disk: {:?} (block_number={}, chain_id={}, receipts={}, historical_block_hashes={})",
             cache_path,
             block_number,
             chain_id,
-            receipts.len()
+            receipts.len(),
+            historical_block_hashes.len()
         );
     }
 
@@ -133,6 +155,7 @@ pub fn load_or_fetch_block_params(
         block_metadata,
         chain_id,
         receipts,
+        historical_block_hashes,
     })
 }
 
@@ -264,6 +287,7 @@ fn save_block_params_cache(
     block_metadata: &BlockMetadataResult,
     chain_id: u64,
     receipts: &[TransactionReceipt],
+    historical_block_hashes: &[U256; 256],
 ) -> Result<()> {
     let cache_dir = cache_path
         .parent()
@@ -277,6 +301,7 @@ fn save_block_params_cache(
         block_metadata: block_metadata.clone(),
         chain_id,
         receipts: receipts.to_vec(),
+        historical_block_hashes: encode_historical_block_hashes(historical_block_hashes),
     };
 
     std::fs::write(cache_path, serde_json::to_vec_pretty(&payload)?)
@@ -299,4 +324,60 @@ fn decode_bytes_hex(value: &str) -> Result<Vec<u8>> {
     let raw =
         hex::decode(stripped).with_context(|| format!("failed to decode hex value `{value}`"))?;
     Ok(raw)
+}
+
+fn fetch_historical_block_hashes(rpc_client: &RpcClient, block_number: u64) -> Result<[U256; 256]> {
+    let mut block_hashes = [U256::ZERO; 256];
+    let mut loaded = 0usize;
+
+    // Chain expects newest historical block hash at index 255.
+    for depth in 1u64..=256 {
+        println!(
+            "Fetching historical block hash for block #{}, depth {}",
+            block_number - depth,
+            depth
+        );
+        let Some(target_block_number) = block_number.checked_sub(depth) else {
+            break;
+        };
+
+        let idx = 256 - depth as usize;
+        match rpc_client.get_block_hash_by_number(target_block_number)? {
+            Some(hash) => {
+                block_hashes[idx] = U256::from_be_bytes(hash.0);
+                loaded += 1;
+            }
+            None => {
+                println!(
+                    "RPC returned null for historical block #{target_block_number}; leaving remaining block hashes as zeroes"
+                );
+                break;
+            }
+        }
+    }
+
+    println!("Fetched {} historical block hashes from RPC", loaded);
+    Ok(block_hashes)
+}
+
+fn encode_historical_block_hashes(hashes: &[U256; 256]) -> Vec<String> {
+    hashes
+        .iter()
+        .map(|hash| hex::encode_prefixed(hash.to_be_bytes::<32>()))
+        .collect()
+}
+
+fn decode_historical_block_hashes(raw_hashes: &[String]) -> Result<[U256; 256]> {
+    if raw_hashes.len() != 256 {
+        return Err(anyhow::anyhow!(
+            "expected 256 historical block hashes, got {}",
+            raw_hashes.len()
+        ));
+    }
+
+    let mut hashes = [U256::ZERO; 256];
+    for (idx, raw_hash) in raw_hashes.iter().enumerate() {
+        hashes[idx] = U256::from_be_bytes(decode_fixed_hex::<32>(raw_hash)?);
+    }
+    Ok(hashes)
 }
