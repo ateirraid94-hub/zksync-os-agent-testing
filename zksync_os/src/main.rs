@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(incomplete_features)]
 #![feature(allocator_api)]
-#![feature(generic_const_exprs)]
+
 #![no_main]
 
 extern "C" {
@@ -202,9 +202,11 @@ unsafe fn workload() -> ! {
     type LoggerTy = crate::quasi_uart::QuasiUART;
 
     use core::fmt::Write;
-    let _ =
-        LoggerTy::default().write_fmt(format_args!("Entry routine is done, moving into payload\n"));
-
+    use proof_running_system::zk_ee::logger_log;
+    logger_log!(
+        LoggerTy::default(),
+        "Entry routine is done, moving into payload\n"
+    );
 
     // and crunch
     let output = proof_running_system::system::bootloader::run_proving::<

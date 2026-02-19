@@ -7,12 +7,16 @@ use alloy::consensus::{TxEip1559, TxLegacy};
 use alloy::primitives::TxKind;
 use alloy::signers::local::PrivateKeySigner;
 use rig::alloy::primitives::address;
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::run::generate_batch_proof_input;
 use rig::log::debug;
 use rig::ruint::aliases::{B160, U256};
 use rig::utils::{ERC_20_BYTECODE, ERC_20_MINT_CALLDATA, ERC_20_TRANSFER_CALLDATA};
 use rig::zk_ee::common_structs::DACommitmentScheme;
 use rig::zk_ee::system::tracer::NopTracer;
+use rig::zk_ee::system::validator::NopTxValidator;
+use rig::zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use rig::zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 use rig::{alloy, zksync_web3_rs, Chain};
 use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
 use std::path::PathBuf;
@@ -31,7 +35,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
     let to = address!("0000000000000000000000000000000000010002");
 
     let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
-    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_evm_bytecode(B160::from_alloy(to), &bytecode);
 
     chain.set_balance(
         B160::from_be_bytes(from.0),
@@ -48,7 +52,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
             value: Default::default(),
             input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(mint_tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet.clone()).encode()
     };
 
     let block1_result = chain
@@ -58,6 +62,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
             Some(da_commitment_scheme),
             None,
             &mut NopTracer::default(),
+            &mut NopTxValidator::default(),
         )
         .unwrap();
     let encoded_transfer_tx = {
@@ -72,7 +77,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(transfer_tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(transfer_tx, wallet.clone()).encode()
     };
 
     let block2_result = chain
@@ -82,6 +87,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
             Some(da_commitment_scheme),
             None,
             &mut NopTracer::default(),
+            &mut NopTxValidator::default(),
         )
         .unwrap();
 

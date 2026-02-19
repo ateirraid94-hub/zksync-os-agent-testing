@@ -1,7 +1,7 @@
+use crate::run::convert_alloy::{FromAlloy, IntoAlloy};
 use alloy::consensus::{Header, Sealed};
 use alloy::primitives::Log;
 use basic_bootloader::bootloader::block_header::BlockHeader;
-use ruint::aliases::B160;
 use zk_ee::common_structs::GenericEventContent;
 use zk_ee::system::metadata::zk_metadata::{BlockHashes, BlockMetadataFromOracle};
 use zk_ee::types_config::EthereumIOTypesConfig;
@@ -26,10 +26,11 @@ impl FromInterface<BlockContext> for BlockMetadataFromOracle {
             eip1559_basefee: value.eip1559_basefee,
             pubdata_price: value.pubdata_price,
             native_price: value.native_price,
-            coinbase: B160::from_be_bytes(value.coinbase.0 .0),
+            coinbase: ruint::aliases::B160::from_alloy(value.coinbase),
             gas_limit: value.gas_limit,
             pubdata_limit: value.pubdata_limit,
             mix_hash: value.mix_hash,
+            blob_fee: value.blob_fee,
         }
     }
 }
@@ -53,11 +54,12 @@ impl IntoInterface<InvalidTransaction>
             basic_bootloader::bootloader::errors::InvalidTransaction::NonceTooHigh { tx, state } => { InvalidTransaction::NonceTooHigh { tx, state } }
             basic_bootloader::bootloader::errors::InvalidTransaction::NonceTooLow { tx, state } => { InvalidTransaction::NonceTooLow { tx, state } }
             basic_bootloader::bootloader::errors::InvalidTransaction::MalleableSignature => { InvalidTransaction::MalleableSignature }
-            basic_bootloader::bootloader::errors::InvalidTransaction::IncorrectFrom { tx, recovered } => { InvalidTransaction::IncorrectFrom { tx: tx.to_be_bytes().into(), recovered: recovered.to_be_bytes().into() } }
+            basic_bootloader::bootloader::errors::InvalidTransaction::IncorrectFrom { tx, recovered } => { InvalidTransaction::IncorrectFrom { tx: tx.into_alloy(), recovered: recovered.into_alloy() } }
             basic_bootloader::bootloader::errors::InvalidTransaction::CreateInitCodeSizeLimit => { InvalidTransaction::CreateInitCodeSizeLimit }
             basic_bootloader::bootloader::errors::InvalidTransaction::InvalidChainId => { InvalidTransaction::InvalidChainId }
             basic_bootloader::bootloader::errors::InvalidTransaction::AccessListNotSupported => { InvalidTransaction::AccessListNotSupported }
-            basic_bootloader::bootloader::errors::InvalidTransaction::GasPerPubdataTooHigh => { InvalidTransaction::GasPerPubdataTooHigh }
+            // TODO: fix mapping after updating interface
+            basic_bootloader::bootloader::errors::InvalidTransaction::PubdataPriceTooHigh => { InvalidTransaction::GasPerPubdataTooHigh }
             basic_bootloader::bootloader::errors::InvalidTransaction::BlockGasLimitTooHigh => { InvalidTransaction::BlockGasLimitTooHigh }
             basic_bootloader::bootloader::errors::InvalidTransaction::UpgradeTxNotFirst => { InvalidTransaction::UpgradeTxNotFirst }
             basic_bootloader::bootloader::errors::InvalidTransaction::ReceivedInsufficientFees { received, required } => { InvalidTransaction::ReceivedInsufficientFees { received, required } }
@@ -73,6 +75,14 @@ impl IntoInterface<InvalidTransaction>
             basic_bootloader::bootloader::errors::InvalidTransaction::BlockL2ToL1LogsLimitReached => { InvalidTransaction::BlockL2ToL1LogsLimitReached }
             basic_bootloader::bootloader::errors::InvalidTransaction::AuthListIsEmpty => {InvalidTransaction::AuthListIsEmpty}
             basic_bootloader::bootloader::errors::InvalidTransaction::EIP7702HasNullDestination => {InvalidTransaction::EIP7702HasNullDestination}
+            basic_bootloader::bootloader::errors::InvalidTransaction::FilteredByValidator  => {InvalidTransaction::FilteredByValidator }
+            basic_bootloader::bootloader::errors::InvalidTransaction::BlockBlobGasLimitReached => {InvalidTransaction::BlockBlobGasLimitReached}
+            basic_bootloader::bootloader::errors::InvalidTransaction::BlobBaseFeeGreaterThanMaxFeePerBlobGas => {InvalidTransaction::BlobBaseFeeGreaterThanMaxFeePerBlobGas}
+            basic_bootloader::bootloader::errors::InvalidTransaction::BlobListTooLong => {InvalidTransaction::BlobListTooLong}
+            basic_bootloader::bootloader::errors::InvalidTransaction::EmptyBlobList => {InvalidTransaction::EmptyBlobList}
+            basic_bootloader::bootloader::errors::InvalidTransaction::BlobElementIsNotSupported => {InvalidTransaction::BlobElementIsNotSupported}
+            // TODO: add missing errors to interface
+            _ => todo!()
         }
     }
 }
@@ -80,8 +90,8 @@ impl IntoInterface<InvalidTransaction>
 impl IntoInterface<Log> for &GenericEventContent<4, EthereumIOTypesConfig> {
     fn into_interface(self) -> Log {
         Log::new(
-            self.address.to_be_bytes().into(),
-            self.topics.iter().map(|t| t.as_u8_array().into()).collect(),
+            self.address.into_alloy(),
+            self.topics.iter().map(|t| t.into_alloy()).collect(),
             self.data.as_slice().to_vec().into(),
         )
         .unwrap()
@@ -94,9 +104,9 @@ impl IntoInterface<L2ToL1Log> for zk_ee::common_structs::L2ToL1Log {
             l2_shard_id: self.l2_shard_id,
             is_service: self.is_service,
             tx_number_in_block: self.tx_number_in_block,
-            sender: self.sender.to_be_bytes().into(),
-            key: self.key.as_u8_array().into(),
-            value: self.value.as_u8_array().into(),
+            sender: self.sender.into_alloy(),
+            key: self.key.into_alloy(),
+            value: self.value.into_alloy(),
         }
     }
 }
@@ -105,12 +115,12 @@ impl IntoInterface<Sealed<Header>> for BlockHeader {
     fn into_interface(self) -> Sealed<Header> {
         let hash = self.hash();
         let header = Header {
-            parent_hash: self.parent_hash.as_u8_array().into(),
-            ommers_hash: self.ommers_hash.as_u8_array().into(),
-            beneficiary: self.beneficiary.to_be_bytes().into(),
-            state_root: self.state_root.as_u8_array().into(),
-            transactions_root: self.transactions_root.as_u8_array().into(),
-            receipts_root: self.receipts_root.as_u8_array().into(),
+            parent_hash: self.parent_hash.into_alloy(),
+            ommers_hash: self.ommers_hash.into_alloy(),
+            beneficiary: self.beneficiary.into_alloy(),
+            state_root: self.state_root.into_alloy(),
+            transactions_root: self.transactions_root.into_alloy(),
+            receipts_root: self.receipts_root.into_alloy(),
             logs_bloom: self.logs_bloom.into(),
             difficulty: self.difficulty,
             number: self.number,
@@ -118,7 +128,7 @@ impl IntoInterface<Sealed<Header>> for BlockHeader {
             gas_used: self.gas_used,
             timestamp: self.timestamp,
             extra_data: self.extra_data.to_vec().into(),
-            mix_hash: self.mix_hash.as_u8_array().into(),
+            mix_hash: self.mix_hash.into_alloy(),
             nonce: self.nonce.into(),
             base_fee_per_gas: Some(self.base_fee_per_gas),
             withdrawals_root: None,

@@ -8,11 +8,11 @@
 //!
 
 use super::errors::TxError;
+use crate::bootloader::transaction::rlp_encoded::BlobHashesList;
 use crate::bootloader::BootloaderSubsystemError;
 use crate::bootloader::InvalidTransaction;
 use core::alloc::Allocator;
 use rlp_encoded::AccessListForAddress;
-#[cfg(feature = "eip-7702")]
 use rlp_encoded::AuthorizationList;
 use rlp_encoded::RlpEncodedTransaction;
 use ruint::aliases::B160;
@@ -37,8 +37,11 @@ pub mod abi_encoded;
 pub mod rlp_encoded;
 use self::abi_encoded::AbiEncodedTransaction;
 
-#[cfg(feature = "eip-7702")]
 pub mod authorization_list;
+
+pub mod access_list;
+
+pub mod blobs;
 
 /// Unified transaction wrapper over RLP and ABI formats.
 /// RLP transactions are used for regular Ethereum transactions,
@@ -50,14 +53,18 @@ pub enum Transaction<A: Allocator> {
     Abi(AbiEncodedTransaction<A>),
 }
 
+impl<A: Allocator> core::fmt::Debug for Transaction<A> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Transaction::Rlp(tx) => f.debug_tuple("Rlp").field(tx).finish(),
+            Transaction::Abi(tx) => f.debug_tuple("Abi").field(tx).finish(),
+        }
+    }
+}
+
 impl<A: Allocator> Transaction<A> {
     /// Parse a transaction from a raw buffer using the system IO oracle.
-    pub fn try_from_buffer<
-        S: EthereumLikeTypes<
-            Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata,
-            Allocator = A,
-        >,
-    >(
+    pub fn try_from_buffer<S: EthereumLikeTypes<Allocator = A>>(
         buffer: UsizeAlignedByteBox<A>,
         system: &mut System<S>,
     ) -> Result<Self, TxError>
@@ -243,7 +250,6 @@ impl<A: Allocator> Transaction<A> {
     }
 
     /// Returns the authorization list if present.
-    #[cfg(feature = "eip-7702")]
     pub fn authorization_list(&self) -> Option<AuthorizationList<'_>> {
         match self {
             Self::Abi(_) => None,
@@ -257,6 +263,40 @@ impl<A: Allocator> Transaction<A> {
         match self {
             Self::Abi(tx) => tx.len(),
             Self::Rlp(tx) => tx.len(),
+        }
+    }
+
+    /// Returns the max fee per blob gas, if present.
+    pub fn max_fee_per_blob_gas(&self) -> Option<&U256> {
+        match self {
+            Self::Abi(_) => None,
+            Self::Rlp(tx) => tx.max_fee_per_blob_gas(),
+        }
+    }
+
+    /// Returns the list of blob hashes, if present.
+    pub fn blobs<'a>(&'a self) -> Option<BlobHashesList<'a>> {
+        match self {
+            Self::Abi(_) => None,
+            Self::Rlp(tx) => tx.blobs_list(),
+        }
+    }
+
+    /// Returns a transaction's type
+    pub fn tx_type(&self) -> u8 {
+        match self {
+            Self::Abi(tx) => tx.tx_type.value,
+            Self::Rlp(tx) => tx.tx_type(),
+        }
+    }
+
+    /// Returns a transactions encoding, only supported for RLP transactions
+    pub fn tx_encoding(&self) -> Result<&[u8], InternalError> {
+        match self {
+            Self::Abi(_tx) => Err(internal_error!(
+                "shouldn't inspect encoding for ABI encoded txs"
+            )),
+            Self::Rlp(tx) => Ok(tx.tx_encoding()),
         }
     }
 }

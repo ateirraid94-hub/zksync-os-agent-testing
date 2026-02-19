@@ -8,8 +8,11 @@
 
 use rig::alloy::consensus::TxEip2930;
 use rig::alloy::primitives::{address, TxKind, U256};
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::ruint::aliases::B160;
 use rig::{BlockContext, Chain};
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 #[test]
 #[should_panic]
@@ -20,7 +23,7 @@ fn test_invalid_coinbase() {
     let target_address = address!("4242000000000000000000000000000000000000");
 
     chain.set_balance(
-        B160::from_be_bytes(from.into_array()),
+        B160::from_alloy(from),
         U256::from(1_000_000_000_000_000_u64),
     );
 
@@ -35,7 +38,7 @@ fn test_invalid_coinbase() {
             input: Default::default(),
             access_list: Default::default(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
 
     // Create invalid coinbase with 24 bytes set

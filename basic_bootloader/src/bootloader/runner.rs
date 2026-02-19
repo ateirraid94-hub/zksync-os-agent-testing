@@ -19,7 +19,9 @@ use zk_ee::system::errors::root_cause::RootCause;
 use zk_ee::system::errors::runtime::RuntimeError;
 use zk_ee::system::errors::subsystem::SubsystemError;
 use zk_ee::system::tracer::Tracer;
+use zk_ee::system::validator::TxValidator;
 use zk_ee::system::{errors::system::SystemError, logger::Logger, *};
+use zk_ee::system_log;
 use zk_ee::wrap_error;
 use zk_ee::{internal_error, out_of_ergs_error};
 
@@ -35,6 +37,7 @@ pub fn run_till_completion<'a, S: EthereumLikeTypes>(
     initial_ee_version: ExecutionEnvironmentType,
     initial_request: ExternalCallRequest<S>,
     tracer: &mut impl Tracer<S>,
+    validator: &mut impl TxValidator<S>,
 ) -> Result<CompletedExecution<'a, S>, BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
@@ -43,9 +46,7 @@ where
 
     // NOTE: we do not need to make a new frame as we are in the root already
 
-    let _ = system
-        .get_logger()
-        .write_fmt(format_args!("Begin execution\n"));
+    system_log!(system, "Begin execution\n");
 
     let mut execution = ExecutionContext {
         system,
@@ -59,6 +60,7 @@ where
         initial_request,
         heap,
         tracer,
+        validator,
     )
 }
 
@@ -111,23 +113,22 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
         call_request: ExternalCallRequest<S>,
         heap: SliceVec<u8>,
         tracer: &mut impl Tracer<S>,
+        validator: &mut impl TxValidator<S>,
     ) -> Result<CompletedExecution<'external, S>, BootloaderSubsystemError>
     where
         S::IO: IOSubsystemExt,
     {
-        // TODO: debug implementation for ruint types uses global alloc, which panics in ZKsync OS
-        #[cfg(not(target_arch = "riscv32"))]
-        {
-            let _ = self.system.get_logger().write_fmt(format_args!(
-                "External call or deploy to {:?}\n",
-                call_request.callee
-            ));
+        system_log!(
+            self.system,
+            "External call or deploy to {:?}\n",
+            call_request.callee
+        );
 
-            let _ = self.system.get_logger().write_fmt(format_args!(
-                "External call with parameters:\n{:?}\n",
-                &call_request,
-            ));
-        }
+        system_log!(
+            self.system,
+            "External call with parameters:\n{:?}\n",
+            &call_request,
+        );
 
         // We begin execution of the requested call in the caller's context. This is necessary
         // because the execution environment does not charge the caller's frame for reading
@@ -178,6 +179,7 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
             external_call_launch_params,
             heap,
             tracer,
+            validator,
         );
 
         tracer.after_execution_frame_completed(
@@ -204,6 +206,7 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
         mut external_call_launch_params: ExecutionEnvironmentLaunchParams<S>,
         heap: SliceVec<u8>,
         tracer: &mut impl Tracer<S>,
+        validator: &mut impl TxValidator<S>,
     ) -> Result<(S::Resources, CallResult<'external, S>), BootloaderSubsystemError>
     where
         S::IO: IOSubsystemExt,
@@ -286,6 +289,7 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
                 next_ee_type,
                 rollback_handle,
                 tracer,
+                validator,
             )
         }
     }
@@ -305,10 +309,11 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
 
         // Check transfer is allowed and determine transfer target
         if !call_request.is_transfer_allowed() {
-            let _ = self.system.get_logger().write_fmt(format_args!(
+            system_log!(
+                self.system,
                 "Call failed: positive value with modifier {:?}\n",
                 call_request.modifier
-            ));
+            );
             return Err(internal_error!("Positive value with incorrect modifier").into());
         }
         // Adjust transfer target due to CALLCODE
@@ -382,6 +387,7 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
         next_ee_type: ExecutionEnvironmentType,
         rollback_handle: SystemFrameSnapshot<S>,
         tracer: &mut impl Tracer<S>,
+        validator: &mut impl TxValidator<S>,
     ) -> Result<(S::Resources, CallResult<'external, S>), BootloaderSubsystemError>
     where
         S::IO: IOSubsystemExt,
@@ -443,12 +449,14 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
                         request,
                         heap,
                         tracer,
+                        validator,
                     )?;
 
-                    let _ = self.system.get_logger().write_fmt(format_args!(
+                    system_log!(
+                        self.system,
                         "Return from call or deployment, success = {:?}\n",
                         !result.failed()
-                    ));
+                    );
                     self.callstack_height -= 1;
 
                     preemption = new_vm
@@ -473,10 +481,8 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
                         .map_err(|_| internal_error!("must finish execution frame"))?;
 
                     let returndata_iter = return_values.returndata.iter().copied();
-                    let _ = self
-                        .system
-                        .get_logger()
-                        .write_fmt(format_args!("Returndata = "));
+
+                    system_log!(self.system, "Returndata = ");
                     let _ = self.system.get_logger().log_data(returndata_iter);
 
                     let return_values = self.copy_into_return_memory(return_values)?;
@@ -506,9 +512,10 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
     {
         // Deploying attempt should be reverted
         if external_call_launch_params.external_call.modifier == CallModifier::Constructor {
-            let _ = self.system.get_logger().write_fmt(format_args!(
+            system_log!(
+                self.system,
                 "Attempt to deploy something on special address\n"
-            ));
+            );
             self.system
                 .finish_global_frame(Some(&rollback_handle))
                 .map_err(|_| internal_error!("must finish execution frame"))?;
@@ -547,17 +554,15 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
             let reverted = result.failed();
             let return_values = result.return_values();
 
-            let _ = self.system.get_logger().write_fmt(format_args!(
+            system_log!(
+                self.system,
                 "Call to special address returned, success = {}\n",
                 !reverted
-            ));
+            );
 
             let returndata_slice = return_values.returndata;
             let returndata_iter = returndata_slice.iter().copied();
-            let _ = self
-                .system
-                .get_logger()
-                .write_fmt(format_args!("Returndata = "));
+            system_log!(self.system, "Returndata = ");
             let _ = self.system.get_logger().log_data(returndata_iter);
 
             self.system
@@ -579,9 +584,7 @@ impl<'external, S: EthereumLikeTypes> ExecutionContext<'_, 'external, S> {
         } else {
             let resources_returned = resources_passed;
             // it's an empty account for all the purposes
-            let _ = self.system.get_logger().write_fmt(format_args!(
-                "Call to special address was not intercepted\n",
-            ));
+            system_log!(self.system, "Call to special address was not intercepted\n",);
             self.system
                 .finish_global_frame(None)
                 .map_err(|_| internal_error!("must finish execution frame"))?;
@@ -680,13 +683,12 @@ where
     };
 
     if DEBUG_OUTPUT {
-        let _ = system.get_logger().write_fmt(format_args!(
+        system_log!(
+            system,
             "Bytecode len for `callee` = {}\n",
             callee_account_properties.bytecode.len(),
-        ));
-        let _ = system
-            .get_logger()
-            .write_fmt(format_args!("Bytecode for `callee` = "));
+        );
+        system_log!(system, "Bytecode for `callee` = ");
         let _ = system
             .get_logger()
             .log_data(callee_account_properties.bytecode.iter().copied());
@@ -795,9 +797,10 @@ where
         }) {
         Ok((account_properties, delegate)) => (account_properties, delegate),
         Err(SystemError::LeafRuntime(RuntimeError::OutOfErgs(_))) => {
-            let _ = system.get_logger().write_fmt(format_args!(
+            system_log!(
+                system,
                 "Call failed: insufficient resources to read callee account data\n",
-            ));
+            );
             return Err(out_of_ergs_error!());
         }
         Err(SystemError::LeafRuntime(RuntimeError::FatalRuntimeError(e))) => {

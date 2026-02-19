@@ -1,17 +1,12 @@
 #![cfg_attr(target_arch = "riscv32", no_std)]
 #![feature(allocator_api)]
-#![feature(array_chunks)]
 #![feature(get_mut_unchecked)]
-#![feature(const_type_id)]
 #![feature(vec_push_within_capacity)]
 #![feature(ptr_alignment_type)]
 #![feature(btreemap_alloc)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(ptr_metadata)]
 #![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
-#![feature(alloc_layout_extra)]
-#![feature(array_windows)]
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::needless_borrows_for_generic_args)]
 #![allow(clippy::result_unit_err)]
@@ -29,10 +24,11 @@
 extern crate alloc;
 
 use crate::addresses_constants::*;
-use crate::call_hooks::contract_deployer::contract_deployer_hook;
 use crate::call_hooks::l1_messenger::l1_messenger_hook;
 use crate::call_hooks::mint_base_token::mint_base_token_hook;
+use crate::call_hooks::set_bytecode_on_address::set_bytecode_on_address_hook;
 use crate::event_hooks::interop_root_reporter::interop_root_reporter_event_hook;
+use crate::event_hooks::system_context::system_context_event_hook;
 use call_hooks::precompiles::{
     pure_system_function_hook_impl, IdentityPrecompile, IdentityPrecompileErrors,
 };
@@ -210,20 +206,20 @@ pub fn add_l1_messenger<S: EthereumLikeTypes, A: Allocator + Clone>(
     hooks: &mut HooksStorage<S, A>,
 ) -> Result<(), InternalError> {
     hooks.add_call_hook(
-        L1_MESSENGER_ADDRESS_LOW,
+        L1_MESSENGER_ADDRESS_HOOK_LOW,
         SystemCallHook::new(l1_messenger_hook),
     )
 }
 
-pub fn add_contract_deployer<S: EthereumLikeTypes, A: Allocator + Clone>(
+pub fn add_set_bytecode_on_address_hook<S: EthereumLikeTypes, A: Allocator + Clone>(
     hooks: &mut HooksStorage<S, A>,
 ) -> Result<(), InternalError>
 where
     S::IO: IOSubsystemExt,
 {
     hooks.add_call_hook(
-        CONTRACT_DEPLOYER_ADDRESS_LOW,
-        SystemCallHook::new(contract_deployer_hook),
+        SET_BYTECODE_ON_ADDRESS_HOOK_LOW,
+        SystemCallHook::new(set_bytecode_on_address_hook),
     )
 }
 
@@ -248,7 +244,16 @@ pub fn add_interop_root_reporter<S: EthereumLikeTypes, A: Allocator + Clone>(
     )
 }
 
-fn add_precompile<S: EthereumLikeTypes, A: Allocator + Clone, P, E>(
+pub fn add_system_context_reporter<S: EthereumLikeTypes, A: Allocator + Clone>(
+    hooks: &mut HooksStorage<S, A>,
+) -> Result<(), InternalError> {
+    hooks.add_event_hook(
+        SYSTEM_CONTEXT_ADDRESS_LOW,
+        SystemEventHook::new(system_context_event_hook),
+    )
+}
+
+pub fn add_precompile<S: EthereumLikeTypes, A: Allocator + Clone, P, E>(
     hooks: &mut HooksStorage<S, A>,
     address_low: u16,
 ) -> Result<(), InternalError>
@@ -311,7 +316,7 @@ fn make_error_return_state<'a, S: SystemTypes>(
 fn make_return_state_from_returndata_region<S: SystemTypes>(
     remaining_resources: S::Resources,
     returndata: &[u8],
-) -> CompletedExecution<S> {
+) -> CompletedExecution<'_, S> {
     let return_values = ReturnValues {
         returndata,
         return_scratch_space: None,

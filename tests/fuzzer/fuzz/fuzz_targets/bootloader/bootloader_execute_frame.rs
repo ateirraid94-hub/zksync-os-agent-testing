@@ -1,7 +1,7 @@
 #![no_main]
 #![feature(allocator_api)]
 #![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
+
 
 use arbitrary::Arbitrary;
 use basic_bootloader::bootloader::supported_ees::SupportedEEVMState;
@@ -136,14 +136,6 @@ fn fuzz(input: FuzzInput) {
     let Ok(_) = system.finish_global_frame(None) else {
         return;
     };
-
-    let mut result_keeper: NopResultKeeper<()> = NopResultKeeper::default();
-    system.finish(
-        Bytes32::default(),
-        Bytes32::default(),
-        Bytes32::default(),
-        &mut result_keeper,
-    );
 }
 
 fuzz_target!(|input: FuzzInput| {

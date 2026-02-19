@@ -3,11 +3,14 @@ use crate::ERC_20_TRANSFER_CALLDATA;
 use alloy::primitives::TxKind;
 use alloy::signers::local::PrivateKeySigner;
 use rig::alloy::primitives::address;
-use rig::alloy::rpc::types::TransactionRequest;
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::ruint::aliases::{B160, U256};
+use rig::utils::L1TxBuilder;
 use rig::zksync_os_interface::traits::EncodedTx;
 use rig::{alloy, zksync_web3_rs, BlockContext, Chain};
 use std::str::FromStr;
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 use zksync_web3_rs::signers::{LocalWallet, Signer};
 
 const WALLET: &str = "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7";
@@ -24,7 +27,7 @@ fn run_tx(tx: EncodedTx, basefee: u64, native_price: u64, should_succeed: bool, 
 
     let bytecode = hex::decode(crate::ERC_20_BYTECODE).unwrap();
     let wallet = PrivateKeySigner::from_str(WALLET).unwrap();
-    chain.set_evm_bytecode(B160::from_be_bytes(TO.into_array()), &bytecode);
+    chain.set_evm_bytecode(B160::from_alloy(TO), &bytecode);
     let wallet_ethers = LocalWallet::from_bytes(wallet.to_bytes().as_slice()).unwrap();
     let from = wallet_ethers.address();
 
@@ -39,7 +42,7 @@ fn run_tx(tx: EncodedTx, basefee: u64, native_price: u64, should_succeed: bool, 
     );
     let key = crate::compute_erc20_balance_slot(wallet.address());
     let value = rig::ruint::aliases::B256::from(U256::from(1_000_000_000_000_000_u64));
-    chain.set_storage_slot(B160::from_be_bytes(TO.0 .0), key, value);
+    chain.set_storage_slot(B160::from_alloy(TO), key, value);
 
     let block_context = BlockContext {
         native_price: U256::from(native_price),
@@ -70,18 +73,14 @@ fn test_l1_tx_low_ratio() {
     let native_price = 10;
     let gas_price = native_price * LOW_RATIO;
     let tx = {
-        let tx = TransactionRequest {
-            chain_id: Some(37),
-            from: Some(alloy::signers::Signer::address(&wallet)),
-            to: Some(TxKind::Call(TO)),
-            gas: Some(70_000),
-            max_fee_per_gas: Some(gas_price.into()),
-            max_priority_fee_per_gas: Some(gas_price.into()),
-            nonce: Some(0),
-            input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
-            ..TransactionRequest::default()
-        };
-        rig::utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(wallet.address())
+            .to(TO)
+            .gas_price(gas_price.into())
+            .gas_limit(70_000)
+            .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
+            .build();
+        tx.encode()
     };
     run_tx(tx, gas_price, native_price, false, false)
 }
@@ -94,18 +93,14 @@ fn test_l1_tx_avg_ratio() {
     let native_price = 10;
     let gas_price = native_price * AVG_RATIO;
     let tx = {
-        let tx = TransactionRequest {
-            chain_id: Some(37),
-            from: Some(alloy::signers::Signer::address(&wallet)),
-            to: Some(TxKind::Call(TO)),
-            gas: Some(70_000),
-            max_fee_per_gas: Some(gas_price.into()),
-            max_priority_fee_per_gas: Some(gas_price.into()),
-            nonce: Some(0),
-            input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
-            ..TransactionRequest::default()
-        };
-        rig::utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(wallet.address())
+            .to(TO)
+            .gas_price(gas_price.into())
+            .gas_limit(70_000)
+            .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
+            .build();
+        tx.encode()
     };
     run_tx(tx, gas_price, native_price, true, false)
 }
@@ -118,18 +113,14 @@ fn test_l1_tx_high_ratio() {
     let native_price = 10;
     let gas_price = native_price * HIGH_RATIO;
     let tx = {
-        let tx = TransactionRequest {
-            chain_id: Some(37),
-            from: Some(alloy::signers::Signer::address(&wallet)),
-            to: Some(TxKind::Call(TO)),
-            gas: Some(70_000),
-            max_fee_per_gas: Some(gas_price.into()),
-            max_priority_fee_per_gas: Some(gas_price.into()),
-            nonce: Some(0),
-            input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
-            ..TransactionRequest::default()
-        };
-        rig::utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(wallet.address())
+            .to(TO)
+            .gas_price(gas_price.into())
+            .gas_limit(70_000)
+            .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
+            .build();
+        tx.encode()
     };
     run_tx(tx, gas_price, native_price, true, false)
 }
@@ -152,7 +143,7 @@ fn test_l2_tx_low_ratio() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     run_tx(tx, gas_price, native_price, false, false)
 }
@@ -175,7 +166,7 @@ fn test_l2_tx_avg_ratio() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     run_tx(tx, gas_price, native_price, true, false)
 }
@@ -198,7 +189,7 @@ fn test_l2_tx_high_ratio() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     run_tx(tx, gas_price, native_price, true, false)
 }
@@ -222,24 +213,20 @@ fn test_0_gas_limit() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     run_tx(tx.clone(), gas_price, native_price, false, false);
     run_tx(tx, gas_price, native_price, false, true);
 
     let tx = {
-        let tx = TransactionRequest {
-            chain_id: Some(37),
-            from: Some(alloy::signers::Signer::address(&wallet)),
-            to: Some(TxKind::Call(TO)),
-            gas: Some(0),
-            max_fee_per_gas: Some(gas_price.into()),
-            max_priority_fee_per_gas: Some(gas_price.into()),
-            nonce: Some(0),
-            input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
-            ..TransactionRequest::default()
-        };
-        rig::utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(wallet.address())
+            .to(TO)
+            .gas_price(gas_price.into())
+            .gas_limit(0)
+            .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
+            .build();
+        tx.encode()
     };
     run_tx(tx.clone(), gas_price, native_price, false, false);
     run_tx(tx, gas_price, native_price, false, true);
@@ -264,24 +251,20 @@ fn test_0_gas_price() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     run_tx(tx.clone(), gas_price, native_price, true, false);
     run_tx(tx, gas_price, native_price, true, true);
 
     let tx = {
-        let tx = TransactionRequest {
-            chain_id: Some(37),
-            from: Some(alloy::signers::Signer::address(&wallet)),
-            to: Some(TxKind::Call(TO)),
-            gas: Some(70_000),
-            max_fee_per_gas: Some(gas_price.into()),
-            max_priority_fee_per_gas: Some(gas_price.into()),
-            nonce: Some(0),
-            input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
-            ..TransactionRequest::default()
-        };
-        rig::utils::encode_l1_tx(tx)
+        let tx = L1TxBuilder::new()
+            .from(wallet.address())
+            .to(TO)
+            .gas_price(gas_price.into())
+            .gas_limit(70_000)
+            .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
+            .build();
+        tx.encode()
     };
     run_tx(tx.clone(), gas_price, native_price, true, false)
 }
@@ -307,7 +290,7 @@ fn test_delta_gas() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     // Should fail
     run_tx(tx, gas_price, native_price, false, false);
@@ -324,7 +307,7 @@ fn test_delta_gas() {
             access_list: Default::default(),
             input: hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
     // Should succeed
     run_tx(tx, gas_price, native_price, true, false)

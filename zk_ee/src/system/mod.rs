@@ -3,6 +3,7 @@ use common_structs::system_hooks::HooksStorage;
 use types_config::TryIntoLowAddress;
 use utils::num_usize_words_for_u8_capacity;
 use utils::usize_rw::AsUsizeWritable;
+use utils::UsizeAlignedByteBox;
 
 use super::*;
 pub mod base_system_functions;
@@ -16,6 +17,7 @@ pub mod metadata;
 pub mod resources;
 mod result_keeper;
 pub mod tracer;
+pub mod validator;
 
 pub use self::base_system_functions::*;
 pub use self::call_modifiers::*;
@@ -48,7 +50,6 @@ use self::{
     metadata::basic_metadata::{
         BasicBlockMetadata, BasicMetadata, BasicTransactionMetadata, ZkSpecificPricingMetadata,
     },
-    metadata::zk_metadata::ZkMetadata,
 };
 
 use crate::oracle::query_ids::TX_DATA_WORDS_QUERY_ID;
@@ -76,6 +77,7 @@ pub trait SystemTypes {
     type Allocator: Allocator + Clone + Default;
     type Metadata: BasicMetadata<Self::IOTypes>;
 }
+
 pub trait EthereumLikeTypes: SystemTypes<IOTypes = EthereumIOTypesConfig> {}
 
 pub struct System<S: SystemTypes> {
@@ -151,6 +153,14 @@ impl<S: SystemTypes> System<S> {
         self.metadata.eip1559_basefee()
     }
 
+    pub fn get_blob_base_fee_per_gas(&self) -> ruint::aliases::U256 {
+        self.metadata.blob_base_fee_per_gas()
+    }
+
+    pub fn get_blob_gas_limit(&self) -> u64 {
+        self.metadata.blobs_gas_limit()
+    }
+
     pub fn get_gas_limit(&self) -> u64 {
         self.metadata.block_gas_limit()
     }
@@ -161,6 +171,10 @@ impl<S: SystemTypes> System<S> {
 
     pub fn get_timestamp(&self) -> u64 {
         self.metadata.block_timestamp()
+    }
+
+    pub fn get_blob_hash(&self, idx: usize) -> Option<Bytes32> {
+        self.metadata.get_blob_hash(idx)
     }
 
     pub fn set_tx_context(
@@ -336,6 +350,17 @@ where
         Some(Ok((next_tx_len_bytes, buffer)))
     }
 
+    pub fn get_bytes_from_query(
+        &mut self,
+        length_query_id: u32, // must return number of bytes
+        body_query_id: u32,   // must return
+    ) -> Result<Option<UsizeAlignedByteBox<S::Allocator>>, InternalError> {
+        let allocator = self.get_allocator();
+        self.io
+            .oracle()
+            .get_bytes_from_query(length_query_id, body_query_id, &(), allocator)
+    }
+
     pub fn deploy_bytecode(
         &mut self,
         for_ee: ExecutionEnvironmentType,
@@ -383,32 +408,6 @@ where
     }
 }
 
-// Note: this will be modified soon with other V2 changes
-// For now, we hard-code metadata and io type config types
-impl<S: SystemTypes<Metadata = ZkMetadata>> System<S>
-where
-    S::IO: IOSubsystemExt,
-{
-    /// Finish system execution.
-    pub fn finish(
-        self,
-        block_hash: Bytes32,
-        l1_to_l2_txs_hash: Bytes32,
-        upgrade_tx_hash: Bytes32,
-        result_keeper: &mut impl IOResultKeeper<S::IOTypes>,
-    ) -> <S::IO as IOSubsystemExt>::FinalData {
-        let logger = self.get_logger();
-        self.io.finish(
-            self.metadata.block_level,
-            block_hash,
-            l1_to_l2_txs_hash,
-            upgrade_tx_hash,
-            result_keeper,
-            logger,
-        )
-    }
-}
-
 define_subsystem!(NextTx,
   interface NextTxInterfaceError {
     TxLengthTooLarge,
@@ -416,3 +415,29 @@ define_subsystem!(NextTx,
     TxWriteIteratorTooBig,
   }
 );
+
+/// Logging macros for the system.
+/// TODO: debug implementation for ruint types uses global alloc, which panics in ZKsync OS
+#[cfg(any(not(target_arch = "riscv32"), feature = "global-alloc"))]
+#[macro_export]
+macro_rules! logger_log {
+    ($logger:expr, $($arg:tt)*) => {{
+        let _ = ($logger).write_fmt(format_args!($($arg)*));
+    }};
+}
+
+// No-op only if riscv32 AND no allocator feature
+#[cfg(all(target_arch = "riscv32", not(feature = "global-alloc")))]
+#[macro_export]
+macro_rules! logger_log {
+    ($logger:expr, $($arg:tt)*) => {{
+        // intentionally empty
+    }};
+}
+
+#[macro_export]
+macro_rules! system_log {
+    ($system:expr, $($arg:tt)*) => {{
+        $crate::logger_log!(($system).get_logger(), $($arg)*);
+    }};
+}

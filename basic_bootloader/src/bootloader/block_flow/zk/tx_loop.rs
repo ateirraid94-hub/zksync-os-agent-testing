@@ -1,23 +1,33 @@
+use zk_ee::{system::AccountDataRequest, utils::UsizeAlignedByteBox};
+
 use super::*;
 use crate::bootloader::{
     block_flow::tx_loop::TxLoopOp, transaction_flow::zk::ZkTransactionFlowOnlyEOA,
 };
+use zk_ee::system::Resource;
 
-impl<S: EthereumLikeTypes<Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata>> TxLoopOp<S>
-    for ZKHeaderStructureTxLoop
+impl<
+        S: EthereumLikeTypes<Metadata = zk_ee::system::metadata::zk_metadata::ZkMetadata>,
+        BlockEA: TxHashesAccumulator,
+        BatchEA: TxHashesAccumulator,
+    > TxLoopOp<S> for ZKHeaderStructureTxLoop<BlockEA, BatchEA>
 where
     S::IO: IOSubsystemExt,
     S::Metadata: ZkSpecificPricingMetadata,
 {
-    type BlockDataKeeper = ZKBasicBlockDataKeeper;
+    type BlockDataKeeper = ZKBasicBlockDataKeeper<BlockEA>;
+    // we write only enforced tx hashes to the batch data, so it can be anything that implements tx hashes accumulator
+    type BatchDataKeeper = BatchEA;
 
     fn loop_op<'a, Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
         system_functions: &mut HooksStorage<S, S::Allocator>,
         mut memories: RunnerMemoryBuffers<'a>,
         block_data: &mut Self::BlockDataKeeper,
+        batch_data: &mut Self::BatchDataKeeper,
         result_keeper: &mut impl ResultKeeperExt<EthereumIOTypesConfig>,
         tracer: &mut impl Tracer<S>,
+        validator: &mut impl TxValidator<S>,
     ) -> Result<(), BootloaderSubsystemError> {
         cycle_marker::start!("run_tx_loop");
 
@@ -37,9 +47,10 @@ where
         } {
             match r {
                 Err(err) => {
-                    let _ = system.get_logger().write_fmt(format_args!(
+                    system_log!(
+                        system,
                         "Failure while reading tx from oracle: decoding error = {err:?}\n",
-                    ));
+                    );
                     result_keeper.tx_processed(Err(InvalidTransaction::InvalidEncoding));
                 }
                 Ok((_next_tx_len_bytes, initial_calldata_buffer)) => {
@@ -57,10 +68,8 @@ where
                             .expect("must heat coinbase");
                     }
 
-                    let mut logger: <S as SystemTypes>::Logger = system.get_logger();
-                    let _ =
-                        logger.write_fmt(format_args!("====================================\n"));
-                    let _ = logger.write_fmt(format_args!("TX execution begins\n",));
+                    system_log!(system, "====================================\n",);
+                    system_log!(system, "TX execution begins\n");
 
                     tracer.begin_tx(initial_calldata_buffer.as_slice());
 
@@ -73,14 +82,21 @@ where
                     // We will give the full buffer here, and internally we will use parts of it to give forward to EEs
                     cycle_marker::start!("process_transaction");
 
+                    // TODO: consider actually using block_data here
+                    let mut nop_keeper = NopTransactionDataKeeper;
+
                     let tx_result =
-                        BasicBootloader::<S, ZkTransactionFlowOnlyEOA>::process_transaction::<Config>(
+                        BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::process_transaction::<
+                            Config,
+                        >(
                             initial_calldata_buffer,
                             system,
                             system_functions,
                             memories.reborrow(),
                             is_first_tx,
+                            &mut nop_keeper,
                             tracer,
+                            validator,
                         );
 
                     cycle_marker::end!("process_transaction");
@@ -89,26 +105,26 @@ where
 
                     match tx_result {
                         Err(TxError::Internal(err)) => {
-                            let _ = system.get_logger().write_fmt(format_args!(
-                                "Tx execution result: Internal error = {err:?}\n",
-                            ));
+                            system_log!(system, "Tx execution result: Internal error = {err:?}\n",);
                             // Finish the frame opened before processing the tx
                             system.finish_global_frame(None)?; // TODO should we use pre_tx_rollback_handle here?
                             return Err(err);
                         }
                         Err(TxError::Validation(err)) => {
-                            let _ = system.get_logger().write_fmt(format_args!(
+                            system_log!(
+                                system,
                                 "Tx execution result: Validation error = {err:?}\n",
-                            ));
+                            );
                             // Revert to state before transaction
                             system.finish_global_frame(Some(&pre_tx_rollback_handle))?;
                             result_keeper.tx_processed(Err(err));
                         }
                         Ok(tx_processing_result) => {
-                            let _ = system.get_logger().write_fmt(format_args!(
+                            system_log!(
+                                system,
                                 "Tx execution result = {:?}\n",
                                 &tx_processing_result,
-                            ));
+                            );
 
                             // Check for service block invariants
                             check_for_service_block_invariants(
@@ -126,6 +142,8 @@ where
                             let next_block_pubdata_used =
                                 block_data.block_pubdata_used + tx_processing_result.pubdata_used;
                             let block_logs_used = system.io.logs_len();
+                            let next_block_blob_gas_used =
+                                block_data.block_blob_gas_used + tx_processing_result.blob_gas_used;
 
                             // Check if the transaction made the block reach any of the limits
                             // for gas, native, pubdata or logs.
@@ -135,6 +153,7 @@ where
                                 next_block_computational_native_used,
                                 next_block_pubdata_used,
                                 block_logs_used,
+                                next_block_blob_gas_used,
                             ) {
                                 // Revert to state before transaction
                                 system.finish_global_frame(Some(&pre_tx_rollback_handle))?;
@@ -145,6 +164,7 @@ where
                                 block_data.block_computational_native_used =
                                     next_block_computational_native_used;
                                 block_data.block_pubdata_used = next_block_pubdata_used;
+                                block_data.block_blob_gas_used = next_block_blob_gas_used;
                                 is_first_tx = false;
 
                                 // Finish the frame opened before processing the tx
@@ -168,12 +188,14 @@ where
                                     block_data
                                         .enforced_transaction_hashes_accumulator
                                         .add_tx_hash(&tx_processing_result.tx_hash);
+                                    batch_data.add_tx_hash(&tx_processing_result.tx_hash);
                                 }
                                 if tx_processing_result.is_upgrade_tx {
                                     block_data
                                         .upgrade_tx_recorder
                                         .add_upgrade_tx_hash(&tx_processing_result.tx_hash);
                                 }
+                                block_data.current_transaction_number += 1;
 
                                 result_keeper.tx_processed(Ok(TxProcessingOutput {
                                     status,
@@ -193,10 +215,8 @@ where
                         }
                     }
 
-                    let mut logger = system.get_logger();
-                    let _ = logger.write_fmt(format_args!("TX execution ends\n"));
-                    let _ =
-                        logger.write_fmt(format_args!("====================================\n"));
+                    system_log!(system, "TX execution ends\n");
+                    system_log!(system, "====================================\n");
                 }
             }
         }

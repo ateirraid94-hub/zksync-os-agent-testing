@@ -5,9 +5,11 @@
 
 use rig::alloy::consensus::TxEip2930;
 use rig::alloy::primitives::{address, TxKind, U256};
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::system::system_types::ForwardRunningSystem;
 use rig::ruint::aliases::B160;
 use rig::zk_ee::system::tracer::evm_tracer::NopEvmTracer;
+use rig::zk_ee::system::validator::NopTxValidator;
 use rig::zk_ee::{
     execution_environment_type::ExecutionEnvironmentType,
     system::{
@@ -17,6 +19,8 @@ use rig::zk_ee::{
     utils::Bytes32,
 };
 use rig::Chain;
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 /// A struct to track tracer calls for storage operations
 #[derive(Debug, Clone, Default)]
@@ -131,13 +135,10 @@ fn test_storage_hooks() {
     let test_contract_bytecode = hex::decode("602a60005560005450602a60005D60005C50").unwrap();
 
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000_u64),
     );
-    chain.set_evm_bytecode(
-        B160::from_be_bytes(contract_address.into_array()),
-        &test_contract_bytecode,
-    );
+    chain.set_evm_bytecode(B160::from_alloy(contract_address), &test_contract_bytecode);
 
     // Create transaction to call the contract
     let encoded_tx = {
@@ -151,12 +152,19 @@ fn test_storage_hooks() {
             input: Default::default(),
             access_list: Default::default(),
         };
-        rig::utils::sign_and_encode_alloy_tx(tx, &wallet)
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode()
     };
 
     let mut tracer = StorageOperationTracer::new();
 
-    let result = chain.run_block_with_extra_stats(vec![encoded_tx], None, None, None, &mut tracer);
+    let result = chain.run_block_with_extra_stats(
+        vec![encoded_tx],
+        None,
+        None,
+        None,
+        &mut tracer,
+        &mut NopTxValidator::default(),
+    );
 
     assert!(result.is_ok(), "Block execution should succeed");
     let (block_output, _, _) = result.unwrap();
@@ -171,7 +179,7 @@ fn test_storage_hooks() {
         tracer.calls.storage_reads[0],
         (
             false,
-            B160::from_be_bytes(contract_address.into_array()),
+            B160::from_alloy(contract_address),
             Bytes32::zero(),
             Bytes32::from_hex("000000000000000000000000000000000000000000000000000000000000002a")
         )
@@ -180,7 +188,7 @@ fn test_storage_hooks() {
         tracer.calls.storage_reads[1],
         (
             true,
-            B160::from_be_bytes(contract_address.into_array()),
+            B160::from_alloy(contract_address),
             Bytes32::zero(),
             Bytes32::from_hex("000000000000000000000000000000000000000000000000000000000000002a")
         )
@@ -191,7 +199,7 @@ fn test_storage_hooks() {
         tracer.calls.storage_writes[0],
         (
             false,
-            B160::from_be_bytes(contract_address.into_array()),
+            B160::from_alloy(contract_address),
             Bytes32::zero(),
             Bytes32::from_hex("000000000000000000000000000000000000000000000000000000000000002a")
         )
@@ -200,7 +208,7 @@ fn test_storage_hooks() {
         tracer.calls.storage_writes[1],
         (
             true,
-            B160::from_be_bytes(contract_address.into_array()),
+            B160::from_alloy(contract_address),
             Bytes32::zero(),
             Bytes32::from_hex("000000000000000000000000000000000000000000000000000000000000002a")
         )

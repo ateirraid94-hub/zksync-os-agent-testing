@@ -6,11 +6,13 @@ mod tx_result_callback;
 mod tx_source;
 
 pub mod convert;
+pub mod convert_alloy;
 mod interface_impl;
 pub mod query_processors;
 pub mod result_keeper;
 pub mod test_impl;
 mod tracing_impl;
+mod validator_impl;
 
 use crate::run::query_processors::GenericPreimageResponder;
 use crate::run::query_processors::ReadStorageResponder;
@@ -38,6 +40,7 @@ pub use interface_impl::RunBlockForward;
 pub use tree::LeafProof;
 pub use tree::ReadStorage;
 pub use tree::ReadStorageTree;
+use zk_ee::system::validator::TxValidator;
 pub use zk_ee::types_config::EthereumIOTypesConfig;
 
 pub use preimage_source::PreimageSource;
@@ -68,6 +71,7 @@ pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxRes
     tx_source: TS,
     tx_result_callback: TR,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
+    validator: &mut impl TxValidator<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     let block_metadata_responder = BlockMetadataResponder {
         block_metadata: block_context,
@@ -89,7 +93,12 @@ pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxRes
 
     let mut result_keeper = ForwardRunningResultKeeper::new(tx_result_callback);
 
-    run_forward::<BasicBootloaderForwardSimulationConfig>(oracle, &mut result_keeper, tracer);
+    run_forward::<BasicBootloaderForwardSimulationConfig>(
+        oracle,
+        &mut result_keeper,
+        tracer,
+        validator,
+    );
     Ok(result_keeper.into())
 }
 
@@ -296,6 +305,7 @@ pub fn run_block_with_oracle_dump<
     proof_data: Option<ProofData<StorageCommitment>>,
     da_commitment_scheme: Option<DACommitmentScheme>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
+    validator: &mut impl TxValidator<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     run_block_with_oracle_dump_ext::<T, PS, TS, TR, BasicBootloaderForwardSimulationConfig>(
         block_context,
@@ -306,6 +316,7 @@ pub fn run_block_with_oracle_dump<
         proof_data,
         da_commitment_scheme,
         tracer,
+        validator,
     )
 }
 
@@ -325,6 +336,7 @@ pub fn run_block_with_oracle_dump_ext<
     proof_data: Option<ProofData<StorageCommitment>>,
     da_commitment_scheme: Option<DACommitmentScheme>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
+    validator: &mut impl TxValidator<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     let block_metadata_responder = BlockMetadataResponder {
         block_metadata: block_context,
@@ -370,8 +382,13 @@ pub fn run_block_with_oracle_dump_ext<
 
     let mut result_keeper = ForwardRunningResultKeeper::new(tx_result_callback);
 
-    crate::system::bootloader::run_forward_no_panic::<Config>(oracle, &mut result_keeper, tracer)
-        .map_err(wrap_error!())?;
+    crate::system::bootloader::run_forward_no_panic::<Config>(
+        oracle,
+        &mut result_keeper,
+        tracer,
+        validator,
+    )
+    .map_err(wrap_error!())?;
     Ok(result_keeper.into())
 }
 
@@ -383,6 +400,7 @@ pub fn run_block_from_oracle_dump<
 >(
     path: Option<String>,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
+    validator: &mut impl TxValidator<ForwardRunningSystem>,
 ) -> Result<BlockOutput, ForwardSubsystemError> {
     let path = path.unwrap_or_else(|| std::env::var("ORACLE_DUMP_FILE").unwrap());
     let file = std::fs::File::open(path).expect("should open file");
@@ -412,7 +430,12 @@ pub fn run_block_from_oracle_dump<
 
     let mut result_keeper = ForwardRunningResultKeeper::new(NoopTxCallback);
 
-    run_forward::<BasicBootloaderForwardSimulationConfig>(oracle, &mut result_keeper, tracer);
+    run_forward::<BasicBootloaderForwardSimulationConfig>(
+        oracle,
+        &mut result_keeper,
+        tracer,
+        validator,
+    );
     Ok(result_keeper.into())
 }
 
@@ -428,6 +451,7 @@ pub fn simulate_tx<S: ReadStorage, PS: PreimageSource>(
     storage: S,
     preimage_source: PS,
     tracer: &mut impl Tracer<CallSimulationSystem>,
+    validator: &mut impl TxValidator<CallSimulationSystem>,
 ) -> Result<TxResult, ForwardSubsystemError> {
     let tx_source = TxListSource {
         transactions: vec![transaction].into(),
@@ -455,8 +479,10 @@ pub fn simulate_tx<S: ReadStorage, PS: PreimageSource>(
 
     CallSimulationBootloader::run_prepared::<BasicBootloaderCallSimulationConfig>(
         oracle,
+        &mut (),
         &mut result_keeper,
         tracer,
+        validator,
     )
     .map_err(wrap_error!())?;
     let mut block_output: BlockOutput = result_keeper.into();

@@ -1,7 +1,7 @@
 #![no_main]
 #![feature(allocator_api)]
 #![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
+
 
 use basic_bootloader::bootloader::config::BasicBootloaderForwardSimulationConfig;
 use basic_bootloader::bootloader::constants::TX_OFFSET;
@@ -57,16 +57,17 @@ fn fuzz(data: &[u8]) {
 
     let data_mut_ref: &'static mut [u8] = unsafe { core::mem::transmute(data.as_mut_slice()) };
 
-    let _ = BasicBootloader::<_, ZkTransactionFlowOnlyEOA>::process_transaction::<
-        BasicBootloaderForwardSimulationConfig,
-    >(
-        data_mut_ref,
-        &mut system,
-        &mut system_functions,
-        memories,
-        true,
-        &mut NopTracer::default(),
-    );
+    let _ =
+        BasicBootloader::<_, ZkTransactionFlowOnlyEOA<ForwardRunningSystem>>::process_transaction::<
+            BasicBootloaderForwardSimulationConfig,
+        >(
+            data_mut_ref,
+            &mut system,
+            &mut system_functions,
+            memories,
+            true,
+            &mut NopTracer::default(),
+        );
 }
 
 fuzz_target!(|data: &[u8]| {

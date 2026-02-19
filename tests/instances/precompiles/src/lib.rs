@@ -1,17 +1,22 @@
 #![cfg(test)]
 #![feature(assert_matches)]
 
-use bytes::Bytes;
 use rig::alloy::consensus::TxLegacy;
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::utils::{calldata_for_forwarder, FORWARDER_BYTECODE};
 use rig::zksync_os_interface::types::BlockOutput;
 use rig::zksync_os_interface::types::ExecutionResult::Revert;
 use rig::BlockContext;
 use rig::{
-    alloy::primitives::{address, Address},
+    alloy::{
+        primitives::{address, Address, TxKind},
+        rpc::types::TransactionRequest,
+    },
     ruint::aliases::{B160, U256},
 };
 use std::assert_matches::assert_matches;
+use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 /// Performs two calls:
 /// 1. Calls the precompile with given input and gas limit.
@@ -27,15 +32,15 @@ fn run_precompile(precompile_id: &str, gas: Option<u64>, input: &[u8]) -> BlockO
     let forwarder = address!("0x1000000000000000000000000000000000000000");
 
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        FromAlloy::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000_u64),
     );
     chain.set_evm_bytecode(
-        B160::from_be_bytes(forwarder.into_array()),
+        FromAlloy::from_alloy(forwarder),
         &hex::decode(FORWARDER_BYTECODE).unwrap(),
     );
 
-    let direct_tx = rig::utils::sign_and_encode_alloy_tx(
+    let direct_tx = ZKsyncTxEnvelope::from_eth_tx(
         TxLegacy {
             chain_id: 37u64.into(),
             nonce: 0,
@@ -45,11 +50,12 @@ fn run_precompile(precompile_id: &str, gas: Option<u64>, input: &[u8]) -> BlockO
             value: Default::default(),
             input: input.to_vec().into(),
         },
-        &wallet,
-    );
+        wallet.clone(),
+    )
+    .encode();
 
     let calldata = calldata_for_forwarder(target, input);
-    let forwarded_tx = rig::utils::sign_and_encode_alloy_tx(
+    let forwarded_tx = ZKsyncTxEnvelope::from_eth_tx(
         TxLegacy {
             chain_id: 37u64.into(),
             nonce: 1,
@@ -59,8 +65,9 @@ fn run_precompile(precompile_id: &str, gas: Option<u64>, input: &[u8]) -> BlockO
             value: Default::default(),
             input: calldata.into(),
         },
-        &wallet,
-    );
+        wallet.clone(),
+    )
+    .encode();
 
     // We use a very high native per gas ratio
     let block_context = BlockContext {
@@ -6108,8 +6115,6 @@ fn test_modexp_out_of_gas_ref() {
 
 #[test]
 fn test_precompile_parses_input_correctly() {
-    use rig::ethers::signers::Signer;
-    use rig::ethers::types::{Address, TransactionRequest};
     let target_precompiles: [&str; 4] = [
         "0000000000000000000000000000000000000001", // ecrecover
         "0000000000000000000000000000000000000006", // ecadd
@@ -6126,22 +6131,25 @@ fn test_precompile_parses_input_correctly() {
 
         for i in length {
             let mut chain = rig::Chain::empty(None);
-            let wallet = chain.random_wallet();
+            let wallet = chain.random_signer();
 
             chain.set_balance(
-                B160::from_be_bytes(wallet.address().0),
+                B160::from_alloy(wallet.address()),
                 U256::from(1_000_000_000_000_000_u64),
             );
 
-            let tx = rig::utils::sign_and_encode_ethers_legacy_tx(
-                TransactionRequest::new()
-                    .to(addr)
-                    .gas(1 << 27)
-                    .gas_price(1000)
-                    .data(Bytes::copy_from_slice(empty_input[0..i].as_ref()))
-                    .nonce(0),
-                &wallet,
-            );
+            let tx = ZKsyncTxEnvelope::from_eth_tx_from_req(
+                TransactionRequest {
+                    to: Some(TxKind::Call(addr)),
+                    gas: Some(1 << 27),
+                    gas_price: Some(1000),
+                    input: empty_input[0..i].to_vec().into(),
+                    nonce: Some(0),
+                    ..Default::default()
+                },
+                wallet,
+            )
+            .encode();
 
             let _block_output = chain.run_block(vec![tx], None, None, None);
         }
@@ -6415,11 +6423,11 @@ fn test_regression_p256_is_warm() {
     let forwarder = address!("0x1000000000000000000000000000000000000000");
 
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000_u64),
     );
     chain.set_evm_bytecode(
-        B160::from_be_bytes(forwarder.into_array()),
+        B160::from_alloy(forwarder),
         &hex::decode(FORWARDER_BYTECODE).unwrap(),
     );
 
@@ -6428,7 +6436,7 @@ fn test_regression_p256_is_warm() {
     let input = hex::decode("d1b3bd13d427f487b786a48d3a515c6fc1b0170ba3936bcd4ea53c960df3ef2f6e1207f671f5fa32eb46850921546ae5b03a4579012c562a62f4fb2d39269257bed27d4909e4f5ca8f543f5042691371b8fcc58f881e1b4daed7fa6f5b1b3898a880e9b88d6a707662aa25325798903d6e34740e832830860ba323d9e14defc75999af8ead7e63566aa8b94b7bb5dfa8e8f114c39ca179016f393363953f979a").unwrap();
 
     let calldata = calldata_for_forwarder(target, &input);
-    let forwarded_tx = rig::utils::sign_and_encode_alloy_tx(
+    let forwarded_tx = ZKsyncTxEnvelope::from_eth_tx(
         TxLegacy {
             chain_id: 37u64.into(),
             nonce: 0,
@@ -6438,8 +6446,9 @@ fn test_regression_p256_is_warm() {
             value: Default::default(),
             input: calldata.into(),
         },
-        &wallet,
-    );
+        wallet.clone(),
+    )
+    .encode();
 
     // We use a very high native per gas ratio
     let block_context = BlockContext {

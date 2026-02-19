@@ -1,7 +1,5 @@
 #![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
 #![feature(allocator_api)]
-#![feature(array_chunks)]
 //!
 //! This crate contains infrastructure to write ZKsync OS integration tests.
 //! It contains `Chain` - in memory chain state structure with methods to run blocks, change state
@@ -15,12 +13,17 @@ pub mod utils;
 pub use alloy;
 pub use alloy_rlp;
 pub use alloy_sol_types;
+pub use basic_bootloader;
 pub use basic_system;
 pub use callable_oracles;
 pub use chain::BlockContext;
 pub use chain::Chain;
-pub use ethers;
+#[cfg(feature = "airbender_cli")]
+pub use cli_lib;
+pub use crypto;
 pub use forward_system;
+#[cfg(feature = "gpu")]
+pub use gpu_prover;
 pub use log;
 pub use oracle_provider;
 pub use risc_v_simulator;
@@ -30,6 +33,7 @@ pub use system_hooks;
 pub use zk_ee;
 pub use zksync_os_api;
 pub use zksync_os_interface;
+pub use zksync_os_tests_common;
 pub use zksync_web3_rs;
 
 static INIT_LOGGER_ONCE: Once = Once::new();

@@ -3,11 +3,18 @@
 //!
 #![cfg(test)]
 
+use rig::alloy::consensus::TxEip4844;
 use rig::alloy::consensus::TxLegacy;
+use rig::alloy::hex::FromHex;
+use rig::alloy::primitives::FixedBytes;
 use rig::alloy_sol_types::sol;
 use rig::alloy_sol_types::SolCall;
+use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::zksync_os_interface::types::ExecutionOutput;
 use rig::zksync_os_interface::types::ExecutionResult;
+use rig::zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
+use rig::zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
+use rig::BlockContext;
 use rig::Chain;
 use rig::{
     alloy::primitives::address,
@@ -77,12 +84,12 @@ fn test_blockhash() {
 
     // Set a reasonable balance that would be sufficient for normal transactions
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000_u64),
     );
-    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_evm_bytecode(B160::from_alloy(to), &bytecode);
 
-    let tx = rig::utils::sign_and_encode_alloy_tx(
+    let tx = ZKsyncTxEnvelope::from_eth_tx(
         TxLegacy {
             chain_id: 37u64.into(),
             nonce: 0,
@@ -92,8 +99,9 @@ fn test_blockhash() {
             value: Default::default(),
             input: calldata.into(),
         },
-        &wallet,
-    );
+        wallet.clone(),
+    )
+    .encode();
 
     // We set block number to 300, to have > 256 block hashes to query
     let block_number = 300;
@@ -148,10 +156,10 @@ fn bench_addmod() {
     let wallet = chain.random_signer();
     let to = address!("0x1000000000000000000000000000000000000000");
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000u64),
     );
-    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_evm_bytecode(B160::from_alloy(to), &bytecode);
 
     // Some handy builders for U256
     let shl = |bits: u32| U256::from(1u64) << bits;
@@ -384,7 +392,7 @@ fn bench_addmod() {
         .enumerate()
         .map(|(i, (a, b, m, _tag))| {
             let input = encode_3(*a, *b, *m);
-            rig::utils::sign_and_encode_alloy_tx(
+            ZKsyncTxEnvelope::from_eth_tx(
                 TxLegacy {
                     chain_id: 37u64.into(),
                     nonce: i as u64,
@@ -394,8 +402,9 @@ fn bench_addmod() {
                     value: Default::default(),
                     input: input.into(),
                 },
-                &wallet,
+                wallet.clone(),
             )
+            .encode()
         })
         .collect();
 
@@ -755,10 +764,10 @@ fn bench_mulmod() {
     let to = address!("0x1000000000000000000000000000000000000000");
 
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000u64),
     );
-    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_evm_bytecode(B160::from_alloy(to), &bytecode);
 
     // Build txs with unique nonces
     let txs: Vec<_> = vectors
@@ -766,7 +775,7 @@ fn bench_mulmod() {
         .enumerate()
         .map(|(i, (a, b, m, _tag))| {
             let input = encode_3(*a, *b, *m);
-            rig::utils::sign_and_encode_alloy_tx(
+            ZKsyncTxEnvelope::from_eth_tx(
                 TxLegacy {
                     chain_id: 37u64.into(),
                     nonce: i as u64,
@@ -776,8 +785,9 @@ fn bench_mulmod() {
                     value: Default::default(),
                     input: input.into(),
                 },
-                &wallet,
+                wallet.clone(),
             )
+            .encode()
         })
         .collect();
 
@@ -888,10 +898,10 @@ fn bench_signextend() {
     let to = address!("0x1000000000000000000000000000000000000000");
 
     chain.set_balance(
-        B160::from_be_bytes(wallet.address().into_array()),
+        B160::from_alloy(wallet.address()),
         U256::from(1_000_000_000_000_000u64),
     );
-    chain.set_evm_bytecode(B160::from_be_bytes(to.into_array()), &bytecode);
+    chain.set_evm_bytecode(B160::from_alloy(to), &bytecode);
 
     // Build signed txs (unique nonces)
     let txs: Vec<_> = vectors
@@ -899,7 +909,7 @@ fn bench_signextend() {
         .enumerate()
         .map(|(i, (k, x, _tag))| {
             let input = encode_2(*k, *x);
-            rig::utils::sign_and_encode_alloy_tx(
+            ZKsyncTxEnvelope::from_eth_tx(
                 TxLegacy {
                     chain_id: 37u64.into(),
                     nonce: i as u64,
@@ -909,8 +919,9 @@ fn bench_signextend() {
                     value: Default::default(),
                     input: input.into(),
                 },
-                &wallet,
+                wallet.clone(),
             )
+            .encode()
         })
         .collect();
 
@@ -921,4 +932,83 @@ fn bench_signextend() {
         ..Default::default()
     };
     let _result = chain.run_block(txs, None, None, Some(run_config));
+}
+
+#[test]
+fn test_eip4844_blobhash() {
+    let mut chain = Chain::empty(None);
+
+    // Test funding signer
+    let wallet = chain.random_signer();
+
+    // Deploy address for the contract in this test (set to some deterministic slot)
+    let inspector_addr = address!("0000000000000000000000000000000000010003");
+
+    // Minimal helper for EIP-4844 tests.
+    // contract BlobHashEcho {
+    //     // Single entrypoint: takes an index, executes BLOBHASH, returns the 32-byte result as raw returndata.
+    //     function main(uint256 index) external payable {
+    //         assembly {
+    //             let h := blobhash(index)
+    //             mstore(0x00, h)
+    //             return(0x00, 0x20)
+    //         }
+    //     }
+    // }
+    let bytecode: Vec<u8> = hex::decode("608060405260043610601b575f3560e01c8063ab3ae25514601f575b5f5ffd5b60356004803603810190603191906073565b6037565b005b8049805f5260205ff35b5f5ffd5b5f819050919050565b6055816045565b8114605e575f5ffd5b50565b5f81359050606d81604e565b92915050565b5f6020828403121560855760846041565b5b5f6090848285016061565b9150509291505056fea26469706673582212209d46704950c75b3505742b2236950b59adbcc17d023f976acb6b5c43bca401fc64736f6c634300081e0033").unwrap();
+
+    chain.set_evm_bytecode(B160::from_alloy(inspector_addr), &bytecode);
+    chain.set_balance(
+        B160::from_alloy(wallet.address()),
+        U256::from(1_000_000_000_000_000_u64),
+    );
+
+    sol! {
+        contract BlobHashEcho {
+            function main(uint256 index) external returns (bytes32);
+        }
+    }
+
+    // Test that blobhash instruction returns what we expect
+    let versioned_hash =
+        FixedBytes::from_hex("0x011122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000")
+            .unwrap();
+    let calldata = BlobHashEcho::mainCall { index: U256::ZERO }.abi_encode();
+
+    let tx = TxEip4844 {
+        chain_id: 37u64,
+        nonce: 0,
+        max_fee_per_gas: 1_000,
+        max_priority_fee_per_gas: 1_000,
+        gas_limit: 300_000,
+        to: inspector_addr,
+        value: U256::ZERO,
+        input: calldata.into(),
+        access_list: Default::default(),
+        blob_versioned_hashes: vec![versioned_hash],
+        max_fee_per_blob_gas: 1_000,
+    };
+    let tx = ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone()).encode();
+
+    let run_config = rig::chain::RunConfig {
+        app: Some("for_tests".to_string()),
+        only_forward: false,
+        check_storage_diff_hashes: true,
+        ..Default::default()
+    };
+    let block_context = BlockContext {
+        blob_fee: U256::from(1000),
+        ..Default::default()
+    };
+    let result = chain.run_block(vec![tx], Some(block_context), None, Some(run_config));
+    assert!(result.tx_results[0].is_ok(),);
+    let tx_result = result.tx_results[0].as_ref().unwrap();
+    assert!(tx_result.is_success(), "Transaction should be successful");
+    // check the output to ensure the contract was called
+    match &tx_result.execution_result {
+        ExecutionResult::Success(ExecutionOutput::Call(out)) => {
+            assert_eq!(out, &versioned_hash.0.to_vec(), "Output data doesn't match")
+        }
+        _ => panic!("Execution result must be a successful call"),
+    }
 }

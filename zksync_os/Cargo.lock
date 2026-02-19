@@ -186,6 +186,7 @@ dependencies = [
  "evm_interpreter",
  "paste",
  "ruint",
+ "serde-big-array",
  "strum_macros",
  "system_hooks",
  "zk_ee",
@@ -196,6 +197,7 @@ name = "basic_system"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
+ "cc-traits 0.1.0",
  "cfg-if",
  "const-hex",
  "const_for",
@@ -208,6 +210,7 @@ dependencies = [
  "ruint",
  "storage_models",
  "strum_macros",
+ "system_hooks",
  "zerocopy",
  "zk_ee",
 ]
@@ -230,7 +233,7 @@ dependencies = [
 [[package]]
 name = "blake2s_u32"
 version = "0.1.0"
-source = "git+https://github.com/matter-labs/zksync-airbender.git?tag=v0.4.3#c23fd0085ee87872e25ff83f780d2d0ee102a166"
+source = "git+https://github.com/matter-labs/zksync-airbender.git?tag=v0.5.2#b93c285d292891f3c27a3cf0110be09cde30ac4f"
 dependencies = [
  "unroll",
 ]
@@ -249,6 +252,10 @@ name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
+name = "cc-traits"
+version = "0.1.0"
 
 [[package]]
 name = "cc-traits"
@@ -696,7 +703,7 @@ dependencies = [
  "arrayvec",
  "basic_bootloader",
  "basic_system",
- "cc-traits",
+ "cc-traits 2.0.0",
  "cfg-if",
  "crypto",
  "evm_interpreter",
@@ -730,12 +737,6 @@ checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
 dependencies = [
  "proc-macro2",
 ]
-
-[[package]]
-name = "r0"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd7a31eed1591dcbc95d92ad7161908e72f4677f8fabf2a32ca49b4237cbf211"
 
 [[package]]
 name = "rand"
@@ -829,7 +830,7 @@ dependencies = [
 [[package]]
 name = "riscv_common"
 version = "0.1.0"
-source = "git+https://github.com/matter-labs/zksync-airbender.git?tag=v0.4.3#c23fd0085ee87872e25ff83f780d2d0ee102a166"
+source = "git+https://github.com/matter-labs/zksync-airbender.git?tag=v0.5.2#b93c285d292891f3c27a3cf0110be09cde30ac4f"
 
 [[package]]
 name = "ruint"
@@ -876,6 +877,24 @@ name = "seq-macro"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
+
+[[package]]
+name = "serde"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "serde_core"
@@ -1106,7 +1125,6 @@ dependencies = [
  "crypto",
  "heapless",
  "proof_running_system",
- "r0",
  "riscv",
  "riscv_common",
  "zerocopy",
@@ -1114,6 +1132,6 @@ dependencies = [
 
 [[package]]
 name = "zksync_os_evm_errors"
-version = "0.0.10"
+version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3ad55a8aa3498e304565de55b61dc930bac227c8c5e81284b623c69f2143d2"
+checksum = "8fea4915ff8302cbd66403de07518fe4025fbcacd3d3d1760cc03029e710586a"

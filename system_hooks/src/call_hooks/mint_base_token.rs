@@ -2,9 +2,9 @@ use super::super::*;
 use core::fmt::Write;
 use ruint::aliases::{B160, U256};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
-use zk_ee::internal_error;
 use zk_ee::system::errors::subsystem::SubsystemError;
 use zk_ee::system::errors::{runtime::RuntimeError, system::SystemError};
+use zk_ee::{internal_error, system_log};
 
 /// System hook that allows the L2 base token contract to mint tokens
 ///
@@ -69,7 +69,7 @@ where
 
     let mut resources = available_resources;
 
-    // Charge EVM gas for the mint operation. This is a temporary solution, so we don't care about EVM compatibility anyway
+    // Charge EVM gas for the mint operation. This hook should be used during upgrades only, so we don't care about EVM compatibility
     evm_interpreter::charge_native_and_ergs::<S::Resources>(
         &mut resources,
         HOOK_BASE_NATIVE_COST,
@@ -101,15 +101,11 @@ where
             ))
         }
         Ok(Err(e)) => {
-            let _ = system
-                .get_logger()
-                .write_fmt(format_args!("Revert: {e:?}\n"));
+            system_log!(system, "Revert: {e:?}\n");
             Ok((make_error_return_state(resources), return_memory))
         }
         Err(SystemError::LeafRuntime(RuntimeError::OutOfErgs(_))) => {
-            let _ = system
-                .get_logger()
-                .write_fmt(format_args!("Out of gas during system hook\n"));
+            system_log!(system, "Out of gas during system hook\n");
             Ok((make_error_return_state(resources), return_memory))
         }
         Err(e @ SystemError::LeafRuntime(RuntimeError::FatalRuntimeError(_))) => Err(e),
@@ -155,13 +151,14 @@ fn mint_nominal_token_value<S: EthereumLikeTypes>(
 where
     S::IO: IOSubsystemExt,
 {
-    // Charge EVM gas for the mint operation. This is a temporary solution, so we don't care about EVM compatibility anyway
+    // Charge EVM gas for the mint operation. This hook should be used during upgrades only, so we don't care about EVM compatibility
     match system.io.update_account_nominal_token_balance(
         ExecutionEnvironmentType::EVM,
         resources,
         beneficiary,
         &nominal_token_value,
         false, // false = add to balance, true = subtract from balance
+        false, // only set to true for fee-related operations on simulation mode
     ) {
         Ok(_) => Ok(()),
         Err(SubsystemError::LeafUsage(_)) => Err(SystemError::LeafDefect(internal_error!(

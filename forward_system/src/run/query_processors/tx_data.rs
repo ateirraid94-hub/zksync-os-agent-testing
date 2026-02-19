@@ -1,4 +1,5 @@
 use super::*;
+use crate::run::convert_alloy::FromAlloy;
 use crate::run::NextTxResponse;
 use crate::run::TxSource;
 use basic_bootloader::bootloader::transaction::TxEncodingFormat;
@@ -55,7 +56,7 @@ impl<TS: TxSource, M: MemorySource> OracleQueryProcessor<M> for TxDataResponder<
         query_id: u32,
         _query: Vec<usize>,
         _memory: &M,
-    ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static> {
+    ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         assert!(Self::SUPPORTED_QUERY_IDS.contains(&query_id));
 
         match query_id {
@@ -80,7 +81,7 @@ impl<TS: TxSource, M: MemorySource> OracleQueryProcessor<M> for TxDataResponder<
                                 assert_ne!(next_tx_len, 0);
                                 self.next_tx = Some(next_tx);
                                 self.next_tx_format = Some(TxEncodingFormat::Rlp);
-                                self.next_tx_from = Some(B160::from_be_bytes(from.0 .0));
+                                self.next_tx_from = Some(B160::from_alloy(from));
                                 next_tx_len
                             }
                         }

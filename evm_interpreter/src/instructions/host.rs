@@ -91,9 +91,11 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
 
         if Self::PRINT_OPCODES {
             use core::fmt::Write;
-            let _ = system.get_logger().write_fmt(format_args!(
+            use zk_ee::system_log;
+            system_log!(
+                system,
                 " len {len}, source offset: {source_offset:?}, dest offset {memory_offset}"
-            ));
+            );
         }
 
         Ok(())
@@ -172,10 +174,14 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
         // This is an example of what would need to be done with tracing
         if Self::PRINT_OPCODES {
             use core::fmt::Write;
-            let _ = system.get_logger().write_fmt(format_args!(
+            use zk_ee::system_log;
+            system_log!(
+                system,
                 " address {:?}, key {:?}, value {:?}",
-                &self.address, &index, &value
-            ));
+                &self.address,
+                &index,
+                &value
+            );
         }
 
         Ok(())
@@ -318,7 +324,7 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
         } else {
             INITCODE_WORD_COST
         };
-        let initcode_cost = cost_per_word * ((len as u64).next_multiple_of(32) / 32);
+        let initcode_cost = cost_per_word * (len as u64).div_ceil(32);
         self.gas.spend_gas(initcode_cost)?;
         let end = code_offset + len; // can not overflow as we resized heap above using same values
 

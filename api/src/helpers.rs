@@ -16,7 +16,6 @@ use basic_system::system_implementation::flat_storage_model::AccountProperties;
 use forward_system::run::PreimageSource;
 use ruint::aliases::U256;
 use std::alloc::Global;
-use std::ops::Add;
 use zk_ee::common_structs::interop_root_storage::InteropRoot as StoredInteropRoot;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::EIP7702_DELEGATION_MARKER;
@@ -123,6 +122,8 @@ pub fn set_properties_code(account: &mut AccountProperties, evm_code: &[u8]) -> 
 ///
 /// Internal tx encoding method.
 ///
+/// TODO: cleanup
+///
 #[allow(clippy::too_many_arguments)]
 pub fn encode_tx(
     tx_type: u8,
@@ -166,7 +167,7 @@ pub fn encode_tx(
                     U256::ZERO
                 }
             } else if tx_type == 0x7f {
-                U256::from_be_bytes(value).add(U256::from(gas_limit * max_fee_per_gas))
+                U256::from(gas_limit * max_fee_per_gas)
             } else {
                 U256::ZERO
             })
@@ -217,11 +218,14 @@ pub fn encode_envelope_2718(env: &TxEnvelope) -> Vec<u8> {
             out.push(0x02);
             signed.rlp_encode(&mut out);
         }
+        EthereumTxEnvelope::Eip4844(signed) => {
+            out.push(0x03);
+            signed.rlp_encode(&mut out);
+        }
         EthereumTxEnvelope::Eip7702(signed) => {
             out.push(0x04);
             signed.rlp_encode(&mut out);
         }
-        _ => unimplemented!(),
     }
     out
 }
@@ -233,34 +237,40 @@ pub fn sign_and_encode_transaction_request(
     req: TransactionRequest,
     wallet: &PrivateKeySigner,
 ) -> EncodedTx {
-    let typed_tx = req.build_typed_tx().expect("Failed to build typed tx");
+    let typed_tx = if req.blob_versioned_hashes.is_some() {
+        req.build_4844_without_sidecar()
+            .expect("Failed to build 4844 tx")
+            .into()
+    } else {
+        req.build_typed_tx().expect("Failed to build typed tx")
+    };
     match typed_tx {
         TypedTransaction::Legacy(tx) => sign_and_encode_alloy_tx(tx, wallet),
         TypedTransaction::Eip1559(tx) => sign_and_encode_alloy_tx(tx, wallet),
         TypedTransaction::Eip7702(tx) => sign_and_encode_alloy_tx(tx, wallet),
         TypedTransaction::Eip2930(tx) => sign_and_encode_alloy_tx(tx, wallet),
-        TypedTransaction::Eip4844(_) => panic!("Unsupported tx type"),
+        TypedTransaction::Eip4844(tx) => sign_and_encode_alloy_tx(tx, wallet),
     }
 }
 
 /// Helper wrapper representing the RLP *body* of a service tx:
-/// [gas_limit, to, data]
+/// [to, data, salt]
 struct ServiceTxBody<'a> {
-    gas_limit: u64,
     to: &'a [u8; 20],
     data: &'a [u8],
+    salt: u64,
 }
 
 enum ServiceTxField<'b> {
-    U64(u64),
     Bytes(&'b [u8]),
+    U64(u64),
 }
 
 impl<'b> Encodable for ServiceTxField<'b> {
     fn encode(&self, out: &mut dyn BufMut) {
         match self {
-            ServiceTxField::U64(v) => v.encode(out),
             ServiceTxField::Bytes(b) => (*b).encode(out),
+            ServiceTxField::U64(n) => n.encode(out),
         }
     }
 }
@@ -268,9 +278,9 @@ impl<'b> Encodable for ServiceTxField<'b> {
 impl<'a> Encodable for ServiceTxBody<'a> {
     fn encode(&self, out: &mut dyn BufMut) {
         let fields = vec![
-            ServiceTxField::U64(self.gas_limit),
             ServiceTxField::Bytes(self.to.as_slice()),
             ServiceTxField::Bytes(self.data),
+            ServiceTxField::U64(self.salt),
         ];
 
         fields.encode(out);
@@ -280,12 +290,8 @@ impl<'a> Encodable for ServiceTxBody<'a> {
 ///
 /// Encode a service transaction
 ///
-pub fn encode_service_tx(gas_limit: u64, to: &[u8; 20], data: &[u8]) -> EncodedTx {
-    let body = ServiceTxBody {
-        gas_limit,
-        to,
-        data,
-    };
+pub fn encode_service_tx(to: &[u8; 20], data: &[u8], salt: u64) -> EncodedTx {
+    let body = ServiceTxBody { to, data, salt };
     let rlp_body = encode(&body);
     let mut out = Vec::with_capacity(1 + rlp_body.len());
     out.push(SERVICE_TX_TYPE);
@@ -337,4 +343,21 @@ pub fn encode_interop_root_import_calldata(interop_roots: Vec<StoredInteropRoot>
         interopRootsInput: interop_roots,
     }
     .abi_encode()
+}
+
+///
+/// Calldata used by service transactions that update the settlement layer chain id.
+///
+/// Constructs the calldata for:
+///
+/// function setSettlementLayerChainId(uint256 _newSettlementLayerChainId);
+///
+pub fn encode_set_settlement_layer_chain_id_calldata(new_sl_chain_id: U256) -> Vec<u8> {
+    // Declare sol interface
+    sol! {
+       function setSettlementLayerChainId(uint256);
+    }
+
+    // Construct calldata
+    setSettlementLayerChainIdCall(new_sl_chain_id).abi_encode()
 }
