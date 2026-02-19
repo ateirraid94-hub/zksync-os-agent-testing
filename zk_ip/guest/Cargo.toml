@@ -1,0 +1,9 @@
+[package]
+name = "zkip-guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+airbender = { package = "airbender-sdk", git = "https://github.com/popzxc/airbender-platform", branch = "main", features = ["std", "crypto"] }
+alloy-sol-types = { version = "0.8", default-features = false }
+

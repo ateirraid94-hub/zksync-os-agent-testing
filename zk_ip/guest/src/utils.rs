@@ -1,0 +1,18 @@
+use alloy_sol_types::private::primitives::{Address, address};
+
+pub fn next_power_of_two_log(num: u32) -> usize {
+    (u32::BITS - (num - 1).leading_zeros()) as usize
+}
+
+
+pub const L2_BOOTLOADER: Address = address!("0x0000000000000000000000000000000000008001");
+pub const L2_KNOWN_CODE_STORAGE: Address = address!("0x0000000000000000000000000000000000008004");
+pub const L2_TO_L1_MESSENGER: Address = address!("0x0000000000000000000000000000000000008008");
+pub const L2_BASE_TOKEN: Address = address!("0x000000000000000000000000000000000000800a");
+pub const L2_COMPRESSOR: Address = address!("0x000000000000000000000000000000000000800e");
+
+pub const L2_ASSET_ROUTER: Address = address!("0x0000000000000000000000000000000000010003");
+pub const L2_NATIVE_TOKEN_VAULT: Address = address!("0x0000000000000000000000000000000000010004");
+pub const L2_INTEROP_CENTER: Address = address!("0x000000000000000000000000000000000001000d");
+pub const L2_INTEROP_HANDLER: Address = address!("0x000000000000000000000000000000000001000e");
+pub const L2_ASSET_TRACKER: Address = address!("0x000000000000000000000000000000000001000f");

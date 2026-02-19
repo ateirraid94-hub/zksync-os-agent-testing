@@ -6,7 +6,7 @@ rustflags = [
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=--save-temps",
   "-C", "force-frame-pointers",
-  "-C", "passes=lower-atomic", # Avoid atomic instructions (causes linker errors)
+  "-C", "passes=lower-atomic",
   "--cfg", "getrandom_backend=\"custom\"",
 ]
 

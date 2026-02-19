@@ -1,7 +1,0 @@
-/target
-
-app.bin
-app.elf
-app.text
-*.asm
-*.log
