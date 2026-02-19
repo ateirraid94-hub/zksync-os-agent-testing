@@ -40,6 +40,8 @@ members = [
 ]
 
 exclude = [
+    "zk_ip/guest",
+    "zk_ip/host",
     "zksync_os",
     "supporting_crates/nostd_compression",
     "crypto/src/blake2s/test_program",
