@@ -1,3 +1,4 @@
+use alloc::format;
 use crate::alloc::string::ToString;
 use crate::bootloader::block_flow::BlockTransactionsDataKeeper;
 use crate::bootloader::errors::{BootloaderInterfaceError, BootloaderSubsystemError};
