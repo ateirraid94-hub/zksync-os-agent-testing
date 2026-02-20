@@ -24,6 +24,7 @@
 extern crate alloc;
 
 use crate::addresses_constants::*;
+use crate::call_hooks::contract_deployer::contract_deployer_hook;
 use crate::call_hooks::l1_messenger::l1_messenger_hook;
 use crate::call_hooks::mint_base_token::mint_base_token_hook;
 use crate::call_hooks::set_bytecode_on_address::set_bytecode_on_address_hook;
@@ -220,6 +221,18 @@ where
     hooks.add_call_hook(
         SET_BYTECODE_ON_ADDRESS_HOOK_LOW,
         SystemCallHook::new(set_bytecode_on_address_hook),
+    )
+}
+
+pub fn add_contract_deployer<S: EthereumLikeTypes, A: Allocator + Clone>(
+    hooks: &mut HooksStorage<S, A>,
+) -> Result<(), InternalError>
+where
+    S::IO: IOSubsystemExt,
+{
+    hooks.add_call_hook(
+        CONTRACT_DEPLOYER_ADDRESS_LOW,
+        SystemCallHook::new(contract_deployer_hook),
     )
 }
 
