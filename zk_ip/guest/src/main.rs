@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use airbender::crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
 use airbender::guest::read;
-use alloy_sol_types::{sol, SolType, SolCall, private::primitives::U256};
+use alloy_sol_types::{SolType, private::primitives::U256, sol_data::{Address, Uint, Bytes}};
 
 use merkle_tree::DynamicMerkleTree;
 use utils::*;
@@ -139,7 +139,6 @@ fn main() -> [u32; 8] {
         if sender == L2_TO_L1_MESSENGER {
             let message: Vec<u8> = read().expect("log message");
             assert_eq!(Keccak256::digest(&message), value);
-            // withdrawal
             if key == L2_ASSET_ROUTER.into_word() {
 
                 let selector = &message[..4];
@@ -149,9 +148,9 @@ fn main() -> [u32; 8] {
                 // finalizeDeposit.selector
                 assert_eq!(selector, b"\x9c\x88\x4f\xd1");
 
-                type Tuple = sol!((address, address, address, uint256, bytes));
+                type Tuple = (Address, Address, Address, Uint<256>, Bytes);
                 let (_, _, original_token, amount, erc20_metadata) =
-                    Tuple::abi_decode(transfer_data, true).expect("decoding failed");
+                    Tuple::abi_decode_sequence(transfer_data, true).expect("decoding failed");
 
                 let token_original_chain_id = if erc20_metadata[0] == 0 {
                     [0; 32]
@@ -161,7 +160,6 @@ fn main() -> [u32; 8] {
                     panic!("invalid erc20 metadata version")
                 };
 
-                // TODO double check that into_word does correct kind of padding
                 let asset_data = original_token.into_word();
                 assert_eq!(asset_id, get_asset_id(token_original_chain_id, asset_data.0));
 
@@ -217,7 +215,7 @@ fn main() -> [u32; 8] {
             }
             let hash = blake_hash_parts(left, right);
             new_layer.insert(
-                *index << 1,
+                *index >> 1,
                 TreeNode {
                     hash,
                     path: node.path,
@@ -227,6 +225,6 @@ fn main() -> [u32; 8] {
         (layer, new_layer) = (new_layer, BTreeMap::new());
     }
 
-    let commitment = Blake2s256::digest([layer[&0].hash, prev_root, l2_logs_root].concat());
+    let commitment = Blake2s256::digest([layer[&0].hash, prev_root, /*l2_logs_root*/].concat());
     std::array::from_fn(|i| u32::from_be_bytes(commitment[i * 4..(i + 1) * 4].try_into().unwrap()))
 }

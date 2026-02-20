@@ -17,7 +17,7 @@ dependencies = [
 [[package]]
 name = "airbender-codec"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 dependencies = [
  "bincode",
  "serde",
@@ -26,12 +26,12 @@ dependencies = [
 [[package]]
 name = "airbender-core"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 
 [[package]]
 name = "airbender-crypto"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 dependencies = [
  "ark-bls12-381",
  "ark-bn254",
@@ -61,7 +61,7 @@ dependencies = [
 [[package]]
 name = "airbender-guest"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 dependencies = [
  "airbender-codec",
  "airbender-core",
@@ -72,7 +72,7 @@ dependencies = [
 [[package]]
 name = "airbender-macros"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -82,7 +82,7 @@ dependencies = [
 [[package]]
 name = "airbender-rt"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 dependencies = [
  "getrandom",
  "riscv_common",
@@ -92,7 +92,7 @@ dependencies = [
 [[package]]
 name = "airbender-sdk"
 version = "0.1.0"
-source = "git+https://github.com/popzxc/airbender-platform?branch=main#2b1a78d395d95d62b3bed577b414ad5429067fa9"
+source = "git+https://github.com/popzxc/airbender-platform?branch=main#0cb7098f507bbccf193d1fd91833a2dbc9cc0a0d"
 dependencies = [
  "airbender-codec",
  "airbender-crypto",
