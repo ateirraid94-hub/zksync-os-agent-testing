@@ -17,7 +17,11 @@ use crate::bootloader::{BasicBootloader, BootloaderSubsystemError};
 use crate::require_internal;
 use arrayvec::ArrayVec;
 use core::fmt::Write;
+use crypto::sha3::{Digest, Keccak256};
 use ruint::aliases::{B160, U256};
+use system_hooks::addresses_constants::{
+    L2_ASSET_TRACKER_ADDRESS, L2_CHAIN_ASSET_HANDLER_ADDRESS,
+};
 use zk_ee::common_structs::system_hooks::HooksStorage;
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::errors::root_cause::GetRootCause;
@@ -31,7 +35,7 @@ use zk_ee::system::validator::TxValidator;
 use zk_ee::system::Resource;
 use zk_ee::system::System;
 use zk_ee::system::{CompletedExecution, Computational};
-use zk_ee::system::{EthereumLikeTypes, Resources};
+use zk_ee::system::{EthereumLikeTypes, IOSubsystem, Resources};
 #[allow(unused_imports)]
 use zk_ee::system::{IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
 use zk_ee::system_log;
@@ -637,6 +641,145 @@ where
                 _ => wrap_error!(e),
             }
         })?;
+
+    update_saved_total_supply(system, resources)?;
+
+    Ok(())
+}
+
+/// Computes keccak256(abi.encode(key, base_slot)) for Solidity mapping slot derivation.
+fn solidity_mapping_slot(key: &[u8; 32], base_slot: u64) -> Bytes32 {
+    let mut hasher = Keccak256::new();
+    hasher.update(key);
+    hasher.update(&U256::from(base_slot).to_be_bytes::<32>());
+    Bytes32::from_array(hasher.finalize().into())
+}
+
+/// Replicates the L2AssetTracker's `_getOrSaveTotalSupply` logic for the base token.
+///
+/// On each treasury transfer, checks whether `savedTotalSupply[migrationNumber][baseTokenAssetId]`
+/// has been recorded in the L2AssetTracker contract. If not, computes the current
+/// total supply from the L2BaseTokenZKOS contract and writes it.
+///
+/// This is needed because zksync-os transfers tokens from treasury natively (bypassing the
+/// Solidity L2BaseToken.mint() which would normally call handleFinalizeBaseTokenBridgingOnL2
+/// on the L2AssetTracker).
+fn update_saved_total_supply<S: EthereumLikeTypes>(
+    system: &mut System<S>,
+    resources: &mut S::Resources,
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+{
+    let ee = ExecutionEnvironmentType::EVM;
+
+    // 1. Read BASE_TOKEN_ASSET_ID from L2AssetTracker (slot 155)
+    let base_token_asset_id = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &Bytes32::from_u256_be(&U256::from(155)),
+    )?;
+    if base_token_asset_id.is_zero() {
+        // Not initialized yet (before genesis upgrade), skip
+        return Ok(());
+    }
+
+    // 2. Read migrationNumber[chainId] from L2ChainAssetHandler (base slot 207)
+    let chain_id = system.get_chain_id();
+    let chain_id_bytes = U256::from(chain_id).to_be_bytes::<32>();
+    let migration_number_slot = solidity_mapping_slot(&chain_id_bytes, 207);
+    let migration_number = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &L2_CHAIN_ASSET_HANDLER_ADDRESS,
+        &migration_number_slot,
+    )?;
+
+    // 3. Compute savedTotalSupply[migrationNumber][baseTokenAssetId] slot
+    //    level1 = keccak256(abi.encode(migrationNumber, 156))
+    //    level2 = keccak256(abi.encode(baseTokenAssetId, level1))
+    let migration_number_bytes = migration_number.as_u8_array();
+    let level1_slot = solidity_mapping_slot(&migration_number_bytes, 156);
+    let level1_bytes = level1_slot.as_u8_array();
+    let asset_id_bytes = base_token_asset_id.as_u8_array();
+    let mut hasher = Keccak256::new();
+    hasher.update(&asset_id_bytes);
+    hasher.update(&level1_bytes);
+    let struct_base_slot = Bytes32::from_array(hasher.finalize().into());
+
+    // 4. Read isSaved (bool at struct_base_slot + 0)
+    let is_saved_value = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &struct_base_slot,
+    )?;
+    if !is_saved_value.is_zero() {
+        // Already saved, nothing to do
+        return Ok(());
+    }
+
+    // 5. Compute totalSupply = _zkosPreV31TotalSupply + (INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance)
+    //    _zkosPreV31TotalSupply is at slot 2 of L2BaseToken (0x800a)
+    let pre_v31_supply_bytes = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &system_hooks::addresses_constants::L2_BASE_TOKEN_ADDRESS,
+        &Bytes32::from_u256_be(&U256::from(2)),
+    )?;
+    let pre_v31_supply = pre_v31_supply_bytes.into_u256_be();
+
+    // Skip saving if _zkosPreV31TotalSupply hasn't been set yet (e.g. during genesis upgrade).
+    // Once the admin sets it via setZkosPreV31TotalSupply, the next transfer will save the real value.
+    if pre_v31_supply.is_zero() {
+        return Ok(());
+    }
+
+    // INITIAL_BASE_TOKEN_HOLDER_BALANCE = 2^127 - 1
+    let initial_holder_balance: U256 = (U256::from(1) << 127) - U256::from(1);
+
+    // Read L2_BASE_TOKEN_HOLDER native balance
+    let holder_balance_u256 = system.io.get_nominal_token_balance(
+        ee,
+        resources,
+        &system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS,
+    )?;
+
+    let total_supply = pre_v31_supply
+        .checked_add(
+            initial_holder_balance
+                .checked_sub(holder_balance_u256)
+                .unwrap_or(U256::ZERO),
+        )
+        .unwrap_or(U256::ZERO);
+
+    // 6. Write savedTotalSupply[migrationNumber][assetId] = {isSaved: true, amount: totalSupply}
+    //    Struct slot 0: isSaved (bool, value = 1)
+    //    Struct slot 1: amount (uint256)
+    system.io.storage_write::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &struct_base_slot,
+        &Bytes32::from_u256_be(&U256::from(1)), // isSaved = true
+    )?;
+
+    // Compute struct_base_slot + 1 for the amount field
+    let amount_slot_u256 = struct_base_slot.into_u256_be() + U256::from(1);
+    let amount_slot = Bytes32::from_u256_be(&amount_slot_u256);
+    system.io.storage_write::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &amount_slot,
+        &Bytes32::from_u256_be(&total_supply),
+    )?;
+
+    system_log!(
+        system,
+        "Saved total supply {total_supply:?} for base token in L2AssetTracker\n"
+    );
 
     Ok(())
 }
