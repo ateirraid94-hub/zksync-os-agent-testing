@@ -232,8 +232,10 @@ impl ZksGetProofResponse {
 pub mod verifier {
     use alloc::alloc::Global;
     use alloc::vec::Vec;
+    use ruint::aliases::B160;
 
     use crate::system_implementation::flat_storage_model::simple_growable_storage::FlatStorageHasher;
+    use crate::system_implementation::flat_storage_model::StorageProof;
     use crypto::MiniDigest;
     use zk_ee::common_structs::{derive_flat_storage_key_with_hasher, ChainStateCommitment};
     use zk_ee::utils::Bytes32;
@@ -268,11 +270,105 @@ pub mod verifier {
         Bytes32::from_array(commitment.hash())
     }
 
+    /// Output of verifying a single proof.
+    /// Note that we include the computed state root, to avoid recomputing
+    /// the state commitment for every proof.
+    struct SingleVerificationResult {
+        computed_root: Bytes32,
+        value: Bytes32,
+    }
+
+    /// Verify a single proof, returning the leaf value and recomputed
+    /// state root.
+    /// Note: caller is expected to check that the recomputed root is
+    /// consistent with the expected one.
+    fn verify_single_proof<const N: usize>(
+        address: &B160,
+        proof: &StorageProof,
+        empty_hashes: &[Bytes32; N],
+        key_hasher: &mut crypto::blake2s::Blake2s256,
+    ) -> Result<SingleVerificationResult, ZksGetProofVerificationError> {
+        let flat_key = derive_flat_storage_key_with_hasher(&address, &proof.key, key_hasher);
+        let (state_root, value) = match &proof.proof {
+            StorageProofType::Existing {
+                index,
+                value,
+                next_index,
+                siblings,
+            } => {
+                let leaf = FlatStorageLeaf::<N> {
+                    key: flat_key,
+                    value: *value,
+                    next: *next_index,
+                };
+                let mut hasher = Blake2sStorageHasher::new();
+                let root = compute_root_from_siblings::<N>(
+                    &mut hasher,
+                    *index,
+                    &leaf,
+                    siblings,
+                    &empty_hashes,
+                )?;
+                (root, *value)
+            }
+            StorageProofType::NonExisting {
+                left_neighbor,
+                right_neighbor,
+            } => {
+                if !(left_neighbor.leaf_key < flat_key && flat_key < right_neighbor.leaf_key) {
+                    return Err(ZksGetProofVerificationError::NeighborOrderInvalid);
+                }
+                if left_neighbor.next_index != right_neighbor.index {
+                    return Err(ZksGetProofVerificationError::NeighborLinkInvalid);
+                }
+                let mut hasher = Blake2sStorageHasher::new();
+                let left_leaf = FlatStorageLeaf::<N> {
+                    key: left_neighbor.leaf_key,
+                    value: left_neighbor.value,
+                    next: left_neighbor.next_index,
+                };
+                let right_leaf = FlatStorageLeaf::<N> {
+                    key: right_neighbor.leaf_key,
+                    value: right_neighbor.value,
+                    next: right_neighbor.next_index,
+                };
+                let left_root = compute_root_from_siblings::<N>(
+                    &mut hasher,
+                    left_neighbor.index,
+                    &left_leaf,
+                    &left_neighbor.siblings,
+                    &empty_hashes,
+                )?;
+                let right_root = compute_root_from_siblings::<N>(
+                    &mut hasher,
+                    right_neighbor.index,
+                    &right_leaf,
+                    &right_neighbor.siblings,
+                    &empty_hashes,
+                )?;
+                if left_root != right_root {
+                    return Err(ZksGetProofVerificationError::NonExistingRootMismatch);
+                }
+                (left_root, Bytes32::ZERO)
+            }
+        };
+
+        Ok(SingleVerificationResult {
+            computed_root: state_root,
+            value,
+        })
+    }
+
     /// Verifies all storage proofs against the expected batch hash.
     pub fn verify_response<const N: usize>(
         response: &ZksGetProofResponse,
         expected_batch_hash: &Bytes32,
     ) -> Result<Vec<Bytes32>, ZksGetProofVerificationError> {
+        // Handle case for 0 proofs:
+        if response.storage_proofs.is_empty() {
+            return Ok(vec![]);
+        }
+
         let mut empty_hasher = Blake2sStorageHasher::new();
         let empty_hashes =
             compute_empty_hashes::<N, Blake2sStorageHasher, Global>(&mut empty_hasher, Global);
@@ -280,79 +376,37 @@ pub mod verifier {
         let mut values = Vec::with_capacity(response.storage_proofs.len());
         let mut key_hasher = crypto::blake2s::Blake2s256::new();
 
-        for proof in &response.storage_proofs {
-            let flat_key =
-                derive_flat_storage_key_with_hasher(&response.address, &proof.key, &mut key_hasher);
-            let (state_root, value) = match &proof.proof {
-                StorageProofType::Existing {
-                    index,
-                    value,
-                    next_index,
-                    siblings,
-                } => {
-                    let leaf = FlatStorageLeaf::<N> {
-                        key: flat_key,
-                        value: *value,
-                        next: *next_index,
-                    };
-                    let mut hasher = Blake2sStorageHasher::new();
-                    let root = compute_root_from_siblings::<N>(
-                        &mut hasher,
-                        *index,
-                        &leaf,
-                        siblings,
-                        &empty_hashes,
-                    )?;
-                    (root, *value)
-                }
-                StorageProofType::NonExisting {
-                    left_neighbor,
-                    right_neighbor,
-                } => {
-                    if !(left_neighbor.leaf_key < flat_key && flat_key < right_neighbor.leaf_key) {
-                        return Err(ZksGetProofVerificationError::NeighborOrderInvalid);
-                    }
-                    if left_neighbor.next_index != right_neighbor.index {
-                        return Err(ZksGetProofVerificationError::NeighborLinkInvalid);
-                    }
-                    let mut hasher = Blake2sStorageHasher::new();
-                    let left_leaf = FlatStorageLeaf::<N> {
-                        key: left_neighbor.leaf_key,
-                        value: left_neighbor.value,
-                        next: left_neighbor.next_index,
-                    };
-                    let right_leaf = FlatStorageLeaf::<N> {
-                        key: right_neighbor.leaf_key,
-                        value: right_neighbor.value,
-                        next: right_neighbor.next_index,
-                    };
-                    let left_root = compute_root_from_siblings::<N>(
-                        &mut hasher,
-                        left_neighbor.index,
-                        &left_leaf,
-                        &left_neighbor.siblings,
-                        &empty_hashes,
-                    )?;
-                    let right_root = compute_root_from_siblings::<N>(
-                        &mut hasher,
-                        right_neighbor.index,
-                        &right_leaf,
-                        &right_neighbor.siblings,
-                        &empty_hashes,
-                    )?;
-                    if left_root != right_root {
-                        return Err(ZksGetProofVerificationError::NonExistingRootMismatch);
-                    }
-                    (left_root, Bytes32::ZERO)
-                }
-            };
+        // Handle first proof (must exist due to previous check)
+        let SingleVerificationResult {
+            computed_root: first_proof_computed_root,
+            value,
+        } = verify_single_proof(
+            &response.address,
+            &response.storage_proofs[0],
+            &empty_hashes,
+            &mut key_hasher,
+        )?;
 
-            let commitment =
-                compute_state_commitment(&state_root, &response.state_commitment_preimage);
-            if &commitment != expected_batch_hash {
+        // For the first proof, we recompute state commitment and check against expected batch hash
+        let commitment = compute_state_commitment(
+            &first_proof_computed_root,
+            &response.state_commitment_preimage,
+        );
+        if &commitment != expected_batch_hash {
+            return Err(ZksGetProofVerificationError::StateCommitmentMismatch);
+        }
+        values.push(value);
+
+        // Now, verify all remaining proofs by checking against the
+        // root computed for the first one
+        for proof in response.storage_proofs.iter().skip(1) {
+            let SingleVerificationResult {
+                computed_root,
+                value,
+            } = verify_single_proof(&response.address, proof, &empty_hashes, &mut key_hasher)?;
+            if computed_root != first_proof_computed_root {
                 return Err(ZksGetProofVerificationError::StateCommitmentMismatch);
             }
-
             values.push(value);
         }
 
