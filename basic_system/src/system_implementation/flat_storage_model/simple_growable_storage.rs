@@ -1310,18 +1310,25 @@ pub fn recompute_root_from_proof<const N: usize, H: FlatStorageHasher, A: Alloca
     hasher: &mut H,
     proof: &LeafProof<N, H, A>,
 ) -> Bytes32 {
-    let leaf_hash = hasher.hash_leaf(&proof.leaf);
+    recompute_root_from_leaf_and_path(hasher, proof.index, &proof.leaf, &proof.path)
+}
+
+pub fn recompute_root_from_leaf_and_path<const N: usize, H: FlatStorageHasher>(
+    hasher: &mut H,
+    index: u64,
+    leaf: &FlatStorageLeaf<N>,
+    path: &[Bytes32; N],
+) -> Bytes32 {
+    let leaf_hash = hasher.hash_leaf(leaf);
 
     let mut current = leaf_hash;
-    let mut index = proof.index;
-    let path_ref: &[Bytes32] = &*proof.path;
-    for path in path_ref.iter() {
-        let path: &Bytes32 = path;
+    let mut index = index;
+    for sibling in path {
         let (left, right) = if index & 1 == 0 {
             // current is left
-            (&current, path)
+            (&current, sibling)
         } else {
-            (path, &current)
+            (sibling, &current)
         };
         let next = hasher.hash_node(left, right);
         current = next;

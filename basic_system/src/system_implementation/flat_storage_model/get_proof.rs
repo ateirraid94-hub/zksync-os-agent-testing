@@ -239,8 +239,8 @@ pub mod verifier {
     use zk_ee::utils::Bytes32;
 
     use super::super::{
-        compute_empty_hashes, recompute_root_from_proof, Blake2sStorageHasher, FlatStorageLeaf,
-        LeafProof,
+        compute_empty_hashes, recompute_root_from_leaf_and_path, Blake2sStorageHasher,
+        FlatStorageLeaf,
     };
     use super::{StateCommitmentPreimage, StorageProofType, ZksGetProofResponse};
 
@@ -366,24 +366,23 @@ pub mod verifier {
         siblings: &[Bytes32],
         empty_hashes: &[Bytes32; N],
     ) -> Result<Bytes32, ZksGetProofVerificationError> {
-        use alloc::boxed::Box;
         if siblings.len() > N {
             return Err(ZksGetProofVerificationError::SiblingsTooLong {
                 len: siblings.len(),
             });
         }
 
-        let mut path = Box::new_in([Bytes32::ZERO; N], Global);
-        for i in 0..N {
-            path[i] = if i < siblings.len() {
-                siblings[i]
-            } else {
-                empty_hashes[i]
-            };
+        let mut path = [Bytes32::ZERO; N];
+        for i in 0..siblings.len() {
+            path[i] = siblings[i];
+        }
+        for i in siblings.len()..N {
+            path[i] = empty_hashes[i];
         }
 
-        let proof = LeafProof::new(index, *leaf, path);
-        Ok(recompute_root_from_proof(hasher, &proof))
+        Ok(recompute_root_from_leaf_and_path(
+            hasher, index, leaf, &path,
+        ))
     }
 }
 
