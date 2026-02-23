@@ -366,7 +366,7 @@ pub mod verifier {
     ) -> Result<Vec<Bytes32>, ZksGetProofVerificationError> {
         // Handle case for 0 proofs:
         if response.storage_proofs.is_empty() {
-            return Ok(vec![]);
+            return Ok(alloc::vec![]);
         }
 
         let mut empty_hasher = Blake2sStorageHasher::new();
@@ -427,12 +427,8 @@ pub mod verifier {
         }
 
         let mut path = [Bytes32::ZERO; N];
-        for i in 0..siblings.len() {
-            path[i] = siblings[i];
-        }
-        for i in siblings.len()..N {
-            path[i] = empty_hashes[i];
-        }
+        path[..siblings.len()].copy_from_slice(siblings);
+        path[siblings.len()..N].copy_from_slice(&empty_hashes[siblings.len()..N]);
 
         Ok(recompute_root_from_leaf_and_path(
             hasher, index, leaf, &path,
