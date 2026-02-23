@@ -15,7 +15,6 @@ System hooks have two distinct use cases:
   - ecpairing
 - Implementing system contracts: formal contracts that implement some system functionality, like Era's nonce holder. Needed to support EraVM.
   - L1 messenger system hook
-  - L2 Base token system hook
   - Contract deployer system hook
 
 ## L1 messenger system hook
@@ -24,12 +23,6 @@ The L1 messenger system hook is responsible for sending messages to L1.
 Users can call it using the special interface, input should be encoded as calldata for the `sendToL1(bytes)` method following Solidity ABI.
 
 Implementation of the L1 messenger system hook does 2 things: decodes the input and records the message using the system method.
-
-## L2 base token system hook
-
-The L2 base token system implements only 2 methods: `withdraw(address)`, `withdrawWithMessage(address,bytes)`.
-
-They are needed to support Era VM like base token withdrawals.
 
 ## Contract deployer system hook
 
