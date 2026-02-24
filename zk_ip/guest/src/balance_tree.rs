@@ -1,7 +1,7 @@
-use utils::H256;
+use airbender::crypto::{blake2s::Blake2s256, MiniDigest};
 use alloy_sol_types::private::U256;
 use std::collections::BTreeMap;
-use airbender::crypto::{MiniDigest, blake2s::Blake2s256};
+use utils::H256;
 
 struct TreeNode<'a> {
     hash: H256,
@@ -79,8 +79,11 @@ impl BalanceTree {
     }
 
     pub fn update_balance(&mut self, asset_id: H256, amount: U256, add: bool) {
-        let balance = &mut self.balances
-            .get_mut(&asset_id).expect("asset id missing").balance;
+        let balance = &mut self
+            .balances
+            .get_mut(&asset_id)
+            .expect("asset id missing")
+            .balance;
         if add {
             *balance += amount;
         } else {

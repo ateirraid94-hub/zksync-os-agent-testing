@@ -1,14 +1,18 @@
 #![no_main]
 
 use airbender::crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
-use alloy_sol_types::{SolType, private::primitives::U256, sol_data::{Address, Uint, Bytes}};
+use alloy_sol_types::{
+    private::primitives::U256,
+    sol_data::{Address, Bytes, Uint},
+    SolType,
+};
 
-use utils::*;
 use balance_tree::BalanceTree;
 use logs_tree::LogsTree;
+use utils::*;
 
-mod logs_tree;
 mod balance_tree;
+mod logs_tree;
 
 fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     assert!(message.len() >= 68);
@@ -32,12 +36,19 @@ fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     };
 
     let asset_data = original_token.into_word();
-    assert_eq!(asset_id, get_asset_id(token_original_chain_id, asset_data.0));
+    assert_eq!(
+        asset_id,
+        get_asset_id(token_original_chain_id, asset_data.0)
+    );
 
     balance_tree.update_balance(asset_id, amount, false);
 }
 
-fn handle_base_token_contract_message(message: &[u8], base_token_asset_id: H256, balance_tree: &mut BalanceTree) {
+fn handle_base_token_contract_message(
+    message: &[u8],
+    base_token_asset_id: H256,
+    balance_tree: &mut BalanceTree,
+) {
     let selector = &message[..4];
     let amount: H256 = message[24..56].try_into().unwrap();
     let amount = U256::from_be_bytes(amount);
@@ -99,7 +110,11 @@ fn main() -> [u32; 8] {
             if key == L2_ASSET_ROUTER.into_word() {
                 handle_asset_router_message(&message, &mut balance_tree);
             } else if key == L2_BASE_TOKEN.into_word() {
-                handle_base_token_contract_message(&message, base_token_asset_id, &mut balance_tree);
+                handle_base_token_contract_message(
+                    &message,
+                    base_token_asset_id,
+                    &mut balance_tree,
+                );
             } else if key == L2_ASSET_TRACKER.into_word() {
                 // IAssetTrackerDataEncoding.receiveMigrationOnL1.selector,
                 assert_eq!(&message[..4], b"\x8e\x29\x04\x3a");
