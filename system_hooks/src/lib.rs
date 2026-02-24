@@ -11,9 +11,6 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 #![allow(clippy::result_unit_err)]
 #![allow(clippy::type_complexity)]
-#![feature(generic_const_exprs)]
-#![feature(alloc_layout_extra)]
-#![feature(array_windows)]
 
 //!
 //! This crate contains system hooks implementation.
