@@ -7,7 +7,6 @@
 #![allow(clippy::len_without_is_empty)]
 #![allow(clippy::needless_borrow)]
 #![feature(generic_const_exprs)]
-#![feature(array_chunks)]
 
 extern crate alloc;
 
