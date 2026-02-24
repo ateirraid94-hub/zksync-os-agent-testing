@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
     "api",
+    "zks_get_proof_verifier",
     "basic_bootloader",
     "basic_system",
     "callable_oracles",
@@ -105,4 +106,3 @@ debug = true
 # prover_examples = { path = "../zksync-airbender/circuit_defs/prover_examples" }
 # risc_v_simulator = { path = "../zksync-airbender/risc_v_simulator" }
 # execution_utils = { path = "../zksync-airbender/execution_utils" }
-

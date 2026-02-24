@@ -25,6 +25,7 @@ ruint = { workspace = true, default-features = false }
 alloy = { version = "=1", default-features = false, features = ["eip712", "consensus", "rpc-types", "signer-local", "dyn-abi", "network"] }
 zksync_os_interface = { workspace = true }
 alloy-sol-types = "1"
+zks_get_proof_verifier = { path = "../zks_get_proof_verifier", default-features = false, features = ["serde"] }
 
 
 [features]

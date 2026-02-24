@@ -24,6 +24,7 @@ num-bigint = { version =  "0.4", optional = true}
 num-traits = { version =  "*", optional = true}
 system_hooks = { path = "../system_hooks", default-features = false }
 cc-traits = { path = "src/system_implementation/ethereum_storage_model/supporting_crates/cc-traits" }
+zks_get_proof_verifier = { path = "../zks_get_proof_verifier", default-features = false }
 
 cfg-if = "1.0.0"
 const_for = "0.1.5"
@@ -35,7 +36,7 @@ paste = "1.0.15"
 zerocopy = { workspace = true }
 
 [features]
-serde = ["dep:serde"]
+serde = ["dep:serde", "zks_get_proof_verifier/serde"]
 testing = ["zk_ee/testing", "evm_interpreter/testing", "serde", "ruint/serde", "rand", "crypto/testing", "num-bigint", "num-traits"]
 default = ["testing"]
 cycle_marker = ["cycle_marker/log_to_file"]

@@ -1,0 +1,19 @@
+[package]
+name = "zks_get_proof_verifier"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+ruint = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, features = ["derive", "alloc"], optional = true }
+const-hex = { version = "1", default-features = false, features = ["alloc"], optional = true }
+
+[features]
+default = []
+serde = ["dep:serde", "dep:const-hex", "ruint/serde"]
