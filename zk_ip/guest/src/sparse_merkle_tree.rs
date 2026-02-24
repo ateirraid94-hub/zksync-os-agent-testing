@@ -10,28 +10,20 @@ struct TreeNode<'a> {
 
 pub struct BalanceTree {
     balances: BTreeMap<H256, Balance>,
-    prev_size: u32,
     size: u32,
-    zeros: Vec<H256>,
-    sides: Vec<H256>,
-    first_new_token_path: Vec<H256>,
 }
 
 pub struct Balance {
     index: u32,
     balance: U256,
-    path: Option<Vec<H256>>,
+    path: Vec<H256>,
 }
 
 impl BalanceTree {
-    pub fn new(size: u32, zeros: Vec<H256>, sides: Vec<H256>) -> Self {
+    pub fn new(size: u32) -> Self {
         Self {
             balances: BTreeMap::new(),
-            prev_size: size,
             size,
-            zeros,
-            sides,
-            first_new_token_path: vec![],
         }
     }
 
@@ -50,10 +42,18 @@ impl BalanceTree {
         balance: H256,
         path: Vec<H256>,
     ) -> H256 {
-        let mut hash = Self::hash(asset_id, balance);
+        let mut hash = if index >= self.size {
+            assert_eq!(index, self.size);
+            assert_eq!(balance, [0; 32]);
+            self.size += 1;
+            Self::hash([0; 32], [0; 32])
+        } else {
+            Self::hash(asset_id, balance)
+        };
         let mut parity = index;
 
-        // TODO assert path length
+        // TODO assert path length? should be always prev_height?
+        // no need, if it's incorrect then there will be root mismatch
         for sibling in &path {
             if parity % 2 == 0 {
                 hash = Self::hash(hash, *sibling);
@@ -69,7 +69,7 @@ impl BalanceTree {
             Balance {
                 index,
                 balance: U256::from_be_bytes(balance),
-                path: Some(path),
+                path,
             },
         );
 
@@ -77,74 +77,32 @@ impl BalanceTree {
     }
 
     pub fn update_balance(&mut self, asset_id: H256, amount: U256, add: bool) {
-        self.balances
-            .entry(asset_id)
-            .and_modify(|e| {
-                if add {
-                    e.balance += amount;
-                } else {
-                    assert!(e.balance >= amount);
-                    e.balance -= amount;
-                }
-            })
-            .or_insert_with(|| {
-                let index = self.size;
-                self.size += 1;
-                assert!(add);
-                Balance {
-                    index,
-                    balance: amount,
-                    path: None,
-                }
-            });
+        let balance = &mut self.balances
+            .get_mut(&asset_id).expect("asset id missing").balance;
+        if add {
+            *balance += amount;
+        } else {
+            assert!(*balance >= amount);
+            *balance -= amount;
+        }
     }
 
-    fn leaf_layer(&mut self) -> BTreeMap<u32, TreeNode<'_>> {
-        if self.size > self.prev_size {
-            // new tokens were inserted - construct the path for the first new token
-            let mut parity = self.prev_size;
-            let height = self.height();
-            for i in 0..height {
-                let sibling = if parity % 2 == 0 {
-                    self.zeros[i]
-                } else {
-                    self.sides[i]
-                };
-                self.first_new_token_path.push(sibling);
-                parity >>= 1;
-            }
-        }
-
+    fn leaf_layer(&self) -> BTreeMap<u32, TreeNode<'_>> {
         let mut layer = BTreeMap::new();
         for (asset_id, balance) in &self.balances {
             assert!(!layer.contains_key(&balance.index));
-
             layer.insert(
                 balance.index,
                 TreeNode {
                     hash: Self::hash(*asset_id, balance.balance.to_be_bytes()),
-                    path: match balance.path.as_ref() {
-                        Some(path) => path,
-                        None => {
-                            if balance.index == self.prev_size {
-                                // path has been constructed for the first new token
-                                &self.first_new_token_path
-                            } else {
-                                // since new tokens' indices are consecutive,
-                                // they can have only zeros[]
-                                // since they will never access path when index is odd
-                                &self.zeros
-                            }
-                        }
-                    },
+                    path: &balance.path,
                 },
             );
         }
-
         layer
     }
 
-    fn root(&mut self) -> H256 {
+    pub fn root(&self) -> H256 {
         let height = self.height();
         let mut layer = self.leaf_layer();
         let mut new_layer = BTreeMap::new();
@@ -153,14 +111,15 @@ impl BalanceTree {
             for (index, node) in layer.iter() {
                 let left;
                 let right;
+                let sibling_index = index ^ 1;
                 if index % 2 == 0 {
                     left = node.hash;
                     right = layer
-                        .get(&(index + 1))
-                        .map(|n| n.hash)
+                        .get(&sibling_index)
+                        .map(|node| node.hash)
                         .unwrap_or(node.path[0]);
                 } else {
-                    if layer.contains_key(&(index - 1)) {
+                    if layer.contains_key(&sibling_index) {
                         // Since we're iterating in ascending order,
                         // we've already computed this node
                         continue;

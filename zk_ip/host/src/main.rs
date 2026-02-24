@@ -39,16 +39,13 @@ fn main() -> Result<()> {
     inputs.push(&asset_ids[0])?; // asset_id
     inputs.push(&0u32)?; // index
     inputs.push(&balance(1))?; // balance
-    inputs.push(&leafs[1])?; // path[0]
-    inputs.push(&middle[1])?; // path[1]
+    inputs.push(&vec![leafs[1], middle[1]])?; // path[0]
 
     inputs.push(&asset_ids[2])?;
     inputs.push(&2u32)?;
     inputs.push(&balance(3))?;
-    inputs.push(&leafs[3])?;
-    inputs.push(&middle[0])?;
+    inputs.push(&vec![leafs[3], middle[0]])?;
 
-    inputs.push(&0u32)?; // number of new tokens in logs
     inputs.push(&1u32)?; // number of logs
 
     inputs.push(&0u16)?; // tx number in batch
