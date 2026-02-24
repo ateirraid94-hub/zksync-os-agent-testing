@@ -1252,4 +1252,13 @@ version = "0.1.0"
 dependencies = [
  "airbender-sdk",
  "alloy-sol-types",
+ "zkip-host",
+]
+
+[[package]]
+name = "zkip-host"
+version = "0.1.0"
+dependencies = [
+ "airbender-crypto",
+ "alloy-primitives",
 ]

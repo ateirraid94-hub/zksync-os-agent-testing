@@ -1,4 +1,4 @@
-use crate::H256;
+use utils::H256;
 use alloy_sol_types::private::U256;
 use std::collections::BTreeMap;
 use airbender::crypto::{MiniDigest, blake2s::Blake2s256};
@@ -52,8 +52,8 @@ impl BalanceTree {
         };
         let mut parity = index;
 
-        // TODO assert path length? should be always prev_height?
-        // no need, if it's incorrect then there will be root mismatch
+        // path.len() should always be prev_height
+        // TODO we do not need to do it for new tokens that cause height increase
         for sibling in &path {
             if parity % 2 == 0 {
                 hash = Self::hash(hash, *sibling);
@@ -62,6 +62,8 @@ impl BalanceTree {
             }
             parity >>= 1;
         }
+
+        // TODO push prev_root into path, needed if we only had tokens that caused height increase
 
         assert!(!self.balances.contains_key(&asset_id));
         self.balances.insert(

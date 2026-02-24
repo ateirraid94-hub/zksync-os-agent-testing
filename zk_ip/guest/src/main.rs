@@ -8,30 +8,7 @@ use balance_tree::BalanceTree;
 use logs_tree::LogsTree;
 
 mod logs_tree;
-mod utils;
 mod balance_tree;
-
-type H256 = [u8; 32];
-
-struct L2Log {
-    tx_number_in_batch: u16,
-    sender: [u8; 20],
-    key: H256,
-    value: H256,
-}
-
-impl L2Log {
-    fn hash(&self) -> H256 {
-        let mut buffer = [0u8; L2_LOG_LENGTH];
-        buffer[0] = 0; // shard_id = rollup
-        buffer[1] = 1; // is_service = true
-        buffer[2..4].copy_from_slice(&self.tx_number_in_batch.to_be_bytes());
-        buffer[4..24].copy_from_slice(&self.sender);
-        buffer[24..56].copy_from_slice(&self.key);
-        buffer[56..88].copy_from_slice(&self.value);
-        Keccak256::digest(&buffer)
-    }
-}
 
 fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     assert!(message.len() >= 68);
@@ -88,7 +65,7 @@ fn main() -> [u32; 8] {
 
     let mut balance_tree = BalanceTree::new(prev_tree_size);
 
-    let n: u32 = read!("number of existing tokens"); // number of existing tokens
+    let n: u32 = read!("number of token balances changed");
     for _i in 0..n {
         let asset_id = read!("asset id");
         let index = read!("index");
@@ -144,6 +121,6 @@ fn main() -> [u32; 8] {
 
     let l2_logs_root = tree.root();
 
-    let commitment = Blake2s256::digest([balance_tree.root(), prev_root, /*l2_logs_root*/].concat());
-    std::array::from_fn(|i| u32::from_be_bytes(commitment[i * 4..(i + 1) * 4].try_into().unwrap()))
+    let commitment = Blake2s256::digest([balance_tree.root(), prev_root, l2_logs_root].concat());
+    utils::h256_to_u32_array(commitment)
 }

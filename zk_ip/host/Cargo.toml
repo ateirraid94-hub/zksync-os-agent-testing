@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-airbender-host = { git = "https://github.com/popzxc/airbender-platform", branch = "main", default-features = false }
-airbender-crypto = { git = "https://github.com/popzxc/airbender-platform", branch = "main" }
 alloy-primitives = { version = "1.5.7", default-features = false }
+airbender-crypto = { git = "https://github.com/popzxc/airbender-platform", branch = "main" }
+
+[dev-dependencies]
+airbender-host = { git = "https://github.com/popzxc/airbender-platform", branch = "main", default-features = false }
 
 # This is required to avoid having to specify `RUST_MIN_STACK` for compilation.
 # The reason why this is needed is that these packages are highly optimized, but the optimizations
