@@ -20,6 +20,15 @@ pub const L2_BASE_TOKEN_ADDRESS: B160 = B160::from_limbs([L2_BASE_TOKEN_ADDRESS_
 pub const MINT_HOOK_ADDRESS_LOW: u16 = 0x7100;
 pub const MINT_HOOK_ADDRESS: B160 = B160::from_limbs([MINT_HOOK_ADDRESS_LOW as u64, 0, 0]);
 
+// L2 Chain Asset Handler contract
+pub const L2_CHAIN_ASSET_HANDLER_ADDRESS: B160 = B160::from_limbs([0x1000a, 0, 0]);
+
+// L2 Asset Tracker contract
+pub const L2_ASSET_TRACKER_ADDRESS: B160 = B160::from_limbs([0x1000f, 0, 0]);
+
+// Base token holder (treasury) address
+pub const BASE_TOKEN_HOLDER_ADDRESS: B160 = B160::from_limbs([0x10011, 0, 0]);
+
 // L2 interop root storage system contract
 pub const L2_INTEROP_ROOT_STORAGE_ADDRESS_LOW: u32 = 0x10008;
 pub const L2_INTEROP_ROOT_STORAGE_ADDRESS: B160 =
