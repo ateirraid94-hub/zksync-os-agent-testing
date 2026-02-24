@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use airbender::crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
-use airbender::guest::read;
 use alloy_sol_types::{SolType, private::primitives::U256, sol_data::{Address, Uint, Bytes}};
 
 use merkle_tree::DynamicMerkleTree;
@@ -11,19 +10,20 @@ use utils::*;
 
 mod merkle_tree;
 mod utils;
+mod sparse_merkle_tree;
 
 type H256 = [u8; 32];
 
-struct Balance {
-    index: u32,
-    balance: U256,
-    path: Vec<H256>,
-}
-
-struct TreeNode<'a> {
-    hash: H256,
-    path: &'a [H256],
-}
+// struct Balance {
+//     index: u32,
+//     balance: U256,
+//     path: Option<Vec<H256>>,
+// }
+//
+// struct TreeNode<'a> {
+//     hash: H256,
+//     path: &'a [H256],
+// }
 
 struct L2Log {
     tx_number_in_batch: u16,
@@ -49,74 +49,85 @@ fn get_asset_id(chain_id: H256, asset_data: H256) -> H256 {
     Keccak256::digest([chain_id, L2_NATIVE_TOKEN_VAULT.into_word().0, asset_data].concat())
 }
 
-fn blake_hash_parts(left: H256, right: H256) -> H256 {
-    Blake2s256::digest([left, right].concat())
+macro_rules! read {
+    ($msg:literal) => {
+        airbender::guest::read().expect($msg)
+    };
 }
 
 #[airbender::main]
 fn main() -> [u32; 8] {
     let prev_root: H256 = read().expect("prev root");
+    // TODO: if size is public input then we don't have to verify
+    // that leafs of new tokens had hash[0, 0] previously
     let prev_tree_size: u32 = read().expect("prev tree size"); // assume there is < 4billion tokens and > 0
     let prev_tree_height = next_power_of_two_log(prev_tree_size);
     let base_token_asset_id: H256 = read().expect("base token asset id"); // TODO - do we include it in public commitment?
 
     let mut tree_size = prev_tree_size;
 
-    let mut balances = BTreeMap::new(); // index -> balance diff
+    // TODO read in zeros and sides
+    let mut balance_tree = sparse_merkle_tree::BalanceTree::new(prev_tree_size, vec![], vec![]);
+    // TODO: prev_root is in the sides[]
 
     let n: u32 = read().expect("number of existing tokens"); // number of existing tokens
     for _i in 0..n {
         let asset_id: H256 = read().expect("asset id");
         let index: u32 = read().expect("index");
         let prev_balance: H256 = read().expect("prev balance");
+        let mut path = read!("path");
 
-        let mut parity = index;
-        let mut hash = blake_hash_parts(asset_id, prev_balance);
-        let mut path = Vec::with_capacity(prev_tree_height);
-        for _j in 0..prev_tree_height {
-            let sibling: H256 = read().expect("sibling");
-            path.push(sibling);
-            if parity % 2 == 0 {
-                hash = blake_hash_parts(hash, sibling);
-            } else {
-                hash = blake_hash_parts(sibling, hash);
-            }
-            parity >>= 1;
-        }
-        assert_eq!(hash, prev_root, "prev_root mismatch");
+        balance_tree.insert_token_info(asset_id, index, prev_balance, path);
 
-        assert!(!balances.contains_key(&asset_id));
-        balances.insert(
-            asset_id,
-            Balance {
-                index,
-                balance: U256::from_be_bytes(prev_balance),
-                path,
-            },
-        );
+        //
+        // let mut parity = index;
+        // let mut hash = blake_hash_parts(asset_id, prev_balance);
+        // for _j in 0..prev_tree_height {
+        //     let sibling: H256 = read().expect("sibling");
+        //     path.push(sibling);
+        //     if parity % 2 == 0 {
+        //         hash = blake_hash_parts(hash, sibling);
+        //     } else {
+        //         hash = blake_hash_parts(sibling, hash);
+        //     }
+        //     parity >>= 1;
+        // }
+        // assert_eq!(hash, prev_root, "prev_root mismatch");
+        //
+        // assert!(!balances.contains_key(&asset_id));
+        // balances.insert(
+        //     asset_id,
+        //     Balance {
+        //         index,
+        //         balance: U256::from_be_bytes(prev_balance),
+        //         path: Some(path),
+        //     },
+        // );
     }
 
-    let n: u32 = read().expect("number of new tokens"); // number of new tokens (that weren't in the tree)
-    for _i in 0..n {
-        let asset_id: H256 = read().expect("asset id of new token");
-        let index = tree_size;
-        tree_size += 1;
-        let tree_height = next_power_of_two_log(tree_size);
-        // TODO: this can be optimized
-        let mut path = Vec::with_capacity(tree_height);
-        for _j in 0..tree_height {
-            let sibling: H256 = read().expect("sibling of new token");
-            path.push(sibling);
-        }
-        balances.insert(
-            asset_id,
-            Balance {
-                index,
-                balance: U256::ZERO,
-                path,
-            },
-        );
-    }
+    // let n: u32 = read().expect("number of new tokens"); // number of new tokens (that weren't in the tree)
+    // tree_size += n;
+
+    // for _i in 0..n {
+    //     let asset_id: H256 = read().expect("asset id of new token");
+    //     let index = tree_size;
+    //     tree_size += 1;
+    //     let tree_height = next_power_of_two_log(tree_size);
+    //     // TODO: this can be optimized
+    //     let mut path = Vec::with_capacity(tree_height);
+    //     for _j in 0..tree_height {
+    //         let sibling: H256 = read().expect("sibling of new token");
+    //         path.push(sibling);
+    //     }
+    //     balances.insert(
+    //         asset_id,
+    //         Balance {
+    //             index,
+    //             balance: U256::ZERO,
+    //             path,
+    //         },
+    //     );
+    // }
 
     let mut tree = DynamicMerkleTree::new();
     let n: u32 = read().expect("number of logs"); // number of logs to parse
@@ -141,6 +152,7 @@ fn main() -> [u32; 8] {
             assert_eq!(Keccak256::digest(&message), value);
             if key == L2_ASSET_ROUTER.into_word() {
 
+                assert!(message.len() >= 68);
                 let selector = &message[..4];
                 let asset_id: H256 = message[36..68].try_into().unwrap();
                 let transfer_data = &message[68..];
@@ -150,7 +162,7 @@ fn main() -> [u32; 8] {
 
                 type Tuple = (Address, Address, Address, Uint<256>, Bytes);
                 let (_, _, original_token, amount, erc20_metadata) =
-                    Tuple::abi_decode_sequence(transfer_data, true).expect("decoding failed");
+                    Tuple::abi_decode_sequence_validate(transfer_data).expect("decoding failed");
 
                 let token_original_chain_id = if erc20_metadata[0] == 0 {
                     [0; 32]

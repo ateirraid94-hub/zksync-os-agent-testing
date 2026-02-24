@@ -5,11 +5,11 @@ edition = "2021"
 
 [dependencies]
 airbender-host = { git = "https://github.com/popzxc/airbender-platform", branch = "main", default-features = false }
-airbender-crypto = { package = "airbender-crypto", git = "https://github.com/popzxc/airbender-platform", branch = "main" }
+airbender-crypto = { git = "https://github.com/popzxc/airbender-platform", branch = "main" }
 alloy-primitives = { version = "1.5.7", default-features = false }
 
 # This is required to avoid having to specify `RUST_MIN_STACK` for compilation.
-# The reason why this is needed is because these packages are highly optimized, but the optimizations
+# The reason why this is needed is that these packages are highly optimized, but the optimizations
 # make debug information generation more heavy and cause the default stack size to overflow.
 # This issue is expected to be resolved later.
 [profile.dev.package.keccak_special5]
