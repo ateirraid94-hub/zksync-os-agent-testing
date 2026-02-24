@@ -1,10 +1,5 @@
 use alloy_sol_types::private::primitives::{Address, address};
 
-pub fn next_power_of_two_log(num: u32) -> usize {
-    (u32::BITS - (num - 1).leading_zeros()) as usize
-}
-
-
 pub const L2_BOOTLOADER: Address = address!("0x0000000000000000000000000000000000008001");
 pub const L2_KNOWN_CODE_STORAGE: Address = address!("0x0000000000000000000000000000000000008004");
 pub const L2_TO_L1_MESSENGER: Address = address!("0x0000000000000000000000000000000000008008");

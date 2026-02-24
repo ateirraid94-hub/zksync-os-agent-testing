@@ -5,12 +5,11 @@ use std::collections::BTreeMap;
 use airbender::crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
 use alloy_sol_types::{SolType, private::primitives::U256, sol_data::{Address, Uint, Bytes}};
 
-use merkle_tree::DynamicMerkleTree;
 use utils::*;
 
-mod merkle_tree;
+mod logs_tree;
 mod utils;
-mod sparse_merkle_tree;
+mod balance_tree;
 
 type H256 = [u8; 32];
 
@@ -50,7 +49,7 @@ fn main() -> [u32; 8] {
     let prev_tree_size: u32 = read!("prev tree size"); // assume there is < 4billion tokens and > 0
     let base_token_asset_id: H256 = read!("base token asset id"); // TODO - do we include it in public commitment?
 
-    let mut balance_tree = sparse_merkle_tree::BalanceTree::new(prev_tree_size);
+    let mut balance_tree = balance_tree::BalanceTree::new(prev_tree_size);
 
     let n: u32 = read!("number of existing tokens"); // number of existing tokens
     for _i in 0..n {
@@ -63,7 +62,7 @@ fn main() -> [u32; 8] {
         assert_eq!(hash, prev_root, "root mismatch");
     }
 
-    let mut tree = DynamicMerkleTree::new();
+    let mut tree = logs_tree::LogsTree::new();
     let n: u32 = read!("number of logs"); // number of logs to parse
     for _i in 0..n {
         let tx_number_in_batch = read!("tx number in batch");

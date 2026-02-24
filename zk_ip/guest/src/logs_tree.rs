@@ -1,14 +1,13 @@
 use airbender::crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
+use crate::H256;
 
-type H256 = [u8; 32];
-
-pub struct DynamicMerkleTree {
+pub struct LogsTree {
     next_index: u32,
     zeros: Vec<H256>,
     sides: Vec<H256>,
 }
 
-impl DynamicMerkleTree {
+impl LogsTree {
     pub fn new() -> Self {
         Self {
             next_index: 0,
