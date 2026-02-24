@@ -1,4 +1,4 @@
-use alloy_sol_types::private::primitives::{Address, address};
+use alloy_sol_types::private::primitives::{Address, address, hex};
 
 pub const L2_BOOTLOADER: Address = address!("0x0000000000000000000000000000000000008001");
 pub const L2_KNOWN_CODE_STORAGE: Address = address!("0x0000000000000000000000000000000000008004");
@@ -11,3 +11,8 @@ pub const L2_NATIVE_TOKEN_VAULT: Address = address!("0x0000000000000000000000000
 pub const L2_INTEROP_CENTER: Address = address!("0x000000000000000000000000000000000001000d");
 pub const L2_INTEROP_HANDLER: Address = address!("0x000000000000000000000000000000000001000e");
 pub const L2_ASSET_TRACKER: Address = address!("0x000000000000000000000000000000000001000f");
+
+pub const L2_LOG_LENGTH: usize = 88;
+
+// keccak256([0; L2_LOG_LENGTH])
+pub const EMPTY_LOG_HASH: [u8; 32] = hex!("0x72abee45b59e344af8a6e520241c4744aff26ed411f4c4b00f8af09adada43ba");

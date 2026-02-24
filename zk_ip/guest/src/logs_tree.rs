@@ -1,4 +1,4 @@
-use airbender::crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
+use airbender::crypto::{sha3::Keccak256, MiniDigest};
 use crate::H256;
 
 pub struct LogsTree {
@@ -11,14 +11,12 @@ impl LogsTree {
     pub fn new() -> Self {
         Self {
             next_index: 0,
-            // TODO: use constant
-            zeros: vec![Keccak256::digest([0; 88])],
+            zeros: vec![crate::utils::EMPTY_LOG_HASH],
             sides: vec![[0; 32]],
         }
     }
 
     pub fn push(&mut self, leaf: H256) -> H256 {
-        // let leaf = hash_log(&log);
         let mut levels = self.zeros.len() - 1;
         let mut current_index = self.next_index;
         self.next_index += 1;
