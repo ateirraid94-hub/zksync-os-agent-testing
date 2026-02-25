@@ -7,7 +7,7 @@ use alloy_sol_types::{
     SolType,
 };
 
-use utils::{constants::*, h256_to_u32_array, BalanceTree, L2Log, LogsTree, H256};
+use utils::{constants::*, BalanceTree, L2Log, LogsTree, H256};
 
 fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     assert!(message.len() >= 68);
@@ -44,6 +44,7 @@ fn handle_base_token_contract_message(
     base_token_asset_id: H256,
     balance_tree: &mut BalanceTree,
 ) {
+    assert!(message.len() >= 56);
     let selector = &message[..4];
     let amount: H256 = message[24..56].try_into().unwrap();
     let amount = U256::from_be_bytes(amount);
@@ -58,31 +59,31 @@ fn get_asset_id(chain_id: H256, asset_data: H256) -> H256 {
 }
 
 macro_rules! read {
-    ($msg:literal) => {
-        airbender::guest::read().expect($msg)
+    ($fmt:literal $(, $arg:expr)*) => {
+        airbender::guest::read().unwrap_or_else(|e| panic!(concat!($fmt, ": {}"), $($arg,)* e))
     };
 }
 
 #[airbender::main]
 fn main() -> [u32; 8] {
-    let prev_root: H256 = read!("prev root");
-    let prev_tree_size: u32 = read!("prev tree size"); // assume there is < 4billion tokens and > 0
+    let prev_root: H256 = read!("prev balance tree root");
+    let prev_tree_size: u32 = read!("prev balance tree size"); // assume there is < 4billion tokens and > 0
     let base_token_asset_id: H256 = read!("base token asset id"); // TODO - do we include it in public commitment?
 
     let mut balance_tree = BalanceTree::new(prev_tree_size);
 
     let n: u32 = read!("number of token balances changed");
-    for _i in 0..n {
-        let asset_id = read!("asset id");
-        let index = read!("index");
-        let prev_balance = read!("prev balance");
-        let path = read!("path");
+    for i in 0..n {
+        let asset_id = read!("asset id of token#{}", i);
+        let index = read!("index of token#{}", i);
+        let prev_balance = read!("prev balance of token#{}", i);
+        let path = read!("merkle path of token#{}", i);
 
         let hash = balance_tree.insert_token_info(asset_id, index, prev_balance, path);
-        assert_eq!(hash, prev_root, "root mismatch");
+        assert_eq!(hash, prev_root, "root mismatch for token#{}", i);
     }
 
-    let mut tree = LogsTree::new();
+    let mut logs_tree = LogsTree::new();
     let n: u32 = read!("number of logs"); // number of logs to parse
     for _i in 0..n {
         let tx_number_in_batch = read!("tx number in batch");
@@ -97,7 +98,7 @@ fn main() -> [u32; 8] {
             value,
         };
 
-        tree.push(log.hash());
+        logs_tree.push(log.hash());
 
         if sender == L2_TO_L1_MESSENGER {
             let message: Vec<u8> = read!("log message");
@@ -129,8 +130,9 @@ fn main() -> [u32; 8] {
         }
     }
 
-    let l2_logs_root = tree.root();
+    let l2_logs_root = logs_tree.root();
+    let balance_root = balance_tree.root();
 
-    let commitment = Blake2s256::digest([balance_tree.root(), prev_root, l2_logs_root].concat());
+    let commitment = Blake2s256::digest([balance_root, prev_root, l2_logs_root].concat());
     utils::h256_to_u32_array(commitment)
 }

@@ -28,7 +28,11 @@ impl BalanceTree {
     }
 
     fn height(&self) -> usize {
-        (u32::BITS - (self.size - 1).leading_zeros()) as usize
+        if self.size == 0 {
+            0
+        } else {
+            (u32::BITS - (self.size - 1).leading_zeros()) as usize
+        }
     }
 
     fn hash(left: H256, right: H256) -> H256 {
