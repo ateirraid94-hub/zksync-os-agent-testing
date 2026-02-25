@@ -130,7 +130,7 @@ impl BalanceTree {
                     right = layer
                         .get(&sibling_index)
                         .map(|node| node.hash)
-                        .unwrap_or(node.path[0]);
+                        .unwrap_or_else(|| node.path[0]);
                 } else {
                     if layer.contains_key(&sibling_index) {
                         // Since we're iterating in ascending order,
@@ -146,7 +146,7 @@ impl BalanceTree {
                     *index >> 1,
                     TreeNode {
                         hash,
-                        path: &node.path[1..],
+                        path: &node.path.get(1..).unwrap_or(&[]),
                     },
                 );
             }
