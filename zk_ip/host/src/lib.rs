@@ -30,6 +30,10 @@ pub mod constants {
     // keccak256([0; L2_LOG_LENGTH])
     pub const EMPTY_LOG_HASH: super::H256 =
         hex!("0x72abee45b59e344af8a6e520241c4744aff26ed411f4c4b00f8af09adada43ba");
+
+    pub const FINALIZE_DEPOSIT_SELECTOR: [u8; 4] = hex!("9c884fd1");
+    pub const FINALIZE_ETH_WITHDRAWAL_SELECTOR: [u8; 4] = hex!("6c0960f9");
+    pub const RECEIVE_MIGRATION_ON_L1_SELECTOR: [u8; 4] = hex!("8e29043a");
 }
 
 pub struct L2Log {

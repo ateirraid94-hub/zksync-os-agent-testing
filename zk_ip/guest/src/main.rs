@@ -9,17 +9,13 @@ use alloy_sol_types::{
 
 use utils::{constants::*, BalanceTree, L2Log, LogsTree, H256};
 
-const FINALIZE_DEPOSIT_SELECTOR: &[u8] = b"\x9c\x88\x4f\xd1";
-const FINALIZE_ETH_WITHDRAWAL_SELECTOR: &[u8] = b"\x6c\x09\x60\xf9";
-const RECEIVE_MIGRATION_ON_L1_SELECTOR: &[u8] = b"\x8e\x29\x04\x3a";
-
 fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     assert!(message.len() >= 68);
     let selector = &message[..4];
     let asset_id: H256 = message[36..68].try_into().unwrap();
     let transfer_data = &message[68..];
 
-    assert_eq!(selector, FINALIZE_DEPOSIT_SELECTOR);
+    assert_eq!(selector, &FINALIZE_DEPOSIT_SELECTOR);
 
     type Tuple = (Address, Address, Address, Uint<256>, Bytes);
     let (_, _, original_token, amount, erc20_metadata) =
@@ -52,7 +48,7 @@ fn handle_base_token_contract_message(
     let amount: H256 = message[24..56].try_into().unwrap();
     let amount = U256::from_be_bytes(amount);
 
-    assert_eq!(selector, FINALIZE_ETH_WITHDRAWAL_SELECTOR);
+    assert_eq!(selector, &FINALIZE_ETH_WITHDRAWAL_SELECTOR);
     balance_tree.update_balance(base_token_asset_id, amount, false);
 }
 
@@ -69,8 +65,10 @@ macro_rules! read {
 #[airbender::main]
 fn main() -> [u32; 8] {
     let prev_root: H256 = read!("prev balance tree root");
+    // TODO - do we include it in public commitment?
     let prev_tree_size: u32 = read!("prev balance tree size"); // assume there is < 4billion tokens and > 0
-    let base_token_asset_id: H256 = read!("base token asset id"); // TODO - do we include it in public commitment?
+    // TODO - do we include it in public commitment?
+    let base_token_asset_id: H256 = read!("base token asset id");
 
     let mut balance_tree = BalanceTree::new(prev_tree_size, prev_root);
 
@@ -113,7 +111,7 @@ fn main() -> [u32; 8] {
                     &mut balance_tree,
                 );
             } else if key == L2_ASSET_TRACKER.into_word() {
-                assert_eq!(&message[..4], RECEIVE_MIGRATION_ON_L1_SELECTOR);
+                assert_eq!(&message[..4], &RECEIVE_MIGRATION_ON_L1_SELECTOR);
             } else if key == L2_COMPRESSOR.into_word() {
                 // no further action
             } else if key == L2_KNOWN_CODE_STORAGE.into_word() {
