@@ -1,5 +1,5 @@
 use super::*;
-use airbender_crypto::{blake2s::Blake2s256, MiniDigest};
+use airbender_crypto::{blake2s::Blake2s256, sha3::Keccak256, MiniDigest};
 use airbender_host::{Inputs, Program, Result, Runner};
 use alloy_primitives::{address, fixed_bytes, hex, U256};
 use std::path::PathBuf;
@@ -40,12 +40,12 @@ struct MerkleTree {
 }
 
 impl MerkleTree {
-    fn new(asset_ids: Vec<H256>, balances: Vec<U256>) -> Self {
+    fn new(asset_ids: Vec<H256>, balances: Vec<usize>) -> Self {
         assert_eq!(asset_ids.len(), balances.len());
         assert_eq!(asset_ids.len(), asset_ids.len().next_power_of_two());
         let mut tree = Self {
             asset_ids,
-            balances,
+            balances: balances.into_iter().map(U256::from).collect(),
             layers: vec![],
         };
         tree.build();
@@ -57,33 +57,67 @@ impl MerkleTree {
         let height = size.trailing_zeros() as usize;
 
         // build first layer
-        self.layers = vec![vec![]];
-        for (asset_id, balance) in self.asset_ids.iter().zip(&self.balances) {
-            self.layers[0].push(Blake2s256::digest(
-                [*asset_id, balance.to_be_bytes()].concat(),
-            ));
-        }
+        let first_layer = self
+            .asset_ids
+            .iter()
+            .zip(&self.balances)
+            .map(|(asset_id, balance)| {
+                Blake2s256::digest([*asset_id, balance.to_be_bytes()].concat())
+            })
+            .collect();
+        self.layers.push(first_layer);
 
         for i in 0..height {
-            let mut new_layer = vec![];
-            for chunk in self.layers[i].as_chunks::<2>().0 {
-                new_layer.push(Blake2s256::digest(chunk.concat()));
-            }
+            let new_layer = self.layers[i]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|chunk| Blake2s256::digest(chunk.concat()))
+                .collect();
             self.layers.push(new_layer);
         }
     }
 
-    fn input(&self, input: &mut Inputs, mut index: usize) -> Result<()> {
-        input.push(&self.asset_ids[index])?;
+    fn input(&self, input: &mut Inputs, index: usize) -> Result<()> {
+        self.input_with_asset_id(input, index, self.asset_ids[index])
+    }
+
+    fn input_with_asset_id(
+        &self,
+        input: &mut Inputs,
+        mut index: usize,
+        asset_id: H256,
+    ) -> Result<()> {
+        input.push(&asset_id)?;
         input.push(&(index as u32))?; // index
-        input.push::<H256>(&self.balances[index].to_be_bytes())?; // balance
-        let mut path = vec![];
-        let height = self.asset_ids.len().trailing_zeros() as usize;
-        for i in 0..height {
-            path.push(self.layers[i][index ^ 1]);
-            index >>= 1;
+
+        if index < self.asset_ids.len() {
+            input.push::<H256>(&self.balances[index].to_be_bytes())?; // balance
+            let mut path = vec![];
+            let height = self.asset_ids.len().trailing_zeros() as usize;
+            for i in 0..height {
+                path.push(self.layers[i][index ^ 1]);
+                index >>= 1;
+            }
+            input.push(&path)?;
+        } else {
+            // this is a new token that caused the tree to grow
+            input.push(&[0u8; 32])?; // balance
+
+            // In this case, we will not use path[i] if on layer i the node is a right sibling,
+            // unless the only tokens that were inputted are the ones that caused the tree to grow
+            // (in which case we will only need previous root)
+            let mut path = vec![];
+            let height = self.asset_ids.len().trailing_zeros() as usize;
+            let mut zero = Blake2s256::digest([0; 64]);
+            for _i in 0..height {
+                path.push(zero);
+                zero = Blake2s256::digest([zero, zero].concat());
+            }
+            path.push(self.root());
+            input.push(&path)?;
         }
-        input.push(&path)?;
+
         Ok(())
     }
 
@@ -101,31 +135,9 @@ fn push_log(input: &mut Inputs, log: &L2Log, message: &Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_full_tree() -> Result<()> {
+fn simulate(inputs: Inputs) -> Result<[u32; 8]> {
     let dist_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../guest/dist/app");
     let program = Program::load(&dist_dir)?;
-
-    let asset_ids = [[1u8; 32], [2u8; 32], ASSET_ID_1, [4u8; 32]];
-
-    let mut balances = [U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
-
-    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
-    let mut inputs = Inputs::new();
-    let old_root = tree.root();
-
-    inputs.push(&old_root)?;
-    inputs.push(&4u32)?; // tree size
-    inputs.push(&[0xEEu8; 32])?; // base token asset id
-    inputs.push(&2u32)?; // number of existing tokens in logs
-
-    tree.input(&mut inputs, 0)?;
-    tree.input(&mut inputs, 2)?;
-
-    inputs.push(&1u32)?; // number of logs
-
-    let (log, message) = log1();
-    push_log(&mut inputs, &log, &message)?;
 
     let simulator = program.simulator_runner().build()?;
     let execution = simulator.run(inputs.words())?;
@@ -135,12 +147,172 @@ fn test_full_tree() -> Result<()> {
         execution.cycles_executed, execution.reached_end, exec_output
     );
 
+    Ok(exec_output)
+}
+
+#[test]
+fn test_with_log() -> Result<()> {
+    let asset_ids = [[1u8; 32], [2u8; 32], ASSET_ID_1, [4u8; 32]];
+    let mut balances = [1, 2, 3, 4];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let mut inputs = Inputs::new();
+    let old_root = tree.root();
+
+    inputs.push(&old_root)?;
+    inputs.push(&4u32)?; // tree size
+    inputs.push(&[0xEEu8; 32])?; // base token asset id
+    inputs.push(&2u32)?; // number of tokens in logs
+
+    // this token's balance didn't change
+    // normally we wouldn't input it; this is for testing only
+    tree.input(&mut inputs, 0)?;
+    tree.input(&mut inputs, 2)?;
+
+    inputs.push(&1u32)?; // number of logs
+
+    let (log, message) = log1();
+    push_log(&mut inputs, &log, &message)?;
+
+    let output = simulate(inputs)?;
+
     // decrease balance by 1
-    balances[2] = U256::from(2);
+    balances[2] = 2;
     let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
     let logs_root = log.hash();
     let commitment = Blake2s256::digest([tree.root(), old_root, logs_root].concat());
     let expected_output = h256_to_u32_array(commitment);
-    assert_eq!(exec_output, expected_output);
+    assert_eq!(output, expected_output);
+    Ok(())
+}
+
+#[test]
+fn test_full_tree() -> Result<()> {
+    let asset_ids = [[1; 32], [2; 32], ASSET_ID_1, ASSET_ID_2];
+    let mut balances = [1, 2, 3, 10];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let mut inputs = Inputs::new();
+    let old_root = tree.root();
+
+    inputs.push(&old_root)?;
+    inputs.push(&4u32)?; // tree size
+    inputs.push(&[0xEEu8; 32])?; // base token asset id
+    inputs.push(&4u32)?; // number of tokens in logs
+
+    tree.input(&mut inputs, 0)?;
+    tree.input(&mut inputs, 1)?;
+    tree.input(&mut inputs, 2)?;
+    tree.input(&mut inputs, 3)?;
+
+    inputs.push(&2u32)?; // number of logs
+
+    let (log1, message) = log1();
+    push_log(&mut inputs, &log1, &message)?;
+
+    let (log2, message) = log2();
+    push_log(&mut inputs, &log2, &message)?;
+
+    let output = simulate(inputs)?;
+
+    // decrease balance
+    balances[2] = 2;
+    balances[3] = 0;
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let logs_root = Keccak256::digest([log1.hash(), log2.hash()].concat());
+    let commitment = Blake2s256::digest([tree.root(), old_root, logs_root].concat());
+    let expected_output = h256_to_u32_array(commitment);
+    assert_eq!(output, expected_output);
+    Ok(())
+}
+
+#[test]
+fn test_new_tokens() -> Result<()> {
+    let mut asset_ids = [[1; 32], [2; 32], [3; 32], [0; 32]];
+    let balances = [1, 2, 3, 0];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let mut inputs = Inputs::new();
+    let old_root = tree.root();
+
+    inputs.push(&old_root)?;
+    inputs.push(&3u32)?; // tree size
+    inputs.push(&[0xEEu8; 32])?; // base token asset id
+    inputs.push(&1u32)?; // number of tokens in logs
+
+    tree.input_with_asset_id(&mut inputs, 3, ASSET_ID_1)?;
+
+    inputs.push(&0u32)?; // no logs
+
+    let output = simulate(inputs)?;
+
+    // add new token to tree
+    asset_ids[3] = ASSET_ID_1;
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let logs_root = [0; 32];
+    let commitment = Blake2s256::digest([tree.root(), old_root, logs_root].concat());
+    let expected_output = h256_to_u32_array(commitment);
+    assert_eq!(output, expected_output);
+    Ok(())
+}
+
+#[test]
+fn test_tree_growth() -> Result<()> {
+    let asset_ids = [[1; 32], [2; 32], [3; 32], [0; 32]];
+    let balances = [1, 2, 3, 0];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let mut inputs = Inputs::new();
+    let old_root = tree.root();
+
+    inputs.push(&old_root)?;
+    inputs.push(&3u32)?; // tree size
+    inputs.push(&[0xEEu8; 32])?; // base token asset id
+    inputs.push(&2u32)?; // number of tokens in logs
+
+    tree.input_with_asset_id(&mut inputs, 3, ASSET_ID_1)?;
+    tree.input_with_asset_id(&mut inputs, 4, ASSET_ID_2)?;
+
+    inputs.push(&0u32)?; // no logs
+
+    let output = simulate(inputs)?;
+
+    // add new tokens to tree
+    let asset_ids = [
+        [1; 32], [2; 32], [3; 32], ASSET_ID_1, ASSET_ID_2, [0; 32], [0; 32], [0; 32],
+    ];
+    let balances = [1, 2, 3, 0, 0, 0, 0, 0];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let logs_root = [0; 32];
+    let commitment = Blake2s256::digest([tree.root(), old_root, logs_root].concat());
+    let expected_output = h256_to_u32_array(commitment);
+    assert_eq!(output, expected_output);
+    Ok(())
+}
+
+#[test]
+fn test_power_of_two_boundary() -> Result<()> {
+    let asset_ids = [[1; 32], [2; 32]];
+    let balances = [1, 2];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let mut inputs = Inputs::new();
+    let old_root = tree.root();
+
+    inputs.push(&old_root)?;
+    inputs.push(&2u32)?; // tree size
+    inputs.push(&[0xEEu8; 32])?; // base token asset id
+    inputs.push(&2u32)?; // number of tokens in logs
+
+    tree.input_with_asset_id(&mut inputs, 2, ASSET_ID_1)?;
+    tree.input_with_asset_id(&mut inputs, 3, ASSET_ID_2)?;
+
+    inputs.push(&0u32)?; // no logs
+
+    let output = simulate(inputs)?;
+
+    // add new tokens to tree
+    let asset_ids = [[1; 32], [2; 32], ASSET_ID_1, ASSET_ID_2];
+    let balances = [1, 2, 0, 0];
+    let tree = MerkleTree::new(asset_ids.to_vec(), balances.to_vec());
+    let logs_root = [0; 32];
+    let commitment = Blake2s256::digest([tree.root(), old_root, logs_root].concat());
+    let expected_output = h256_to_u32_array(commitment);
+    assert_eq!(output, expected_output);
     Ok(())
 }

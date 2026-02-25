@@ -162,6 +162,9 @@ mod tests {
         let sides2 = tree.sides.clone();
 
         // Exactly one side should be different
-        assert_eq!(1, sides1.iter().zip(&sides2).filter(|(x, y)| x != y).count());
+        assert_eq!(
+            1,
+            sides1.iter().zip(&sides2).filter(|(x, y)| x != y).count()
+        );
     }
 }

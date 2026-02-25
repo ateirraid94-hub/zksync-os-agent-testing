@@ -27,7 +27,7 @@ impl BalanceTree {
             balances: BTreeMap::new(),
             size,
             prev_size: size,
-            prev_root
+            prev_root,
         }
     }
 
