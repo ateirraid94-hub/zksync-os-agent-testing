@@ -1,7 +1,7 @@
-use airbender::crypto::{blake2s::Blake2s256, MiniDigest};
-use alloy_sol_types::private::U256;
+use crate::H256;
+use airbender_crypto::{blake2s::Blake2s256, MiniDigest};
+use alloy_primitives::U256;
 use std::collections::BTreeMap;
-use utils::H256;
 
 struct TreeNode<'a> {
     hash: H256,

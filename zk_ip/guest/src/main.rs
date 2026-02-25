@@ -7,12 +7,7 @@ use alloy_sol_types::{
     SolType,
 };
 
-use balance_tree::BalanceTree;
-use logs_tree::LogsTree;
-use utils::*;
-
-mod balance_tree;
-mod logs_tree;
+use utils::{constants::*, h256_to_u32_array, BalanceTree, L2Log, LogsTree, H256};
 
 fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     assert!(message.len() >= 68);

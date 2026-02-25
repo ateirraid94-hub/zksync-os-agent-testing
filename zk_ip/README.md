@@ -20,13 +20,7 @@ Run host execution:
 
 ```sh
 cd ../host
-cargo run
-```
-
-Run host execution + proof:
-
-```sh
-cargo run -- --prove
+cargo test
 ```
 
 ## Prover Backend
