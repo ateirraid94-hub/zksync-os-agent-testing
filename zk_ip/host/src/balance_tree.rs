@@ -11,19 +11,23 @@ struct TreeNode<'a> {
 pub struct BalanceTree {
     balances: BTreeMap<H256, Balance>,
     size: u32,
+    prev_size: u32,
+    pub prev_root: H256,
 }
 
-pub struct Balance {
+struct Balance {
     index: u32,
     balance: U256,
     path: Vec<H256>,
 }
 
 impl BalanceTree {
-    pub fn new(size: u32) -> Self {
+    pub fn new(size: u32, prev_root: H256) -> Self {
         Self {
             balances: BTreeMap::new(),
             size,
+            prev_size: size,
+            prev_root
         }
     }
 
@@ -45,29 +49,31 @@ impl BalanceTree {
         index: u32,
         balance: H256,
         path: Vec<H256>,
-    ) -> H256 {
+    ) {
         let mut hash = if index >= self.size {
             assert_eq!(index, self.size);
             assert_eq!(balance, [0; 32]);
             self.size += 1;
+            // TODO replace with constant
             Self::hash([0; 32], [0; 32])
         } else {
             Self::hash(asset_id, balance)
         };
-        let mut parity = index;
 
-        // path.len() should always be prev_height
-        // TODO we do not need to do it for new tokens that cause height increase
-        for sibling in &path {
-            if parity % 2 == 0 {
-                hash = Self::hash(hash, *sibling);
-            } else {
-                hash = Self::hash(*sibling, hash);
+        // If this is a newly added token that fell into the newly grown part of the tree,
+        // we don't need to verify its inclusion into the old tree.
+        if index < self.prev_size.next_power_of_two() {
+            let mut parity = index;
+            for sibling in &path {
+                if parity % 2 == 0 {
+                    hash = Self::hash(hash, *sibling);
+                } else {
+                    hash = Self::hash(*sibling, hash);
+                }
+                parity >>= 1;
             }
-            parity >>= 1;
+            assert_eq!(hash, self.prev_root, "root mismatch on index {}", index);
         }
-
-        // TODO push prev_root into path, needed if we only had tokens that caused height increase
 
         assert!(!self.balances.contains_key(&asset_id));
         self.balances.insert(
@@ -78,8 +84,6 @@ impl BalanceTree {
                 path,
             },
         );
-
-        hash
     }
 
     pub fn update_balance(&mut self, asset_id: H256, amount: U256, add: bool) {
