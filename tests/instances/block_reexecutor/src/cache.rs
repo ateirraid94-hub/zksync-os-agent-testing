@@ -332,14 +332,15 @@ fn fetch_historical_block_hashes(rpc_client: &RpcClient, block_number: u64) -> R
 
     // Chain expects newest historical block hash at index 255.
     for depth in 1u64..=256 {
-        println!(
-            "Fetching historical block hash for block #{}, depth {}",
-            block_number - depth,
-            depth
-        );
         let Some(target_block_number) = block_number.checked_sub(depth) else {
             break;
         };
+
+        println!(
+            "Fetching historical block hash for block #{}, depth {}",
+            target_block_number,
+            depth
+        );
 
         let idx = 256 - depth as usize;
         match rpc_client.get_block_hash_by_number(target_block_number)? {
