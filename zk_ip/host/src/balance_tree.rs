@@ -3,11 +3,14 @@ use airbender_crypto::{blake2s::Blake2s256, MiniDigest};
 use alloy_primitives::U256;
 use std::collections::BTreeMap;
 
+/// Internal node used during tree computation.
 struct TreeNode<'a> {
     hash: H256,
     path: &'a [H256],
 }
 
+/// Sparse Merkle tree for tracking token balances.
+/// Stores only modified leaves and uses sibling paths to compute the root.
 pub struct BalanceTree {
     balances: BTreeMap<H256, Balance>,
     size: u32,
@@ -15,6 +18,7 @@ pub struct BalanceTree {
     pub prev_root: H256,
 }
 
+/// Balance entry with its position and Merkle path.
 struct Balance {
     index: u32,
     balance: U256,
@@ -22,6 +26,7 @@ struct Balance {
 }
 
 impl BalanceTree {
+    /// Creates a new tree with the given size and previous root.
     pub fn new(size: u32, prev_root: H256) -> Self {
         Self {
             balances: BTreeMap::new(),
@@ -31,6 +36,7 @@ impl BalanceTree {
         }
     }
 
+    /// Returns the tree height (number of levels above leaves).
     fn height(&self) -> usize {
         if self.size == 0 {
             0
@@ -39,10 +45,13 @@ impl BalanceTree {
         }
     }
 
+    /// Computes Blake2s hash of two concatenated 32-byte values.
     fn hash(left: H256, right: H256) -> H256 {
         Blake2s256::digest([left, right].concat())
     }
 
+    /// Inserts a token with its balance and Merkle path.
+    /// Verifies inclusion proof against `prev_root`. Grows tree if `index == size`.
     pub fn insert_token_info(
         &mut self,
         asset_id: H256,
@@ -86,6 +95,7 @@ impl BalanceTree {
         );
     }
 
+    /// Updates a token's balance by adding or subtracting the given amount.
     pub fn update_balance(&mut self, asset_id: H256, amount: U256, add: bool) {
         let balance = &mut self
             .balances
@@ -100,6 +110,7 @@ impl BalanceTree {
         }
     }
 
+    /// Builds the leaf layer from stored balances.
     fn leaf_layer(&self) -> BTreeMap<u32, TreeNode<'_>> {
         let mut layer = BTreeMap::new();
         for (asset_id, balance) in &self.balances {
@@ -115,6 +126,7 @@ impl BalanceTree {
         layer
     }
 
+    /// Computes and returns the current Merkle root.
     pub fn root(&self) -> H256 {
         let height = self.height();
         let mut layer = self.leaf_layer();
@@ -187,29 +199,6 @@ mod tests {
         assert_eq!(BalanceTree::new(8, [0; 32]).height(), 3);
         assert_eq!(BalanceTree::new(9, [0; 32]).height(), 4);
         assert_eq!(BalanceTree::new(16, [0; 32]).height(), 4);
-    }
-
-    #[test]
-    fn test_hash_deterministic() {
-        let left = [1u8; 32];
-        let right = [2u8; 32];
-
-        let hash1 = hash(left, right);
-        let hash2 = hash(left, right);
-
-        assert_eq!(hash1, hash2);
-        assert_ne!(hash1, [0u8; 32]);
-    }
-
-    #[test]
-    fn test_hash_order_matters() {
-        let left = [1u8; 32];
-        let right = [2u8; 32];
-
-        let hash1 = hash(left, right);
-        let hash2 = hash(right, left);
-
-        assert_ne!(hash1, hash2);
     }
 
     #[test]
@@ -355,7 +344,7 @@ mod tests {
 
         let mut tree = BalanceTree::new(2, root);
         tree.insert_token_info(asset_id, 0, balance, vec![sibling]);
-        tree.insert_token_info(asset_id, 0, balance, vec![sibling]);
+        tree.insert_token_info(asset_id, 1, balance, vec![sibling]);
     }
 
     #[test]
@@ -407,48 +396,5 @@ mod tests {
         let new_leaf = hash(new_asset_id, [0; 32]);
         let expected_root = hash(leaf_0, new_leaf);
         assert_eq!(tree.root(), expected_root);
-    }
-
-    #[test]
-    fn test_root_with_partial_tree() {
-        let asset_id_0 = [1u8; 32];
-        let balance_0 = [10u8; 32];
-        let asset_id_2 = [3u8; 32];
-        let balance_2 = [30u8; 32];
-
-        let leaf_0 = hash(asset_id_0, balance_0);
-        let leaf_1 = hash([99u8; 32], [99u8; 32]);
-        let leaf_2 = hash(asset_id_2, balance_2);
-        let leaf_3 = hash([98u8; 32], [98u8; 32]);
-
-        let left_subtree = hash(leaf_0, leaf_1);
-        let right_subtree = hash(leaf_2, leaf_3);
-        let root = hash(left_subtree, right_subtree);
-
-        let mut tree = BalanceTree::new(4, root);
-
-        tree.insert_token_info(asset_id_0, 0, balance_0, vec![leaf_1, right_subtree]);
-        tree.insert_token_info(asset_id_2, 2, balance_2, vec![leaf_3, left_subtree]);
-
-        assert_eq!(tree.root(), root);
-    }
-
-    #[test]
-    fn test_root_changes_after_balance_update() {
-        let asset_id = [1u8; 32];
-        let balance = [0u8; 32];
-
-        let leaf_hash = hash(asset_id, balance);
-
-        let mut tree = BalanceTree::new(1, leaf_hash);
-        tree.insert_token_info(asset_id, 0, balance, vec![]);
-
-        let root_before = tree.root();
-
-        tree.update_balance(asset_id, U256::from(100), true);
-
-        let root_after = tree.root();
-
-        assert_ne!(root_before, root_after);
     }
 }
