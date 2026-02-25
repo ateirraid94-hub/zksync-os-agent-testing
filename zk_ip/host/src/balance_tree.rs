@@ -156,3 +156,299 @@ impl BalanceTree {
         layer[&0].hash
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash(left: H256, right: H256) -> H256 {
+        BalanceTree::hash(left, right)
+    }
+
+    #[test]
+    fn test_new_tree() {
+        let prev_root = [1u8; 32];
+        let tree = BalanceTree::new(4, prev_root);
+
+        assert_eq!(tree.size, 4);
+        assert_eq!(tree.prev_size, 4);
+        assert_eq!(tree.prev_root, prev_root);
+        assert!(tree.balances.is_empty());
+    }
+
+    #[test]
+    fn test_height() {
+        assert_eq!(BalanceTree::new(0, [0; 32]).height(), 0);
+        assert_eq!(BalanceTree::new(1, [0; 32]).height(), 0);
+        assert_eq!(BalanceTree::new(2, [0; 32]).height(), 1);
+        assert_eq!(BalanceTree::new(3, [0; 32]).height(), 2);
+        assert_eq!(BalanceTree::new(4, [0; 32]).height(), 2);
+        assert_eq!(BalanceTree::new(5, [0; 32]).height(), 3);
+        assert_eq!(BalanceTree::new(8, [0; 32]).height(), 3);
+        assert_eq!(BalanceTree::new(9, [0; 32]).height(), 4);
+        assert_eq!(BalanceTree::new(16, [0; 32]).height(), 4);
+    }
+
+    #[test]
+    fn test_hash_deterministic() {
+        let left = [1u8; 32];
+        let right = [2u8; 32];
+
+        let hash1 = hash(left, right);
+        let hash2 = hash(left, right);
+
+        assert_eq!(hash1, hash2);
+        assert_ne!(hash1, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_hash_order_matters() {
+        let left = [1u8; 32];
+        let right = [2u8; 32];
+
+        let hash1 = hash(left, right);
+        let hash2 = hash(right, left);
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_insert_and_root_single_leaf() {
+        let asset_id = [1u8; 32];
+        let balance = [0u8; 32];
+
+        let leaf_hash = hash(asset_id, balance);
+        let root = leaf_hash;
+
+        let mut tree = BalanceTree::new(1, root);
+        tree.insert_token_info(asset_id, 0, balance, vec![]);
+
+        assert_eq!(tree.root(), root);
+    }
+
+    #[test]
+    fn test_insert_and_root_two_leaves() {
+        let asset_id_0 = [1u8; 32];
+        let balance_0 = [0u8; 32];
+        let asset_id_1 = [2u8; 32];
+        let balance_1 = [0u8; 32];
+
+        let leaf_0 = hash(asset_id_0, balance_0);
+        let leaf_1 = hash(asset_id_1, balance_1);
+        let root = hash(leaf_0, leaf_1);
+
+        let mut tree = BalanceTree::new(2, root);
+        tree.insert_token_info(asset_id_0, 0, balance_0, vec![leaf_1]);
+        tree.insert_token_info(asset_id_1, 1, balance_1, vec![leaf_0]);
+
+        assert_eq!(tree.root(), root);
+    }
+
+    #[test]
+    fn test_insert_and_root_four_leaves() {
+        let asset_ids: [H256; 4] = [[1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32]];
+        let balances: [H256; 4] = [[10u8; 32], [20u8; 32], [30u8; 32], [40u8; 32]];
+
+        let leaves: Vec<H256> = asset_ids
+            .iter()
+            .zip(balances.iter())
+            .map(|(a, b)| hash(*a, *b))
+            .collect();
+
+        let left_subtree = hash(leaves[0], leaves[1]);
+        let right_subtree = hash(leaves[2], leaves[3]);
+        let root = hash(left_subtree, right_subtree);
+
+        let mut tree = BalanceTree::new(4, root);
+
+        tree.insert_token_info(asset_ids[0], 0, balances[0], vec![leaves[1], right_subtree]);
+        tree.insert_token_info(asset_ids[1], 1, balances[1], vec![leaves[0], right_subtree]);
+        tree.insert_token_info(asset_ids[2], 2, balances[2], vec![leaves[3], left_subtree]);
+        tree.insert_token_info(asset_ids[3], 3, balances[3], vec![leaves[2], left_subtree]);
+
+        assert_eq!(tree.root(), root);
+    }
+
+    #[test]
+    fn test_update_balance_add() {
+        let asset_id = [1u8; 32];
+        let balance = [0u8; 32];
+
+        let leaf_hash = hash(asset_id, balance);
+
+        let mut tree = BalanceTree::new(1, leaf_hash);
+        tree.insert_token_info(asset_id, 0, balance, vec![]);
+
+        tree.update_balance(asset_id, U256::from(100), true);
+
+        let new_balance = U256::from(100).to_be_bytes();
+        let expected_root = hash(asset_id, new_balance);
+        assert_eq!(tree.root(), expected_root);
+    }
+
+    #[test]
+    fn test_update_balance_subtract() {
+        let asset_id = [1u8; 32];
+        let initial_balance = U256::from(100).to_be_bytes();
+
+        let leaf_hash = hash(asset_id, initial_balance);
+
+        let mut tree = BalanceTree::new(1, leaf_hash);
+        tree.insert_token_info(asset_id, 0, initial_balance, vec![]);
+
+        tree.update_balance(asset_id, U256::from(30), false);
+
+        let new_balance = U256::from(70).to_be_bytes();
+        let expected_root = hash(asset_id, new_balance);
+        assert_eq!(tree.root(), expected_root);
+    }
+
+    #[test]
+    fn test_update_balance_multiple_operations() {
+        let asset_id = [1u8; 32];
+        let balance = [0u8; 32];
+
+        let leaf_hash = hash(asset_id, balance);
+
+        let mut tree = BalanceTree::new(1, leaf_hash);
+        tree.insert_token_info(asset_id, 0, balance, vec![]);
+
+        tree.update_balance(asset_id, U256::from(100), true);
+        tree.update_balance(asset_id, U256::from(50), true);
+        tree.update_balance(asset_id, U256::from(30), false);
+
+        let expected_balance = U256::from(120).to_be_bytes();
+        let expected_root = hash(asset_id, expected_balance);
+        assert_eq!(tree.root(), expected_root);
+    }
+
+    #[test]
+    #[should_panic(expected = "asset id missing")]
+    fn test_update_balance_missing_asset() {
+        let mut tree = BalanceTree::new(0, [0; 32]);
+        tree.update_balance([1u8; 32], U256::from(100), true);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_update_balance_underflow() {
+        let asset_id = [1u8; 32];
+        let initial_balance = U256::from(50).to_be_bytes();
+
+        let leaf_hash = hash(asset_id, initial_balance);
+
+        let mut tree = BalanceTree::new(1, leaf_hash);
+        tree.insert_token_info(asset_id, 0, initial_balance, vec![]);
+
+        tree.update_balance(asset_id, U256::from(100), false);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_insert_duplicate_asset() {
+        let asset_id = [1u8; 32];
+        let balance = [0u8; 32];
+
+        let leaf_hash = hash(asset_id, balance);
+        let sibling = hash([2u8; 32], [0u8; 32]);
+        let root = hash(leaf_hash, sibling);
+
+        let mut tree = BalanceTree::new(2, root);
+        tree.insert_token_info(asset_id, 0, balance, vec![sibling]);
+        tree.insert_token_info(asset_id, 0, balance, vec![sibling]);
+    }
+
+    #[test]
+    #[should_panic(expected = "root mismatch")]
+    fn test_insert_invalid_proof() {
+        let asset_id = [1u8; 32];
+        let balance = [0u8; 32];
+
+        let root = [99u8; 32];
+
+        let mut tree = BalanceTree::new(1, root);
+        tree.insert_token_info(asset_id, 0, balance, vec![]);
+    }
+
+    #[test]
+    fn test_insert_new_token_grows_tree() {
+        // Start with a tree of size 1
+        let asset_id_0 = [1u8; 32];
+        let balance_0 = [10u8; 32];
+        let leaf_0 = hash(asset_id_0, balance_0);
+
+        let mut tree = BalanceTree::new(1, leaf_0);
+        tree.insert_token_info(asset_id_0, 0, balance_0, vec![]);
+
+        assert_eq!(tree.size, 1);
+
+        // Now add a new token at index 1 (grows tree to size 2)
+        let new_asset_id = [2u8; 32];
+        tree.insert_token_info(new_asset_id, 1, [0; 32], vec![leaf_0]);
+
+        assert_eq!(tree.size, 2);
+    }
+
+    #[test]
+    fn test_insert_new_token_at_boundary() {
+        let asset_id_0 = [1u8; 32];
+        let balance_0 = [10u8; 32];
+
+        let leaf_0 = hash(asset_id_0, balance_0);
+
+        let mut tree = BalanceTree::new(1, leaf_0);
+        tree.insert_token_info(asset_id_0, 0, balance_0, vec![]);
+
+        let new_asset_id = [2u8; 32];
+        tree.insert_token_info(new_asset_id, 1, [0; 32], vec![leaf_0]);
+
+        assert_eq!(tree.size, 2);
+
+        let new_leaf = hash(new_asset_id, [0; 32]);
+        let expected_root = hash(leaf_0, new_leaf);
+        assert_eq!(tree.root(), expected_root);
+    }
+
+    #[test]
+    fn test_root_with_partial_tree() {
+        let asset_id_0 = [1u8; 32];
+        let balance_0 = [10u8; 32];
+        let asset_id_2 = [3u8; 32];
+        let balance_2 = [30u8; 32];
+
+        let leaf_0 = hash(asset_id_0, balance_0);
+        let leaf_1 = hash([99u8; 32], [99u8; 32]);
+        let leaf_2 = hash(asset_id_2, balance_2);
+        let leaf_3 = hash([98u8; 32], [98u8; 32]);
+
+        let left_subtree = hash(leaf_0, leaf_1);
+        let right_subtree = hash(leaf_2, leaf_3);
+        let root = hash(left_subtree, right_subtree);
+
+        let mut tree = BalanceTree::new(4, root);
+
+        tree.insert_token_info(asset_id_0, 0, balance_0, vec![leaf_1, right_subtree]);
+        tree.insert_token_info(asset_id_2, 2, balance_2, vec![leaf_3, left_subtree]);
+
+        assert_eq!(tree.root(), root);
+    }
+
+    #[test]
+    fn test_root_changes_after_balance_update() {
+        let asset_id = [1u8; 32];
+        let balance = [0u8; 32];
+
+        let leaf_hash = hash(asset_id, balance);
+
+        let mut tree = BalanceTree::new(1, leaf_hash);
+        tree.insert_token_info(asset_id, 0, balance, vec![]);
+
+        let root_before = tree.root();
+
+        tree.update_balance(asset_id, U256::from(100), true);
+
+        let root_after = tree.root();
+
+        assert_ne!(root_before, root_after);
+    }
+}
