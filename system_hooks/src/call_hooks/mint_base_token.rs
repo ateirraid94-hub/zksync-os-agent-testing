@@ -27,7 +27,7 @@ where
         ergs_to_pass: _,
         input: calldata,
         call_scratch_space: _,
-        nominal_token_value: _,
+        nominal_token_value,
         caller,
         callee,
         callers_caller: _,
@@ -46,6 +46,8 @@ where
     }
 
     let mut error = false;
+    // This hook doesn't accept any native token value
+    error |= nominal_token_value != U256::ZERO;
     let mut is_static = false;
     match modifier {
         CallModifier::Constructor => {
@@ -73,7 +75,7 @@ where
     evm_interpreter::charge_native_and_ergs::<S::Resources>(
         &mut resources,
         HOOK_BASE_NATIVE_COST,
-        HOOK_BASE_ERGS_COST,
+        Ergs(0), // Do not charge EVM gas here, it is already charged in the system contract
     )?;
     // Calldata length shouldn't be able to overflow u32, due to gas
     // limitations.

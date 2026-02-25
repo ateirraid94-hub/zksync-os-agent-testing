@@ -782,8 +782,8 @@ fn test_contract_deployer_gas_charging() {
         vec![(code_hash, bytecode)],
     );
 
-    // The hook should charge HOOK_BASE_ERGS_COST (100 gas) + extra for bytecode length
-    assert_eq!(gas_used, 2950);
+    // The hook should charge for bytecode length
+    assert_eq!(gas_used, 2850);
 }
 
 #[test]
@@ -928,6 +928,52 @@ fn test_mint_base_token_hook() {
     assert_eq!(
         actually_minted_amount, mint_amount,
         "Minted amount should match the requested mint amount"
+    );
+}
+
+#[test]
+fn test_mint_base_token_hook_rejects_non_zero_value() {
+    let mut tester = TestingFramework::new().with_minted_tokens_to_treasury();
+
+    let l2_base_token_address = address!("000000000000000000000000000000000000800a");
+    let mint_hook_address = address!("0000000000000000000000000000000000007100");
+    let mint_amount = alloy::primitives::U256::from(3000000000000000000u64);
+    let call_value = alloy::primitives::U256::from(1u64);
+
+    let initial_balance = tester
+        .get_account_properties(&l2_base_token_address)
+        .balance;
+
+    let calldata = mint_amount.to_be_bytes::<32>().to_vec();
+
+    let tx = L1TxBuilder::new()
+        .from(l2_base_token_address)
+        .to(mint_hook_address)
+        .input(calldata)
+        .value(call_value)
+        .gas_price(0)
+        .gas_limit(200_000)
+        .build();
+
+    let output = tester.execute_block(vec![tx]);
+    let tx_result = output.tx_results[0]
+        .as_ref()
+        .expect("Mint hook call should be processed");
+    assert!(
+        !tx_result.is_success(),
+        "Mint hook should fail when called with non-zero value"
+    );
+
+    let final_balance = tester
+        .get_account_properties(&l2_base_token_address)
+        .balance;
+
+    let balance_delta = final_balance
+        .checked_sub(initial_balance)
+        .expect("Final balance should not be below initial balance");
+    assert!(
+        balance_delta <= call_value,
+        "Mint amount should not be credited when value is non-zero"
     );
 }
 

@@ -52,7 +52,7 @@ pub struct ZkTransactionFlowOnlyEOA<S: EthereumLikeTypes> {
 pub struct ZkTxResult<'a> {
     pub result: ExecutionResult<'a, EthereumIOTypesConfig>,
     pub tx_hash: Bytes32,
-    pub is_l1_tx: bool,
+    pub is_priority_tx: bool,
     pub is_upgrade_tx: bool,
     pub is_service_tx: bool,
     pub gas_refunded: u64,
@@ -136,7 +136,7 @@ impl<S: EthereumLikeTypes> core::fmt::Debug for TxContextForPreAndPostProcessing
             .field("native_per_gas", &self.native_per_gas)
             .field("tx_gas_limit", &self.tx_gas_limit)
             .field("gas_used", &self.gas_used)
-            .field("gas_refunded", &self.gas_used)
+            .field("gas_refunded", &self.gas_refunded)
             .field("validation_pubdata", &self.validation_pubdata)
             .field("total_pubdata", &self.total_pubdata)
             .field("native_used", &self.native_used)
@@ -478,10 +478,10 @@ where
         // go to the operator. Base fees are effectively "burned" (not transferred anywhere).
         let gas_price_for_operator = if cfg!(feature = "burn_base_fee") {
             let base_fee = system.get_eip1559_basefee();
-            context
-                .gas_price
-                .checked_sub(base_fee)
-                .ok_or(internal_error!("Gas_price - base_fee underflow"))?
+            // We use saturating arithmetic to allow the caller of this method to
+            // allow gas_price < base_fee. This can be used, for example, for
+            // transaction simulation
+            context.gas_price.saturating_sub(base_fee)
         } else {
             context.gas_price
         };
@@ -564,7 +564,7 @@ where
         ZkTxResult {
             result,
             tx_hash: context.tx_hash,
-            is_l1_tx: false,
+            is_priority_tx: false,
             is_upgrade_tx: false,
             is_service_tx: transaction.is_service(),
             gas_used: context.gas_used,
@@ -862,10 +862,10 @@ where
             Some(context.validation_pubdata),
         )?;
         if !has_enough {
-            execution_result = execution_result.reverted();
+            execution_result = execution_result.to_reverted();
             system_log!(system, "Not enough gas for pubdata after execution\n");
             Ok((
-                execution_result.reverted(),
+                execution_result.to_reverted(),
                 CachedPubdataInfo {
                     pubdata_used,
                     to_charge_for_pubdata,

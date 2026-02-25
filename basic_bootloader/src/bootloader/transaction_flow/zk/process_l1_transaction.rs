@@ -1,7 +1,7 @@
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
-    FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_NATIVE_COST, L1_TX_INTRINSIC_PUBDATA,
-    L1_TX_NATIVE_PRICE,
+    FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
+    L1_TX_INTRINSIC_PUBDATA, L1_TX_NATIVE_PRICE,
 };
 use crate::bootloader::errors::BootloaderInterfaceError;
 use crate::bootloader::errors::TxError;
@@ -90,7 +90,7 @@ where
         native_per_gas,
         native_per_pubdata,
         minimal_gas_used,
-    } = prepare_and_check_resources::<S>(
+    } = prepare_and_check_resources::<S, Config>(
         system,
         transaction,
         is_priority_op,
@@ -333,7 +333,7 @@ where
     Ok(ZkTxResult {
         result,
         tx_hash,
-        is_l1_tx: is_priority_op,
+        is_priority_tx: is_priority_op,
         is_upgrade_tx: !is_priority_op,
         is_service_tx: false,
         gas_used,
@@ -365,7 +365,11 @@ struct ResourceAndFeeInfo<S: EthereumLikeTypes> {
 /// The approach is to use saturating arithmetic and emit a system
 /// log if this situation ever happens.
 ///
-fn prepare_and_check_resources<'a, S: EthereumLikeTypes + 'a>(
+fn prepare_and_check_resources<
+    'a,
+    S: EthereumLikeTypes + 'a,
+    Config: BasicBootloaderExecutionConfig,
+>(
     system: &mut System<S>,
     transaction: &AbiEncodedTransaction<S::Allocator>,
     is_priority_op: bool,
@@ -382,15 +386,24 @@ where
     let native_price = L1_TX_NATIVE_PRICE;
     let native_per_gas = if is_priority_op {
         if gas_price.is_zero() {
-            FREE_L1_TX_NATIVE_PER_GAS
-        } else {
-            u256_try_to_u64(&gas_price.div_ceil(native_price))
-                .unwrap_or_else(|| {
-                    system_log!(
-                        system,
-                        "Native per gas calculation for L1 tx overflows, using saturated arithmetic instead");
+            if Config::SIMULATION {
+                u256_try_to_u64(&system.get_eip1559_basefee().div_ceil(native_price))
+                    .unwrap_or_else(|| {
+                        system_log!(
+                            system,
+                            "Native per gas calculation for L1 tx overflows, using saturated arithmetic instead");
                         u64::MAX
-                })
+                    })
+            } else {
+                FREE_L1_TX_NATIVE_PER_GAS
+            }
+        } else {
+            u256_try_to_u64(&gas_price.div_ceil(native_price)).unwrap_or_else(|| {
+                system_log!(
+                    system,
+                    "Native per gas calculation for L1 tx overflows, using saturated arithmetic instead");
+                u64::MAX
+            })
         }
     } else {
         // Upgrade txs are paid by the protocol, so we use a fixed native per gas
@@ -406,9 +419,15 @@ where
                 u64::MAX
         });
 
-    let native_prepaid_from_gas = native_per_gas.saturating_mul(gas_limit);
+    let native_prepaid_from_gas = native_per_gas.checked_mul(gas_limit)
+        .unwrap_or_else(|| {
+            system_log!(
+                system,
+                "Native prepaid from gas calculation for L1 tx overflows, using saturated arithmetic instead");
+                u64::MAX
+        });
 
-    let (calldata_tokens, intrinsic_cost) =
+    let (calldata_tokens, minimal_gas_used) =
         compute_calldata_tokens(system, transaction.calldata(), true);
 
     // With L1ResourcesPolicy, this returns Result<ResourcesForTx<S>, BootloaderSubsystemError>
@@ -422,14 +441,21 @@ where
         false, // is_deployment
         transaction.calldata().len() as u64,
         calldata_tokens,
-        intrinsic_cost,
+        L1_TX_INTRINSIC_L2_GAS,
         L1_TX_INTRINSIC_PUBDATA,
         L1_TX_INTRINSIC_NATIVE_COST,
     )?;
 
-    // L1 transactions might have a gas limit < intrinsic cost,
-    // so we pick the min as minimal_gas_used.
-    let minimal_gas_used = intrinsic_cost.min(gas_limit);
+    // L1 transactions might have a gas limit < minimal_gas_used. This should be
+    // prevented by L1 validation, but we log and saturate if it happens.
+    if gas_limit < minimal_gas_used {
+        system_log!(
+            system,
+            "L1 tx gas limit below intrinsic cost, using saturated arithmetic instead"
+        );
+    }
+    // Pick the min to keep processing L1 txs even if the L1 validation is wrong.
+    let minimal_gas_used = minimal_gas_used.min(gas_limit);
 
     Ok(ResourceAndFeeInfo {
         resources,
@@ -578,7 +604,7 @@ where
         check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
     let execution_result = if !enough {
         system_log!(system, "Not enough gas for pubdata after execution\n");
-        execution_result.reverted()
+        execution_result.to_reverted()
     } else {
         execution_result
     };
