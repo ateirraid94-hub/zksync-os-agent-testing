@@ -10,12 +10,12 @@ use alloy_sol_types::{
 use utils::{constants::*, BalanceTree, L2Log, LogsTree, H256};
 
 fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
-    assert!(message.len() >= 68);
+    assert!(message.len() >= 68, "invalid log message length");
     let selector = &message[..4];
     let asset_id: H256 = message[36..68].try_into().unwrap();
     let transfer_data = &message[68..];
 
-    assert_eq!(selector, &FINALIZE_DEPOSIT_SELECTOR);
+    assert_eq!(selector, &FINALIZE_DEPOSIT_SELECTOR, "invalid selector");
 
     type Tuple = (Address, Address, Address, Uint<256>, Bytes);
     let (_, _, original_token, amount, erc20_metadata) =
@@ -24,15 +24,17 @@ fn handle_asset_router_message(message: &[u8], balance_tree: &mut BalanceTree) {
     let token_original_chain_id = if erc20_metadata[0] == 0 {
         [0; 32]
     } else if erc20_metadata[0] == 1 {
+        assert!(erc20_metadata.len() >= 33, "invalid ERC20 metadata length");
         erc20_metadata[1..33].try_into().unwrap()
     } else {
-        panic!("Invalid ERC20 metadata version")
+        panic!("invalid ERC20 metadata version")
     };
 
     let asset_data = original_token.into_word();
     assert_eq!(
         asset_id,
-        get_asset_id(token_original_chain_id, asset_data.0)
+        get_asset_id(token_original_chain_id, asset_data.0),
+        "invalid asset id",
     );
 
     balance_tree.update_balance(asset_id, amount, false);
@@ -43,12 +45,12 @@ fn handle_base_token_contract_message(
     base_token_asset_id: H256,
     balance_tree: &mut BalanceTree,
 ) {
-    assert!(message.len() >= 56);
+    assert!(message.len() >= 56, "invalid log message length");
     let selector = &message[..4];
     let amount: H256 = message[24..56].try_into().unwrap();
     let amount = U256::from_be_bytes(amount);
 
-    assert_eq!(selector, &FINALIZE_ETH_WITHDRAWAL_SELECTOR);
+    assert_eq!(selector, &FINALIZE_ETH_WITHDRAWAL_SELECTOR, "invalid selector");
     balance_tree.update_balance(base_token_asset_id, amount, false);
 }
 
@@ -101,7 +103,7 @@ fn main() -> [u32; 8] {
 
         if sender == L2_TO_L1_MESSENGER {
             let message: Vec<u8> = read!("log message");
-            assert_eq!(Keccak256::digest(&message), value);
+            assert_eq!(Keccak256::digest(&message), value, "log value <> message mismatch");
             if key == L2_ASSET_ROUTER.into_word() {
                 handle_asset_router_message(&message, &mut balance_tree);
             } else if key == L2_BASE_TOKEN.into_word() {
@@ -111,7 +113,7 @@ fn main() -> [u32; 8] {
                     &mut balance_tree,
                 );
             } else if key == L2_ASSET_TRACKER.into_word() {
-                assert_eq!(&message[..4], &RECEIVE_MIGRATION_ON_L1_SELECTOR);
+                assert_eq!(&message[..4], &RECEIVE_MIGRATION_ON_L1_SELECTOR, "invalid selector");
             } else if key == L2_COMPRESSOR.into_word() {
                 // no further action
             } else if key == L2_KNOWN_CODE_STORAGE.into_word() {

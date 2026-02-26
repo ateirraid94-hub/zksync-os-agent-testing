@@ -60,11 +60,10 @@ impl BalanceTree {
         path: Vec<H256>,
     ) {
         let mut hash = if index >= self.size {
-            assert_eq!(index, self.size);
-            assert_eq!(balance, [0; 32]);
+            assert_eq!(index, self.size, "new token must be inserted at next free index");
+            assert_eq!(balance, [0; 32], "new token balance must be 0");
             self.size += 1;
-            // TODO replace with constant
-            Self::hash([0; 32], [0; 32])
+            crate::constants::EMPTY_BALANCE_HASH
         } else {
             Self::hash(asset_id, balance)
         };
@@ -84,7 +83,7 @@ impl BalanceTree {
             assert_eq!(hash, self.prev_root, "root mismatch on index {}", index);
         }
 
-        assert!(!self.balances.contains_key(&asset_id));
+        assert!(!self.balances.contains_key(&asset_id), "duplicate asset id");
         self.balances.insert(
             asset_id,
             Balance {
@@ -105,7 +104,7 @@ impl BalanceTree {
         if add {
             *balance += amount;
         } else {
-            assert!(*balance >= amount);
+            assert!(*balance >= amount, "insufficient token balance");
             *balance -= amount;
         }
     }
@@ -114,7 +113,7 @@ impl BalanceTree {
     fn leaf_layer(&self) -> BTreeMap<u32, TreeNode<'_>> {
         let mut layer = BTreeMap::new();
         for (asset_id, balance) in &self.balances {
-            assert!(!layer.contains_key(&balance.index));
+            assert!(!layer.contains_key(&balance.index), "duplicate leaf index");
             layer.insert(
                 balance.index,
                 TreeNode {

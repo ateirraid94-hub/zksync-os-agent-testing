@@ -31,6 +31,10 @@ pub mod constants {
     pub const EMPTY_LOG_HASH: super::H256 =
         hex!("0x72abee45b59e344af8a6e520241c4744aff26ed411f4c4b00f8af09adada43ba");
 
+    // blake2s256([0; 64])
+    pub const EMPTY_BALANCE_HASH: super::H256 =
+        hex!("0xae09db7cd54f42b490ef09b6bc541af688e4959bb8c53f359a6f56e38ab454a3");
+
     pub const FINALIZE_DEPOSIT_SELECTOR: [u8; 4] = hex!("9c884fd1");
     pub const FINALIZE_ETH_WITHDRAWAL_SELECTOR: [u8; 4] = hex!("6c0960f9");
     pub const RECEIVE_MIGRATION_ON_L1_SELECTOR: [u8; 4] = hex!("8e29043a");
