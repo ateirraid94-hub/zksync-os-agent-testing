@@ -18,15 +18,11 @@ basic_system = { path = "../basic_system", default-features = false }
 basic_bootloader = { path = "../basic_bootloader", default-features = false }
 
 risc_v_simulator = { workspace = true, optional = true }
-num-bigint = { version = "*", optional = true }
-num-traits = { version = "*", optional = true }
-
-alloy-consensus = "1.0.41"
 c-kzg = "2.1.5"
 
 [dev-dependencies]
-hex = "*"
+hex = { workspace = true }
 
 [features]
 default = ["evaluate"]
-evaluate = ["risc_v_simulator", "num-bigint", "num-traits"]
+evaluate = ["risc_v_simulator"]

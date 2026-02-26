@@ -18,17 +18,13 @@ basic_system = { path = "../basic_system", default-features = false }
 system_hooks = { path = "../system_hooks", default-features = false }
 basic_bootloader = { path = "../basic_bootloader", default-features = false }
 ruint = { workspace = true, default-features = false }
-arrayvec = { workspace = true, default-features = false }
 crypto = { path = "../crypto", default-features = false }
-cfg-if = "*"
-cc-traits = { version = "*", default-features = false }
-seq-macro = { version = "*", default-features = false }
-talc = { version = "*", default-features = false, features = ["allocator", "nightly_api"]}
-lock_api = "0.4.11"
+cfg-if = { workspace = true }
+talc = { version = "4.4.3", default-features = false, features = ["allocator", "nightly_api"]}
 # talc = { path = "../../talc", default-features = false, features = ["allocator", "nightly_api"]}
 
 [dev-dependencies]
-hex = "*"
+hex = { workspace = true }
 fastrand = "2.0.2"
 
 [features]
@@ -60,4 +56,3 @@ eth_stf = ["basic_bootloader/eip-7702","basic_bootloader/eip_7623", "evm_interpr
 
 # Features used for evm_tester
 evm_tester = ["basic_bootloader/resources_for_tester", "basic_bootloader/disable_system_contracts", "zk_ee/prevrandao", "state-diffs-pi", "basic_bootloader/eip-7702", "system_hooks/p256_precompile", "basic_bootloader/burn_base_fee", "system_hooks/mock-unsupported-precompiles", "unlimited_native", "basic_bootloader/eip-4844"]
-
