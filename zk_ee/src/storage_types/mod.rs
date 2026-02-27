@@ -6,8 +6,6 @@ use crate::utils::exact_size_chain::ExactSizeChain;
 use super::system::errors::internal::InternalError;
 use super::types_config::SystemIOTypesConfig;
 
-// TODO(EVM-1167): cleanup
-
 bitflags::bitflags! {
     /// Represents a set of flags.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,28 +54,17 @@ impl<IOTypes: SystemIOTypesConfig> UsizeDeserializable for StorageAddress<IOType
         let address = UsizeDeserializable::from_iter(src)?;
         let key = UsizeDeserializable::from_iter(src)?;
 
-        let new = Self { address, key };
-
-        Ok(new)
+        Ok(Self { address, key })
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct InitialStorageSlotData<IOTypes: SystemIOTypesConfig> {
     // we need to know what was a value of the storage slot,
     // and whether it existed in the state or has to be created
     // (so additional information is needed to reconstruct creation location)
     pub is_new_storage_slot: bool,
     pub initial_value: IOTypes::StorageValue,
-}
-
-impl<IOTypes: SystemIOTypesConfig> Default for InitialStorageSlotData<IOTypes> {
-    fn default() -> Self {
-        Self {
-            is_new_storage_slot: false,
-            initial_value: IOTypes::StorageValue::default(),
-        }
-    }
 }
 
 impl<IOTypes: SystemIOTypesConfig> UsizeSerializable for InitialStorageSlotData<IOTypes> {
@@ -98,12 +85,10 @@ impl<IOTypes: SystemIOTypesConfig> UsizeDeserializable for InitialStorageSlotDat
         let is_new_storage_slot = UsizeDeserializable::from_iter(src)?;
         let initial_value = UsizeDeserializable::from_iter(src)?;
 
-        let new = Self {
+        Ok(Self {
             is_new_storage_slot,
             initial_value,
-        };
-
-        Ok(new)
+        })
     }
 }
 
