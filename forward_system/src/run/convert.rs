@@ -57,7 +57,7 @@ impl IntoInterface<InvalidTransaction>
             basic_bootloader::bootloader::errors::InvalidTransaction::CreateInitCodeSizeLimit => { InvalidTransaction::CreateInitCodeSizeLimit }
             basic_bootloader::bootloader::errors::InvalidTransaction::InvalidChainId => { InvalidTransaction::InvalidChainId }
             basic_bootloader::bootloader::errors::InvalidTransaction::AccessListNotSupported => { InvalidTransaction::AccessListNotSupported }
-            basic_bootloader::bootloader::errors::InvalidTransaction::GasPerPubdataTooHigh => { InvalidTransaction::GasPerPubdataTooHigh }
+            basic_bootloader::bootloader::errors::InvalidTransaction::GasPerPubdataTooHigh => { InvalidTransaction::PubdataPriceTooHigh }
             basic_bootloader::bootloader::errors::InvalidTransaction::BlockGasLimitTooHigh => { InvalidTransaction::BlockGasLimitTooHigh }
             basic_bootloader::bootloader::errors::InvalidTransaction::UpgradeTxNotFirst => { InvalidTransaction::UpgradeTxNotFirst }
             basic_bootloader::bootloader::errors::InvalidTransaction::ReceivedInsufficientFees { received, required } => { InvalidTransaction::ReceivedInsufficientFees { received, required } }
