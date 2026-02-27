@@ -34,7 +34,6 @@ PROVIDE(_setup_interrupts = default_setup_interrupts);
   but by providing the `_start_trap` symbol external crates can override.
 */
 PROVIDE(_start_trap = default_start_trap);
-PROVIDE(_machine_start_trap = machine_default_start_trap);
 
 PHDRS
 {

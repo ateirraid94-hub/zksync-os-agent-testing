@@ -237,7 +237,6 @@ pub unsafe fn custom_setup_interrupts() {
 
 /// Exception (trap) handler in rust.
 /// Currently not supported.
-// TODO(EVM-1189): remove machine_default_start_trap entry point to binary.
 #[link_section = ".trap.rust"]
 #[export_name = "_machine_start_trap_rust"]
 pub extern "C" fn machine_start_trap_rust(trap_frame: *mut MachineTrapFrame) -> usize {

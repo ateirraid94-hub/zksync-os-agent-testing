@@ -41,9 +41,9 @@ _abs_start:
     Machine trap entry point (_machine_start_trap)
 */
 .section .trap, "ax"
-.global machine_default_start_trap
+.global _machine_start_trap
 .align 4
-machine_default_start_trap:
+_machine_start_trap:
     // We assume that exception stack is always saved to MSCRATCH
 
     // so we swap it with x31
