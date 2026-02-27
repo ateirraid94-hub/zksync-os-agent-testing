@@ -119,6 +119,14 @@ The tests module should be defined at the bottom after all the existing code to 
 - Pay attention to what facilities already exist for testing, and aim to reuse them.
 - Do not introduce `std` or global allocator dependencies in no-std runtime paths targeting proving RISC-V binaries.
 
+### Pull Request conventions
+- When opening a PR, always use `.github/pull_request_template.md` and fill all sections concisely.
+- PR titles must follow semantic prefixes:
+  - `feat(<scope>): <description>` (or `feat: <description>`)
+  - `fix(<scope>): <description>` (or `fix: <description>`)
+  - `test(<scope>): <description>` (or `test: <description>`)
+  - `chore(<scope>): <description>` (or `chore: <description>`)
+
 ### Review Priorities
 When reviewing, prioritize:
 1. State transition correctness. Code changes should not lead to security issues or break invariants.
