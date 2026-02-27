@@ -6,27 +6,6 @@ use crate::utils::exact_size_chain::ExactSizeChain;
 use super::system::errors::internal::InternalError;
 use super::types_config::SystemIOTypesConfig;
 
-bitflags::bitflags! {
-    /// Represents a set of flags.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct EmptyBitflags: u32 {}
-}
-
-pub trait ReadonlyKVMarker: 'static {
-    const CAN_BE_COLD_AND_WARM_READ: bool = true;
-
-    type Key: UsizeSerializable;
-    type Value: UsizeDeserializable;
-    type AccessStatsBitmask: bitflags::Flags<Bits = u32>;
-}
-
-pub trait ReadWriteKVMarker: ReadonlyKVMarker
-where
-    Self::Value: UsizeSerializable,
-{
-    const CAN_BE_COLD_AND_WARM_WRITE: bool = true;
-}
-
 // helper structs for most of the cases
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
