@@ -130,7 +130,12 @@ pub struct AccountProperties {
     pub unpadded_code_len: u32,
     pub artifacts_len: u32,
     pub observable_bytecode_hash: Bytes32,
-    // TODO(EVM-1116): document the need for observable_bytecode_len
+    /// Externally visible bytecode length (without padding/artifacts).
+    ///
+    /// We keep it separate from `unpadded_code_len` to preserve account payload
+    /// semantics and encoding stability for observable code metadata, while
+    /// `unpadded_code_len` participates in internal full-bytecode/preimage
+    /// accounting with cached artifacts (`full_bytecode_len`).
     pub observable_bytecode_len: u32,
 }
 
