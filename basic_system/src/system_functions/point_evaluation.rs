@@ -140,7 +140,7 @@ mod tests {
     use std::alloc::Global;
     use zk_ee::reference_implementations::BaseResources;
     use zk_ee::reference_implementations::DecreasingNative;
-    use zk_ee::system::Resource;
+    use zk_ee::system::{Computational, Resource};
 
     use alloy_primitives::hex;
 
@@ -148,6 +148,133 @@ mod tests {
 
     fn infinite_resources() -> TestResources {
         TestResources::FORMAL_INFINITE
+    }
+
+    fn valid_point_evaluation_input() -> Vec<u8> {
+        // Test data from:
+        // https://github.com/ethereum/c-kzg-4844/blob/main/tests/verify_kzg_proof/kzg-mainnet/verify_kzg_proof_case_correct_proof_4_4/data.yaml
+        let commitment = hex!(
+            "8f59a8d2a1a625a17f3fea0fe5eb8c896db3764f3185481bc22f91b4aaffcca25f26936857bc3a7c2539ea8ec3a952b7"
+        );
+        let z = hex!("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000");
+        let y = hex!("1522a4a7f34e1ea350ae07c29c96c7e79655aa926122e95fe69fcbd932ca49e9");
+        let proof = hex!(
+            "a62ad71d14c5719385c0686f1871430475bf3a00f0aa3f7b8dd99a9abc2160744faf0070725e00b60ad9a026a15b1a8c"
+        );
+        let versioned_hash = versioned_hash_for_kzg(&commitment);
+
+        [
+            versioned_hash.as_slice(),
+            z.as_slice(),
+            y.as_slice(),
+            commitment.as_slice(),
+            proof.as_slice(),
+        ]
+        .concat()
+    }
+
+    fn assert_cost_vector(
+        input: &[u8],
+        expected_error: Option<PointEvaluationInterfaceError>,
+        expected_output: Option<&[u8]>,
+    ) {
+        let mut output = Vec::new();
+        let mut resources = infinite_resources();
+        let ergs_before = resources.ergs().0;
+        let native_before = resources.native().as_u64();
+
+        let result = PointEvaluationImpl::execute(input, &mut output, &mut resources, Global);
+
+        match (expected_error, result) {
+            (None, Ok(())) => {
+                let expected_output = expected_output.expect("expected output must be set");
+                assert_eq!(output.as_slice(), expected_output);
+            }
+            (Some(expected), Err(SubsystemError::LeafUsage(err))) => {
+                assert_eq!(err.0, expected);
+                assert!(output.is_empty());
+            }
+            (_, other) => panic!("Unexpected result: {other:?}"),
+        }
+
+        assert_eq!(
+            ergs_before - resources.ergs().0,
+            POINT_EVALUATION_COST_ERGS.0
+        );
+        assert_eq!(
+            native_before - resources.native().as_u64(),
+            POINT_EVALUATION_NATIVE_COST
+        );
+    }
+
+    #[test]
+    fn test_point_evaluation_cost_vectors() {
+        let valid_input = valid_point_evaluation_input();
+        assert_cost_vector(
+            &valid_input,
+            None,
+            Some(&POINT_EVAL_PRECOMPILE_SUCCESS_RESPONSE),
+        );
+
+        // Invalid input size
+        assert_cost_vector(
+            &vec![0u8; 191],
+            Some(PointEvaluationInterfaceError::InvalidInputSize),
+            None,
+        );
+
+        // Invalid versioned hash
+        let mut invalid_versioned_hash = valid_input.clone();
+        invalid_versioned_hash[0] ^= 0x01;
+        assert_cost_vector(
+            &invalid_versioned_hash,
+            Some(PointEvaluationInterfaceError::InvalidVersionedHash),
+            None,
+        );
+
+        // Invalid commitment point encoding (versioned hash adjusted to reach point parsing)
+        let mut invalid_commitment = valid_input.clone();
+        let invalid_commitment_point = [0u8; 48];
+        invalid_commitment[96..144].copy_from_slice(&invalid_commitment_point);
+        let adjusted_hash = versioned_hash_for_kzg(&invalid_commitment_point);
+        invalid_commitment[0..32].copy_from_slice(&adjusted_hash);
+        assert_cost_vector(
+            &invalid_commitment,
+            Some(PointEvaluationInterfaceError::InvalidPoint),
+            None,
+        );
+
+        // Invalid proof point encoding
+        let mut invalid_proof = valid_input.clone();
+        invalid_proof[144..192].fill(0);
+        assert_cost_vector(
+            &invalid_proof,
+            Some(PointEvaluationInterfaceError::InvalidPoint),
+            None,
+        );
+
+        // Invalid scalar z (z = modulus)
+        let mut invalid_scalar_z = valid_input.clone();
+        let modulus = [
+            0x73, 0xed, 0xa7, 0x53, 0x29, 0x9d, 0x7d, 0x48, 0x33, 0x39, 0xd8, 0x08, 0x09, 0xa1,
+            0xd8, 0x05, 0x53, 0xbd, 0xa4, 0x02, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0xff, 0xff, 0xff,
+            0x00, 0x00, 0x00, 0x01,
+        ];
+        invalid_scalar_z[32..64].copy_from_slice(&modulus);
+        assert_cost_vector(
+            &invalid_scalar_z,
+            Some(PointEvaluationInterfaceError::InvalidScalar),
+            None,
+        );
+
+        // Pairing mismatch with otherwise valid input
+        let mut pairing_mismatch = valid_input;
+        pairing_mismatch[95] ^= 0x01;
+        assert_cost_vector(
+            &pairing_mismatch,
+            Some(PointEvaluationInterfaceError::PairingMismatch),
+            None,
+        );
     }
 
     #[test]
