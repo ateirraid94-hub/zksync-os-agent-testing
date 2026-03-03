@@ -1,6 +1,6 @@
 //!
 //! Contract deployer system hook implementation.
-//! It implements a `setDeployedCodeEVM` method, similar to Era.
+//! It implements a `setBytecodeDetailsEVM` method, similar to Era.
 //! It's needed for protocol upgrades.
 //!
 use super::super::*;
@@ -13,7 +13,7 @@ use zk_ee::system_log;
 use zk_ee::utils::Bytes32;
 use zk_ee::{internal_error, out_of_return_memory};
 
-pub fn contract_deployer_hook<'a, S: EthereumLikeTypes>(
+pub fn contract_deployer_temp_hook<'a, S: EthereumLikeTypes>(
     request: ExternalCallRequest<S>,
     caller_ee: u8,
     system: &mut System<S>,
@@ -35,6 +35,18 @@ where
     } = request;
 
     debug_assert_eq!(callee, CONTRACT_DEPLOYER_ADDRESS);
+
+    if caller != COMPLEX_UPGRADER_ADDRESS {
+        system_log!(
+            system,
+            "ContractDeployer hook: invalid caller (caller={caller:?})\n"
+        );
+        // Pretend to be an empty account
+        return Ok((
+            make_return_state_from_returndata_region(available_resources, &[]),
+            return_memory,
+        ));
+    }
 
     // There are no "payable" methods
     let mut error = nominal_token_value != U256::ZERO;
@@ -99,7 +111,6 @@ where
 
 // setBytecodeDetailsEVM(address,bytes32,uint32,bytes32) - f6eca0b0
 pub const SET_EVM_BYTECODE_DETAILS: &[u8] = &[0xf6, 0xec, 0xa0, 0xb0];
-pub const L2_COMPLEX_UPGRADER_ADDRESS: B160 = B160::from_limbs([0x800f, 0, 0]);
 
 fn contract_deployer_hook_inner<S: EthereumLikeTypes>(
     mut calldata: &[u8],
@@ -133,8 +144,8 @@ where
                     "Contract deployer failure: setBytecodeDetailsEVM called with static context",
                 ));
             }
-            // in future we need to handle regular(not genesis) protocol upgrades
-            if caller != L2_COMPLEX_UPGRADER_ADDRESS {
+            // Additional security check just in case. Call from anauthorized caller should be filtered earlier.
+            if caller != COMPLEX_UPGRADER_ADDRESS {
                 return Ok(Err(
                     "Contract deployer failure: unauthorized caller for setBytecodeDetailsEVM",
                 ));
@@ -174,7 +185,7 @@ where
 
             // Although this can be called as a part of protocol upgrade,
             // we are checking the next invariants, just in case
-            // EIP-158: reject code of length > 24576.
+            // EIP-170: reject code of length > 24576.
             if bytecode_length as usize > MAX_CODE_SIZE {
                 return Ok(Err(
                     "Contract deployer failure: setBytecodeDetailsEVM called with invalid bytecode(length > 24576)",
