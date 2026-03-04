@@ -8,7 +8,7 @@ This directory contains the following subdirectories:
 - `contracts_wasm` - wasm contracts to be used in the tests (currently not used as wasm tests disabled)
 - `forge` - forge project with test solidity contracts
 - `instances` - test cases implemented using rig
-- `fuzzer`
+- `fuzzer` - fuzz testing utilities and harnesses
 
 ## Writing tests
 

@@ -157,12 +157,13 @@ fn transfer_gas_within_bounds() {
     let tx = TxBuilder::new()
         .from(signer)
         .to(recipient)
+        .value(AlloyU256::from(1u64))
         .gas_limit(TRANSFER_GAS_LIMIT)
         .build();
 
     let output = tester.execute_block(vec![tx]);
     assert_tx_success!(output, 0);
-    assert_gas_used_lt!(output, 0, 400_000);
+    assert_gas_used_lt!(output, 0, 320_000);
 }
 
 #[test]
@@ -235,9 +236,8 @@ fn large_calldata_does_not_panic() {
         .gas_limit(5_000_000)
         .build();
     let output = tester.execute_block(vec![tx]);
-    match &output.tx_results[0] {
-        Ok(_) | Err(_) => {}
-    }
+    assert_eq!(output.tx_results.len(), 1);
+    assert_tx_success!(output, 0);
 }
 
 #[test]
