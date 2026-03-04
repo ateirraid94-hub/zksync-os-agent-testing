@@ -2,6 +2,7 @@
 
 use crate::chain::RunConfig;
 use crate::constants::{CALL_GAS_LIMIT, DEFAULT_MAX_FEE, DEFAULT_PRIORITY_FEE, TEST_CHAIN_ID};
+use crate::utils::L1TxBuilder;
 use crate::TestingFramework;
 use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy};
 use alloy::eips::eip2930::AccessList;
@@ -9,7 +10,6 @@ use alloy::primitives::{Address, Bytes, TxKind, B256, U256};
 use alloy::signers::local::PrivateKeySigner;
 use ruint::aliases::{B160, B256 as RuintB256, U256 as RuintU256};
 use zk_ee::utils::Bytes32;
-use zksync_os_tests_common::zksync_tx::l1_tx::ZKsyncL1Tx;
 use zksync_os_tests_common::zksync_tx::upgrade_tx::ZKsyncUpgradeTx;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
@@ -342,23 +342,23 @@ impl TxBuilder {
                     TxKind::Call(address) => address,
                     TxKind::Create => panic!("TxBuilder: L1 tx cannot be a Create"),
                 };
-                let to_mint = self.to_mint.unwrap_or_else(|| {
-                    U256::from(self.gas_limit) * U256::from(self.max_fee_per_gas)
-                });
-                ZKsyncTxEnvelope::from(ZKsyncL1Tx {
-                    from,
-                    to,
-                    gas_limit: self.gas_limit as u128,
-                    gas_per_pubdata_byte_limit: self.gas_per_pubdata_byte_limit,
-                    max_fee_per_gas: self.max_fee_per_gas,
-                    max_priority_fee_per_gas: self.max_priority_fee_per_gas,
-                    nonce: self.nonce as u128,
-                    value: self.value,
-                    to_mint,
-                    refund_recipient: self.refund_recipient.unwrap_or_default(),
-                    input: Bytes::from(self.calldata),
-                    factory_deps: self.factory_deps,
-                })
+                let mut builder = L1TxBuilder::new()
+                    .from(from)
+                    .to(to)
+                    .gas_price(self.max_fee_per_gas)
+                    .gas_limit(self.gas_limit as u128)
+                    .input(self.calldata)
+                    .value(self.value)
+                    .nonce(self.nonce as u128)
+                    .gas_per_pubdata_byte_limit(self.gas_per_pubdata_byte_limit)
+                    .factory_deps(self.factory_deps);
+                if let Some(refund_recipient) = self.refund_recipient {
+                    builder = builder.refund_recipient(refund_recipient);
+                }
+                if let Some(to_mint) = self.to_mint {
+                    builder = builder.to_mint(to_mint);
+                }
+                builder.build()
             }
             TxType::Upgrade => {
                 let from = self.from.expect("TxBuilder: no sender set for upgrade tx — call .from(signer) or .from_address(addr)");
@@ -397,7 +397,75 @@ impl Default for TxBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::consensus::TxEnvelope;
     use alloy::eips::Typed2718;
+    use zksync_os_tests_common::zksync_tx::ZKsyncSpecificTxEnvelope;
+
+    #[test]
+    fn eip1559_builder_sets_type_and_sender() {
+        let signer = PrivateKeySigner::random();
+        let to = Address::from([0x11; 20]);
+        let tx = TxBuilder::new()
+            .eip1559()
+            .from(signer.clone())
+            .to(to)
+            .nonce(7)
+            .value(U256::from(9u8))
+            .build();
+
+        match &tx {
+            ZKsyncTxEnvelope::Ethereum(TxEnvelope::Eip1559(_), from) => {
+                assert_eq!(*from, signer.address());
+            }
+            _ => panic!("expected eip1559 ethereum tx envelope"),
+        }
+        assert_eq!(tx.ty(), 0x2);
+        assert_eq!(tx.to(), Some(to));
+    }
+
+    #[test]
+    fn legacy_builder_sets_type_and_sender() {
+        let signer = PrivateKeySigner::random();
+        let to = Address::from([0x22; 20]);
+        let tx = TxBuilder::new()
+            .legacy()
+            .from(signer.clone())
+            .to(to)
+            .nonce(3)
+            .value(U256::from(5u8))
+            .build();
+
+        match &tx {
+            ZKsyncTxEnvelope::Ethereum(TxEnvelope::Legacy(_), from) => {
+                assert_eq!(*from, signer.address());
+            }
+            _ => panic!("expected legacy ethereum tx envelope"),
+        }
+        assert_eq!(tx.ty(), 0x0);
+        assert_eq!(tx.to(), Some(to));
+    }
+
+    #[test]
+    fn eip2930_builder_sets_type_and_sender() {
+        let signer = PrivateKeySigner::random();
+        let to = Address::from([0x33; 20]);
+        let tx = TxBuilder::new()
+            .eip2930()
+            .from(signer.clone())
+            .to(to)
+            .nonce(11)
+            .value(U256::from(7u8))
+            .build();
+
+        match &tx {
+            ZKsyncTxEnvelope::Ethereum(TxEnvelope::Eip2930(_), from) => {
+                assert_eq!(*from, signer.address());
+            }
+            _ => panic!("expected eip2930 ethereum tx envelope"),
+        }
+        assert_eq!(tx.ty(), 0x1);
+        assert_eq!(tx.to(), Some(to));
+    }
 
     #[test]
     fn l1_builder_defaults_to_computed_to_mint() {
@@ -407,6 +475,24 @@ mod tests {
             .to(Address::from([1u8; 20]))
             .gas_limit(10)
             .max_fee(3)
+            .build();
+
+        match tx {
+            ZKsyncTxEnvelope::ZKsync(ZKsyncSpecificTxEnvelope::L1(l1_tx)) => {
+                assert_eq!(l1_tx.to_mint, U256::from(30u8));
+                assert_eq!(l1_tx.max_fee_per_gas, 3);
+                assert_eq!(l1_tx.max_priority_fee_per_gas, 3);
+            }
+            _ => panic!("expected l1 tx envelope"),
+        }
+    }
+
+    #[test]
+    fn l1_builder_sets_l1_type() {
+        let tx = TxBuilder::new()
+            .l1()
+            .from_address(Address::ZERO)
+            .to(Address::from([1u8; 20]))
             .build();
         assert_eq!(tx.ty(), 0x7f);
     }
