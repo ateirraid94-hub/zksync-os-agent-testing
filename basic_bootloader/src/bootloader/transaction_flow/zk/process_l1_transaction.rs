@@ -157,7 +157,7 @@ where
         // Tx execution
         let from = transaction.from.read();
         let to = transaction.to.read();
-        match execute_l1_transaction_and_notify_result::<S>(
+        match execute_l1_transaction_and_notify_result::<S, Config>(
             system,
             system_functions,
             memories,
@@ -466,7 +466,11 @@ where
 }
 
 // Returns (execution_result, pubdata_used, to_charge_for_pubdata, resources_before_refund)
-fn execute_l1_transaction_and_notify_result<'a, S: EthereumLikeTypes + 'a>(
+fn execute_l1_transaction_and_notify_result<
+    'a,
+    S: EthereumLikeTypes + 'a,
+    Config: BasicBootloaderExecutionConfig,
+>(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
     memories: RunnerMemoryBuffers<'a>,
@@ -522,7 +526,15 @@ where
         .ok_or(internal_error!("mfc+tic"))?;
 
     // First we transfer from treasury
-    if to_transfer > U256::ZERO {
+    // We want to ensure that the simulation of a transaction
+    // never underestimates gas/pubdata compared to the actual execution
+    // of said transaction.
+    // During simulation the gas price is typically set to 0. So we need
+    // to be conservative about operations that incur in gas/pubdata depending
+    // on the value of the fee. For that reason, we always perform the
+    // following transfer on simulation, and avoid compressing the pubdata
+    // for the balance changes resulting from it.
+    if to_transfer > U256::ZERO || Config::SIMULATION {
         resources
             .with_infinite_ergs(|inf_resources| {
                 transfer_from_treasury::<S>(
@@ -530,7 +542,7 @@ where
                     &to_transfer,
                     &from,
                     inf_resources,
-                    false, // Not a fee-related mint
+                    Config::SIMULATION,
                 )
             })
             .map_err(|e| match e.root_cause() {
