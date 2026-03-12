@@ -255,40 +255,41 @@ pub fn ergs_cost(
     mod_size: u64,
     exp_highp: &U256,
 ) -> Result<Ergs, SystemError> {
-    let multiplication_complexity = {
-        let max_length = core::cmp::max(base_size, mod_size);
-        let words = max_length.div_ceil(8);
-        let mut multiplication_complexity = 16u64;
-        if max_length > 32 {
-            let words_square = words.checked_mul(words).ok_or(out_of_ergs_error!())?;
-
-            multiplication_complexity = multiplication_complexity
-                .checked_mul(words_square)
-                .ok_or(out_of_ergs_error!())?
-                .checked_mul(2)
-                .ok_or(out_of_ergs_error!())?;
-        }
-        //
-        multiplication_complexity
-    };
-    let iteration_count = {
-        let ic = if exp_size <= 32 && exp_highp.is_zero() {
-            0
-        } else if exp_size <= 32 {
-            exp_highp.bit_len() as u64 - 1
-        } else {
-            16u64
-                .checked_mul(exp_size - 32)
-                .ok_or(out_of_ergs_error!())?
-                .checked_add(core::cmp::max(1, exp_highp.bit_len() as u64) - 1)
-                .ok_or(out_of_ergs_error!())?
+    let gas = {
+        let multiplication_complexity = {
+            let max_length = core::cmp::max(base_size, mod_size);
+            if max_length <= 32 {
+                16
+            } else {
+                let words = max_length.div_ceil(8);
+                words
+                    .checked_mul(words)
+                    .ok_or(out_of_ergs_error!())?
+                    .checked_mul(2)
+                    .ok_or(out_of_ergs_error!())?
+            }
         };
-        core::cmp::max(1, ic)
+        let iteration_count = {
+            let ic = if exp_size <= 32 && exp_highp.is_zero() {
+                0
+            } else if exp_size <= 32 {
+                exp_highp.bit_len() as u64 - 1
+            } else {
+                16u64
+                    .checked_mul(exp_size - 32)
+                    .ok_or(out_of_ergs_error!())?
+                    .checked_add(core::cmp::max(1, exp_highp.bit_len() as u64) - 1)
+                    .ok_or(out_of_ergs_error!())?
+            };
+            core::cmp::max(1, ic)
+        };
+        let computed_gas = multiplication_complexity
+            .checked_mul(iteration_count)
+            .ok_or(out_of_ergs_error!())?;
+
+        core::cmp::max(500, computed_gas)
     };
-    let computed_gas = multiplication_complexity
-        .checked_mul(iteration_count)
-        .ok_or(out_of_ergs_error!())?;
-    let gas = core::cmp::max(500, computed_gas);
+
     let ergs = gas.checked_mul(ERGS_PER_GAS).ok_or(out_of_ergs_error!())?;
     Ok(Ergs(ergs))
 }
