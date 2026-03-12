@@ -362,7 +362,8 @@ fn test_tx_with_authorization_list() {
 
     let mut tester = TestingFramework::new()
         .with_evm_contract(erc_20_contract, &bytecode)
-        .with_prefunded_account(wallet.address());
+        .with_prefunded_account(wallet.address())
+        .without_revm_consistency_check();
 
     let output = tester.execute_block(vec![mint_tx]);
 
@@ -1954,11 +1955,10 @@ fn test_treasury_insufficient_balance_failure() {
         .build()
         .into();
 
-    let mut config: rig::chain::RunConfig = Default::default();
-    config.skip_minting_tokens_to_treasury = true; // Ensure we rely on treasury balance, not minting
+    // Ensure we rely on treasury balance, not auto-minting.
+    tester = tester.without_minting_tokens_to_treasury();
 
     // This should fail due to insufficient treasury balance
-    tester = tester.with_run_config(config);
     let result = tester.execute_block_no_panic(vec![l1_tx]);
 
     // Verify transaction fails due to treasury insufficient balance
