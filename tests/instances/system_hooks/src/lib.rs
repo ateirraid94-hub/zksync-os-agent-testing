@@ -1242,19 +1242,19 @@ mod asset_tracker_tests {
             .with_storage_slot(
                 b160_to_address(L2_ASSET_TRACKER_ADDRESS),
                 U256::from(ASSET_TRACKER_BASE_TOKEN_ASSET_ID_SLOT),
-                B256::from(base_token_asset_id),
+                B256::from(U256::from_be_bytes(base_token_asset_id)),
             )
             // Set L1_CHAIN_ID in L2AssetTracker (slot 154)
             .with_storage_slot(
                 b160_to_address(L2_ASSET_TRACKER_ADDRESS),
                 U256::from(ASSET_TRACKER_L1_CHAIN_ID_SLOT),
-                B256::from(U256::from(TEST_L1_CHAIN_ID).to_be_bytes::<32>()),
+                B256::from(U256::from(TEST_L1_CHAIN_ID)),
             )
             // Set currentSettlementLayerChainId in SystemContext (slot 0)
             .with_storage_slot(
                 b160_to_address(SYSTEM_CONTEXT_ADDRESS),
                 U256::ZERO,
-                B256::from(U256::from(settlement_layer_chain_id).to_be_bytes::<32>()),
+                B256::from(U256::from(settlement_layer_chain_id)),
             );
 
         (tester, base_token_asset_id)
@@ -1274,7 +1274,7 @@ mod asset_tracker_tests {
         tester.set_storage_slot(
             b160_to_address(L2_ASSET_TRACKER_ADDRESS),
             migration_slot,
-            B256::from(U256::from(1).to_be_bytes::<32>()),
+            B256::from(U256::from(1)),
         );
         tester = tester.with_balance(sender, value);
 
@@ -1320,7 +1320,7 @@ mod asset_tracker_tests {
         tester.set_storage_slot(
             b160_to_address(L2_ASSET_TRACKER_ADDRESS),
             migration_slot,
-            B256::from(U256::from(1).to_be_bytes::<32>()),
+            B256::from(U256::from(1)),
         );
         tester = tester.with_balance(sender, value);
 
@@ -1402,7 +1402,7 @@ mod asset_tracker_tests {
         tester.set_storage_slot(
             b160_to_address(L2_CHAIN_ASSET_HANDLER_ADDRESS),
             migration_number_slot,
-            B256::from(expected_migration_number.to_be_bytes::<32>()),
+            B256::from(expected_migration_number),
         );
 
         // totalSupply must be 0: zkosPreV31TotalSupply = 0 (default) and
