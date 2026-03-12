@@ -1172,3 +1172,264 @@ fn test_event_hooks_empty_topics() {
         }));
     }
 }
+
+// ---------------------------------------------------------------------------
+//  Asset tracker integration tests for handle_finalize_base_token_bridging
+// ---------------------------------------------------------------------------
+
+mod asset_tracker_tests {
+    use super::*;
+    use rig::crypto::sha3::{Digest, Keccak256};
+    use rig::system_hooks::addresses_constants::{
+        L2_ASSET_TRACKER_ADDRESS, L2_CHAIN_ASSET_HANDLER_ADDRESS, SYSTEM_CONTEXT_ADDRESS,
+    };
+
+    // Storage slot constants (must match process_l1_transaction.rs)
+    const ASSET_TRACKER_ASSET_MIGRATION_NUMBER_SLOT: u64 = 152;
+    const ASSET_TRACKER_L1_CHAIN_ID_SLOT: u64 = 154;
+    const ASSET_TRACKER_BASE_TOKEN_ASSET_ID_SLOT: u64 = 155;
+    const ASSET_TRACKER_INTEROP_INFO_SLOT: u64 = 156;
+    const CHAIN_ASSET_HANDLER_MIGRATION_NUMBER_SLOT: u64 = 207;
+
+    // Default test chain ID used by the testing framework
+    const TEST_CHAIN_ID: u64 = 270;
+    const TEST_L1_CHAIN_ID: u64 = 1;
+
+    fn b160_to_address(value: B160) -> Address {
+        Address::from_slice(&value.to_be_bytes::<20>())
+    }
+
+    fn solidity_mapping_slot(key: &[u8; 32], base_slot: u64) -> U256 {
+        let mut hasher = Keccak256::new();
+        hasher.update(key);
+        hasher.update(&U256::from(base_slot).to_be_bytes::<32>());
+        U256::from_be_bytes(hasher.finalize().into())
+    }
+
+    fn solidity_mapping_slot_nested(key: &[u8; 32], base_slot_bytes: &[u8; 32]) -> U256 {
+        let mut hasher = Keccak256::new();
+        hasher.update(key);
+        hasher.update(base_slot_bytes);
+        U256::from_be_bytes(hasher.finalize().into())
+    }
+
+    /// Computes the storage slot for interopInfo[assetId].totalSuccessfulDepositsFromL1.
+    fn interop_deposits_slot(asset_id: &[u8; 32]) -> U256 {
+        let struct_base = solidity_mapping_slot(asset_id, ASSET_TRACKER_INTEROP_INFO_SLOT);
+        struct_base + U256::from(1)
+    }
+
+    /// Computes the storage slot for assetMigrationNumber[chainId][assetId].
+    fn asset_migration_number_slot(chain_id: u64, asset_id: &[u8; 32]) -> U256 {
+        let chain_id_bytes = U256::from(chain_id).to_be_bytes::<32>();
+        let level1 =
+            solidity_mapping_slot(&chain_id_bytes, ASSET_TRACKER_ASSET_MIGRATION_NUMBER_SLOT);
+        let level1_bytes = level1.to_be_bytes::<32>();
+        solidity_mapping_slot_nested(asset_id, &level1_bytes)
+    }
+
+    /// Sets up a TestingFramework with the L2AssetTracker storage pre-seeded for tests.
+    /// - BASE_TOKEN_ASSET_ID set to a non-zero value
+    /// - L1_CHAIN_ID set
+    /// - Settlement layer chain ID set in SystemContext
+    fn setup_asset_tracker(settlement_layer_chain_id: u64) -> (TestingFramework, [u8; 32]) {
+        // Use a deterministic asset ID for tests
+        let base_token_asset_id = U256::from(0xBEEF_u64).to_be_bytes::<32>();
+
+        let tester = TestingFramework::new()
+            // Set BASE_TOKEN_ASSET_ID in L2AssetTracker (slot 155)
+            .with_storage_slot(
+                b160_to_address(L2_ASSET_TRACKER_ADDRESS),
+                U256::from(ASSET_TRACKER_BASE_TOKEN_ASSET_ID_SLOT),
+                B256::from(base_token_asset_id),
+            )
+            // Set L1_CHAIN_ID in L2AssetTracker (slot 154)
+            .with_storage_slot(
+                b160_to_address(L2_ASSET_TRACKER_ADDRESS),
+                U256::from(ASSET_TRACKER_L1_CHAIN_ID_SLOT),
+                B256::from(U256::from(TEST_L1_CHAIN_ID).to_be_bytes::<32>()),
+            )
+            // Set currentSettlementLayerChainId in SystemContext (slot 0)
+            .with_storage_slot(
+                b160_to_address(SYSTEM_CONTEXT_ADDRESS),
+                U256::ZERO,
+                B256::from(U256::from(settlement_layer_chain_id).to_be_bytes::<32>()),
+            );
+
+        (tester, base_token_asset_id)
+    }
+
+    /// L1 tx with value transfer should increment interopInfo.totalSuccessfulDepositsFromL1
+    /// when settling on L1.
+    #[test]
+    fn test_l1_tx_updates_interop_deposits_when_settling_on_l1() {
+        let sender = address!("1234567890123456789012345678901234567890");
+        let recipient = address!("2222567890123456789012345678901234567890");
+        let value = alloy::primitives::U256::from(1_000_000_000u64);
+
+        let (mut tester, asset_id) = setup_asset_tracker(TEST_L1_CHAIN_ID);
+        // Also need to set assetMigrationNumber to non-zero so _forceSet is skipped
+        let migration_slot = asset_migration_number_slot(TEST_CHAIN_ID, &asset_id);
+        tester.set_storage_slot(
+            b160_to_address(L2_ASSET_TRACKER_ADDRESS),
+            migration_slot,
+            B256::from(U256::from(1).to_be_bytes::<32>()),
+        );
+        tester = tester.with_balance(sender, value);
+
+        let tx = L1TxBuilder::new()
+            .from(sender)
+            .to(recipient)
+            .input(Vec::new())
+            .value(value)
+            .gas_price(0)
+            .gas_limit(200_000)
+            .nonce(0)
+            .build();
+        let output = tester.execute_block(vec![tx]);
+
+        assert!(tx_succeeded(&output, 0), "L1 tx must succeed");
+
+        // Check that totalSuccessfulDepositsFromL1 was incremented
+        let deposits_slot = interop_deposits_slot(&asset_id);
+        let deposits = tester
+            .get_storage_slot(&b160_to_address(L2_ASSET_TRACKER_ADDRESS), deposits_slot)
+            .map(|s| s.into_u256_be())
+            .unwrap_or(U256::ZERO);
+
+        // The transfer amount is total_deposited - max_fee_commitment.
+        // With gas_price=0, max_fee_commitment=0, so to_transfer = total_deposited.
+        // total_deposited = reserved[0] which the L1TxBuilder sets = value.
+        assert!(
+            deposits > U256::ZERO,
+            "totalSuccessfulDepositsFromL1 should be non-zero after L1 tx with value"
+        );
+    }
+
+    /// When settlement layer != L1_CHAIN_ID, interopInfo should NOT be updated.
+    #[test]
+    fn test_l1_tx_skips_interop_when_not_settling_on_l1() {
+        let sender = address!("1234567890123456789012345678901234567890");
+        let recipient = address!("2222567890123456789012345678901234567890");
+        let value = alloy::primitives::U256::from(1_000_000_000u64);
+
+        // Settlement layer = 42 (not L1)
+        let (mut tester, asset_id) = setup_asset_tracker(42);
+        let migration_slot = asset_migration_number_slot(TEST_CHAIN_ID, &asset_id);
+        tester.set_storage_slot(
+            b160_to_address(L2_ASSET_TRACKER_ADDRESS),
+            migration_slot,
+            B256::from(U256::from(1).to_be_bytes::<32>()),
+        );
+        tester = tester.with_balance(sender, value);
+
+        let tx = L1TxBuilder::new()
+            .from(sender)
+            .to(recipient)
+            .input(Vec::new())
+            .value(value)
+            .gas_price(0)
+            .gas_limit(200_000)
+            .nonce(0)
+            .build();
+        let output = tester.execute_block(vec![tx]);
+
+        assert!(tx_succeeded(&output, 0), "L1 tx must succeed");
+
+        // totalSuccessfulDepositsFromL1 should remain zero
+        let deposits_slot = interop_deposits_slot(&asset_id);
+        let deposits = tester
+            .get_storage_slot(&b160_to_address(L2_ASSET_TRACKER_ADDRESS), deposits_slot)
+            .map(|s| s.into_u256_be())
+            .unwrap_or(U256::ZERO);
+        assert_eq!(
+            deposits,
+            U256::ZERO,
+            "totalSuccessfulDepositsFromL1 should be zero when not settling on L1"
+        );
+    }
+
+    /// When BASE_TOKEN_ASSET_ID is zero (not initialized), the asset tracker
+    /// logic should be skipped entirely — no storage writes.
+    #[test]
+    fn test_l1_tx_skips_asset_tracker_before_genesis() {
+        let sender = address!("1234567890123456789012345678901234567890");
+        let recipient = address!("2222567890123456789012345678901234567890");
+        let value = alloy::primitives::U256::from(1_000_000_000u64);
+
+        // No asset tracker storage set up — BASE_TOKEN_ASSET_ID defaults to 0
+        let mut tester = TestingFramework::new().with_balance(sender, value);
+
+        let tx = L1TxBuilder::new()
+            .from(sender)
+            .to(recipient)
+            .input(Vec::new())
+            .value(value)
+            .gas_price(0)
+            .gas_limit(200_000)
+            .nonce(0)
+            .build();
+        let output = tester.execute_block(vec![tx]);
+
+        assert!(
+            tx_succeeded(&output, 0),
+            "L1 tx must succeed even without asset tracker"
+        );
+        assert_eq!(
+            tester.get_balance(&recipient),
+            value,
+            "recipient must receive value"
+        );
+    }
+
+    /// When assetMigrationNumber == 0 and totalSupply == 0, the migration number
+    /// should be force-set to the chain's current migration number.
+    #[test]
+    fn test_l1_tx_force_sets_migration_number() {
+        let sender = address!("1234567890123456789012345678901234567890");
+        let recipient = address!("2222567890123456789012345678901234567890");
+        let value = alloy::primitives::U256::from(1_000_000_000u64);
+
+        let (mut tester, asset_id) = setup_asset_tracker(TEST_L1_CHAIN_ID);
+        // assetMigrationNumber is left at 0 (default)
+
+        // Set a non-zero migrationNumber in L2ChainAssetHandler so _forceSet has a value to write
+        let chain_id_bytes = U256::from(TEST_CHAIN_ID).to_be_bytes::<32>();
+        let migration_number_slot =
+            solidity_mapping_slot(&chain_id_bytes, CHAIN_ASSET_HANDLER_MIGRATION_NUMBER_SLOT);
+        let expected_migration_number = U256::from(7);
+        tester.set_storage_slot(
+            b160_to_address(L2_CHAIN_ASSET_HANDLER_ADDRESS),
+            migration_number_slot,
+            B256::from(expected_migration_number.to_be_bytes::<32>()),
+        );
+
+        // totalSupply must be 0: zkosPreV31TotalSupply = 0 (default) and
+        // holderBalance = INITIAL_BASE_TOKEN_HOLDER_BALANCE (treasury starts full)
+        tester = tester.with_balance(sender, value);
+
+        let tx = L1TxBuilder::new()
+            .from(sender)
+            .to(recipient)
+            .input(Vec::new())
+            .value(value)
+            .gas_price(0)
+            .gas_limit(200_000)
+            .nonce(0)
+            .build();
+        let output = tester.execute_block(vec![tx]);
+
+        assert!(tx_succeeded(&output, 0), "L1 tx must succeed");
+
+        // Verify assetMigrationNumber was written
+        let amn_slot = asset_migration_number_slot(TEST_CHAIN_ID, &asset_id);
+        let amn = tester
+            .get_storage_slot(&b160_to_address(L2_ASSET_TRACKER_ADDRESS), amn_slot)
+            .map(|s| s.into_u256_be())
+            .unwrap_or(U256::ZERO);
+        assert_eq!(
+            amn, expected_migration_number,
+            "assetMigrationNumber should be force-set to the chain migration number"
+        );
+    }
+}
