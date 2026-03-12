@@ -1180,6 +1180,7 @@ fn test_event_hooks_empty_topics() {
 mod asset_tracker_tests {
     use super::*;
     use rig::crypto::sha3::{Digest, Keccak256};
+    use rig::ruint::aliases::B256;
     use rig::system_hooks::addresses_constants::{
         L2_ASSET_TRACKER_ADDRESS, L2_CHAIN_ASSET_HANDLER_ADDRESS, SYSTEM_CONTEXT_ADDRESS,
     };

@@ -11,7 +11,6 @@
 #![feature(slice_from_ptr_range)]
 #![feature(split_array)]
 #![feature(int_roundings)]
-#![feature(maybe_uninit_write_slice)]
 #![allow(clippy::type_complexity)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::needless_lifetimes)]
