@@ -1,7 +1,8 @@
 //! Serialization and deserialization helpers for keys and values for storage.
 
-use crate::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
-use crate::utils::exact_size_chain::ExactSizeChain;
+use crate::oracle::usize_serialization::{
+    UsizeDeserializable, UsizeSerializable, WordDeserializable, WordSerializable, WordSink,
+};
 
 use super::system::errors::internal::InternalError;
 use super::types_config::SystemIOTypesConfig;
@@ -37,24 +38,21 @@ pub struct StorageAddress<IOTypes: SystemIOTypesConfig> {
     pub key: IOTypes::StorageKey,
 }
 
-impl<IOTypes: SystemIOTypesConfig> UsizeSerializable for StorageAddress<IOTypes> {
-    const USIZE_LEN: usize = <IOTypes::Address as UsizeSerializable>::USIZE_LEN
-        + <IOTypes::StorageKey as UsizeSerializable>::USIZE_LEN;
+impl<IOTypes: SystemIOTypesConfig> WordSerializable for StorageAddress<IOTypes> {
+    fn word_len(&self) -> usize {
+        self.address.word_len() + self.key.word_len()
+    }
 
-    fn iter(&self) -> impl ExactSizeIterator<Item = usize> {
-        ExactSizeChain::new(
-            UsizeSerializable::iter(&self.address),
-            UsizeSerializable::iter(&self.key),
-        )
+    fn write_words(&self, out: &mut impl WordSink) {
+        self.address.write_words(out);
+        self.key.write_words(out);
     }
 }
 
-impl<IOTypes: SystemIOTypesConfig> UsizeDeserializable for StorageAddress<IOTypes> {
-    const USIZE_LEN: usize = <Self as UsizeSerializable>::USIZE_LEN;
-
-    fn from_iter(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        let address = UsizeDeserializable::from_iter(src)?;
-        let key = UsizeDeserializable::from_iter(src)?;
+impl<IOTypes: SystemIOTypesConfig> WordDeserializable for StorageAddress<IOTypes> {
+    fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
+        let address = WordDeserializable::read_words(src)?;
+        let key = WordDeserializable::read_words(src)?;
 
         let new = Self { address, key };
 
@@ -80,23 +78,21 @@ impl<IOTypes: SystemIOTypesConfig> Default for InitialStorageSlotData<IOTypes> {
     }
 }
 
-impl<IOTypes: SystemIOTypesConfig> UsizeSerializable for InitialStorageSlotData<IOTypes> {
-    const USIZE_LEN: usize = <bool as UsizeSerializable>::USIZE_LEN
-        + <IOTypes::StorageValue as UsizeSerializable>::USIZE_LEN;
-    fn iter(&self) -> impl ExactSizeIterator<Item = usize> {
-        ExactSizeChain::new(
-            UsizeSerializable::iter(&self.is_new_storage_slot),
-            UsizeSerializable::iter(&self.initial_value),
-        )
+impl<IOTypes: SystemIOTypesConfig> WordSerializable for InitialStorageSlotData<IOTypes> {
+    fn word_len(&self) -> usize {
+        self.is_new_storage_slot.word_len() + self.initial_value.word_len()
+    }
+
+    fn write_words(&self, out: &mut impl WordSink) {
+        self.is_new_storage_slot.write_words(out);
+        self.initial_value.write_words(out);
     }
 }
 
-impl<IOTypes: SystemIOTypesConfig> UsizeDeserializable for InitialStorageSlotData<IOTypes> {
-    const USIZE_LEN: usize = <Self as UsizeSerializable>::USIZE_LEN;
-
-    fn from_iter(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        let is_new_storage_slot = UsizeDeserializable::from_iter(src)?;
-        let initial_value = UsizeDeserializable::from_iter(src)?;
+impl<IOTypes: SystemIOTypesConfig> WordDeserializable for InitialStorageSlotData<IOTypes> {
+    fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
+        let is_new_storage_slot = WordDeserializable::read_words(src)?;
+        let initial_value = WordDeserializable::read_words(src)?;
 
         let new = Self {
             is_new_storage_slot,
