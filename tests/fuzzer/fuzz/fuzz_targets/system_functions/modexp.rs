@@ -113,7 +113,7 @@ struct DummyOracle {}
 impl zk_ee::oracle::IOOracle for DummyOracle {
     type RawIterator<'a> = Box<dyn ExactSizeIterator<Item = usize> + 'static>;
 
-    fn raw_query<'a, I: zk_ee::oracle::usize_serialization::WordSerializable + zk_ee::oracle::usize_serialization::WordDeserializable>(
+    fn raw_query<'a, I: zk_ee::oracle::word_serialization::WordSerializable + zk_ee::oracle::word_serialization::WordDeserializable>(
         &'a mut self,
         _query_type: u32,
         _input: &I,
