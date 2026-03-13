@@ -8952,6 +8952,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 
 [[package]]
+name = "word_serialization_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "worker"
 version = "0.1.0"
 source = "git+https://github.com/matter-labs/zksync-airbender?tag=v0.5.2#b93c285d292891f3c27a3cf0110be09cde30ac4f"
@@ -9131,6 +9140,7 @@ dependencies = [
  "ruint",
  "serde",
  "strum_macros",
+ "word_serialization_derive",
 ]
 
 [[package]]
@@ -9146,6 +9156,7 @@ dependencies = [
  "ruint",
  "serde",
  "strum_macros",
+ "word_serialization_derive",
  "zksync_os_evm_errors 0.0.8",
 ]
 
@@ -9162,12 +9173,14 @@ dependencies = [
  "ruint",
  "serde",
  "strum_macros",
+ "word_serialization_derive",
  "zksync_os_evm_errors 0.0.8",
 ]
 
 [[package]]
 name = "zksync-os-revm"
 version = "0.1.0"
+source = "git+https://github.com/matter-labs/zksync-os-revm?rev=237fd5a#237fd5a5a97468443a47d658298efd420d3e63d8"
 dependencies = [
  "auto_impl",
  "revm 34.0.0",
