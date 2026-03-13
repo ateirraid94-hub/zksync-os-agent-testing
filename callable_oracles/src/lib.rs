@@ -21,9 +21,7 @@ pub mod arithmetic;
 pub mod blob_kzg_commitment;
 pub mod utils;
 
-use zk_ee::{
-    oracle::word_serialization::{WordDeserializable, WordSerializable},
-};
+use zk_ee::oracle::word_serialization::{WordDeserializable, WordSerializable};
 
 pub mod hash_to_prime;
 

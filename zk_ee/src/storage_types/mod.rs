@@ -1,7 +1,7 @@
 //! Serialization and deserialization helpers for keys and values for storage.
 
-use crate::oracle::word_serialization::{WordDeserializable, WordSerializable};
 use super::types_config::SystemIOTypesConfig;
+use crate::oracle::word_serialization::{WordDeserializable, WordSerializable};
 
 // TODO(EVM-1167): cleanup
 
