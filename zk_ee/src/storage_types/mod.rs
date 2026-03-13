@@ -1,10 +1,6 @@
 //! Serialization and deserialization helpers for keys and values for storage.
 
-use crate::oracle::word_serialization::{
-    WordDeserializable, WordSerializable, WordSink,
-};
-
-use super::system::errors::internal::InternalError;
+use crate::oracle::word_serialization::{WordDeserializable, WordSerializable};
 use super::types_config::SystemIOTypesConfig;
 
 // TODO(EVM-1167): cleanup
@@ -32,35 +28,13 @@ where
 
 // helper structs for most of the cases
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, WordSerializable, WordDeserializable)]
 pub struct StorageAddress<IOTypes: SystemIOTypesConfig> {
     pub address: IOTypes::Address,
     pub key: IOTypes::StorageKey,
 }
 
-impl<IOTypes: SystemIOTypesConfig> WordSerializable for StorageAddress<IOTypes> {
-    fn word_len(&self) -> usize {
-        self.address.word_len() + self.key.word_len()
-    }
-
-    fn write_words(&self, out: &mut impl WordSink) {
-        self.address.write_words(out);
-        self.key.write_words(out);
-    }
-}
-
-impl<IOTypes: SystemIOTypesConfig> WordDeserializable for StorageAddress<IOTypes> {
-    fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        let address = WordDeserializable::read_words(src)?;
-        let key = WordDeserializable::read_words(src)?;
-
-        let new = Self { address, key };
-
-        Ok(new)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, WordSerializable, WordDeserializable)]
 pub struct InitialStorageSlotData<IOTypes: SystemIOTypesConfig> {
     // we need to know what was a value of the storage slot,
     // and whether it existed in the state or has to be created
@@ -75,31 +49,6 @@ impl<IOTypes: SystemIOTypesConfig> Default for InitialStorageSlotData<IOTypes> {
             is_new_storage_slot: false,
             initial_value: IOTypes::StorageValue::default(),
         }
-    }
-}
-
-impl<IOTypes: SystemIOTypesConfig> WordSerializable for InitialStorageSlotData<IOTypes> {
-    fn word_len(&self) -> usize {
-        self.is_new_storage_slot.word_len() + self.initial_value.word_len()
-    }
-
-    fn write_words(&self, out: &mut impl WordSink) {
-        self.is_new_storage_slot.write_words(out);
-        self.initial_value.write_words(out);
-    }
-}
-
-impl<IOTypes: SystemIOTypesConfig> WordDeserializable for InitialStorageSlotData<IOTypes> {
-    fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        let is_new_storage_slot = WordDeserializable::read_words(src)?;
-        let initial_value = WordDeserializable::read_words(src)?;
-
-        let new = Self {
-            is_new_storage_slot,
-            initial_value,
-        };
-
-        Ok(new)
     }
 }
 
