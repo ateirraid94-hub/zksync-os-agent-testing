@@ -110,6 +110,6 @@ impl<M: MemorySource> OracleQueryProcessor<M> for InMemoryEthereumInitialStorage
             initial_value: value,
         };
 
-        DynUsizeIterator::from_word_serializable(initial_value)
+        DynWordIterator::from_word_serializable(initial_value)
     }
 }

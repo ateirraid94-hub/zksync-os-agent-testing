@@ -90,6 +90,6 @@ impl<M: MemorySource> OracleQueryProcessor<M> for InMemoryEthereumInitialAccount
             }
         };
 
-        DynUsizeIterator::from_word_serializable(account)
+        DynWordIterator::from_word_serializable(account)
     }
 }
