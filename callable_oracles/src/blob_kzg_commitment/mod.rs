@@ -6,7 +6,7 @@ use basic_system::system_functions::point_evaluation::versioned_hash_for_kzg;
 use crypto::MiniDigest;
 use oracle_provider::OracleQueryProcessor;
 use risc_v_simulator::abstractions::memory::MemorySource;
-use zk_ee::oracle::usize_serialization::WordSerializable;
+use zk_ee::oracle::word_serialization::WordSerializable;
 
 ///
 /// Query processor, which returns blob kzg commitment and proof for a given data.

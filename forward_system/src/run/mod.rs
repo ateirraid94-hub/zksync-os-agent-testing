@@ -34,7 +34,7 @@ use oracle_provider::MemorySource;
 use oracle_provider::ReadWitnessSource;
 use oracle_provider::ZkEENonDeterminismSource;
 use zk_ee::common_structs::ProofData;
-use zk_ee::oracle::usize_serialization::WordSerializable;
+use zk_ee::oracle::word_serialization::WordSerializable;
 use zk_ee::system::tracer::Tracer;
 
 pub use interface_impl::RunBlockForward;

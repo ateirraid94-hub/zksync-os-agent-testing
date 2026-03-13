@@ -1,6 +1,6 @@
 //! Serialization and deserialization helpers for keys and values for storage.
 
-use crate::oracle::usize_serialization::{
+use crate::oracle::word_serialization::{
     WordDeserializable, WordSerializable, WordSink,
 };
 
