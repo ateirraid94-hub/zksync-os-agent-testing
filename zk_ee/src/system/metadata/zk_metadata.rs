@@ -58,37 +58,13 @@ impl Default for BlockHashes {
 
 impl WordDeserializable for BlockHashes {
     fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        struct InitializedHashesGuard {
-            ptr: *mut U256,
-            initialized: usize,
-        }
-
-        impl Drop for InitializedHashesGuard {
-            fn drop(&mut self) {
-                for idx in 0..self.initialized {
-                    unsafe {
-                        self.ptr.add(idx).drop_in_place();
-                    }
-                }
-            }
-        }
-
         let mut hashes = MaybeUninit::<[U256; BLOCK_HASHES_WINDOW_SIZE]>::uninit();
         let hashes_ptr = hashes.as_mut_ptr().cast::<U256>();
-        let mut guard = InitializedHashesGuard {
-            ptr: hashes_ptr,
-            initialized: 0,
-        };
-
-        while guard.initialized < BLOCK_HASHES_WINDOW_SIZE {
-            let hash = unsafe { &mut *hashes_ptr.add(guard.initialized).cast::<MaybeUninit<U256>>() };
-            unsafe {
-                U256::init_from_words(hash, src)?;
-            }
-            guard.initialized += 1;
+        for idx in 0..BLOCK_HASHES_WINDOW_SIZE {
+            let hash = unsafe { &mut *hashes_ptr.add(idx).cast::<MaybeUninit<U256>>() };
+            unsafe { U256::init_from_words(hash, src)? };
         }
 
-        core::mem::forget(guard);
         Ok(Self(unsafe { hashes.assume_init() }))
     }
 }
