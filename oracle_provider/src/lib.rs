@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use zk_ee::oracle::query_ids::{DISCONNECT_ORACLE_QUERY_ID, UART_QUERY_ID};
-use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
+use zk_ee::oracle::usize_serialization::{WordDeserializable, WordSerializable};
 use zk_ee::system::errors::internal::InternalError;
 use zk_ee::{internal_error, oracle::IOOracle};
 
@@ -191,7 +191,7 @@ impl<M: MemorySource> ZkEENonDeterminismSource<M> {
 impl IOOracle for ZkEENonDeterminismSource<DummyMemorySource> {
     type RawIterator<'a> = Box<dyn ExactSizeIterator<Item = usize> + 'static>;
 
-    fn raw_query<'a, I: UsizeSerializable + UsizeDeserializable>(
+    fn raw_query<'a, I: WordSerializable + WordDeserializable>(
         &'a mut self,
         query_type: u32,
         input: &I,
@@ -206,11 +206,8 @@ impl IOOracle for ZkEENonDeterminismSource<DummyMemorySource> {
             return Err(internal_error!("invalid query ID"));
         };
         let processor = &mut self.processors[processor];
-        let response = processor.process_buffered_query(
-            query_type,
-            UsizeSerializable::iter(input).collect::<Vec<usize>>(),
-            &DummyMemorySource,
-        );
+        let response =
+            processor.process_buffered_query(query_type, input.to_word_vec(), &DummyMemorySource);
 
         Ok(response)
     }
