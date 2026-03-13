@@ -479,3 +479,31 @@ impl<T: UsizeSerializable, const N: usize> UsizeSerializable for [T; N] {
         )
     }
 }
+
+impl<T: WordSerializable> WordSerializable for Vec<T> {
+    fn word_len(&self) -> usize {
+        <u64 as WordSerializable>::word_len(&(self.len() as u64))
+            + self.iter().map(WordSerializable::word_len).sum::<usize>()
+    }
+
+    fn write_words(&self, out: &mut impl WordSink) {
+        <u64 as WordSerializable>::write_words(&(self.len() as u64), out);
+        for element in self {
+            element.write_words(out);
+        }
+    }
+}
+
+impl<T: WordDeserializable> WordDeserializable for Vec<T> {
+    fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
+        let len = <u64 as WordDeserializable>::read_words(src)?;
+        let len = usize::try_from(len)
+            .map_err(|_| internal_error!("vec deserialization failed: length overflow"))?;
+        let mut out = Vec::with_capacity(len);
+        for _ in 0..len {
+            out.push(T::read_words(src)?);
+        }
+
+        Ok(out)
+    }
+}
