@@ -43,8 +43,8 @@ risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", br
 execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", default-features = false, optional = true }
 
 [dev-dependencies]
-# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", default-features = false, features = ["prover", "verifier_80"] }
-execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", default-features = false, features = ["prover"] }
+# execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", default-features = false, features = ["prover", "security_80"] }
+execution_utils = { git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", default-features = false, features = ["prover", "security_80"] }
 risc_v_simulator = { git = "https://github.com/matter-labs/zksync-airbender", branch = "dev", features = ["delegation"] }
 
 [features]
@@ -58,7 +58,7 @@ risc_v_logs = []
 evm_replay = ["rig/prevrandao", "rig/unlimited_native", "rig/disable_system_contracts", "rig/evm_refunds", "rig/evm-compatibility"]
 pectra = ["rig/pectra"]
 # Enables create proofs using GPU.
-with_gpu_prover = ["execution_utils", "execution_utils/prover", "execution_utils/gpu_prover", "risc_v_simulator"]
+with_gpu_prover = ["execution_utils", "execution_utils/prover", "execution_utils/gpu_prover", "execution_utils/security_80", "risc_v_simulator"]
 
 debug_satisfiable = ["execution_utils/debug_satisfiable"]
 # Will perform satisfiability tests on witness
