@@ -1,7 +1,7 @@
 //! Serialization and deserialization helpers for keys and values for storage.
 
 use crate::oracle::usize_serialization::{
-    UsizeDeserializable, UsizeSerializable, WordDeserializable, WordSerializable, WordSink,
+    WordDeserializable, WordSerializable, WordSink,
 };
 
 use super::system::errors::internal::InternalError;
@@ -18,14 +18,14 @@ bitflags::bitflags! {
 pub trait ReadonlyKVMarker: 'static {
     const CAN_BE_COLD_AND_WARM_READ: bool = true;
 
-    type Key: UsizeSerializable;
-    type Value: UsizeDeserializable;
+    type Key: WordSerializable;
+    type Value: WordDeserializable;
     type AccessStatsBitmask: bitflags::Flags<Bits = u32>;
 }
 
 pub trait ReadWriteKVMarker: ReadonlyKVMarker
 where
-    Self::Value: UsizeSerializable,
+    Self::Value: WordSerializable,
 {
     const CAN_BE_COLD_AND_WARM_WRITE: bool = true;
 }
