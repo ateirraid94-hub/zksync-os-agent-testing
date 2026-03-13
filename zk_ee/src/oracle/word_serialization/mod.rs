@@ -247,28 +247,32 @@ impl WordDeserializable for U256 {
         this: &mut MaybeUninit<Self>,
         src: &mut impl ExactSizeIterator<Item = usize>,
     ) -> Result<(), InternalError> {
-        let value: &mut U256 = this.write(U256::ZERO);
+        let mut limbs = MaybeUninit::<[u64; U256::LIMBS]>::uninit();
+        let limbs_ptr = limbs.as_mut_ptr().cast::<u64>();
 
         cfg_if::cfg_if! {
             if #[cfg(target_endian = "big")] {
                 compile_error!("unsupported architecture: big endian arch is not supported")
             } else if #[cfg(target_pointer_width = "32")] {
-                for dst in value.as_limbs_mut() {
+                for idx in 0..U256::LIMBS {
                     let low = src
                         .next()
                         .ok_or(internal_error!("u256 limb low deserialization failed"))?;
                     let high = src
                         .next()
                         .ok_or(internal_error!("u256 limb high deserialization failed"))?;
-                    *dst = ((high as u64) << 32) | (low as u64);
+                    limbs_ptr.add(idx).write(((high as u64) << 32) | (low as u64));
                 }
+                this.write(U256::from_limbs(limbs.assume_init()));
                 Ok(())
             } else if #[cfg(target_pointer_width = "64")] {
-                for dst in value.as_limbs_mut() {
-                    *dst = src
+                for idx in 0..U256::LIMBS {
+                    let limb = src
                         .next()
                         .ok_or(internal_error!("u256 limb deserialization failed"))? as u64;
+                    limbs_ptr.add(idx).write(limb);
                 }
+                this.write(U256::from_limbs(limbs.assume_init()));
                 Ok(())
             } else {
                 compile_error!("unsupported architecture")
@@ -329,11 +333,14 @@ impl WordDeserializable for B160 {
         if src.len() < Self::word_len(&B160::ZERO) {
             return Err(internal_error!("b160 deserialization failed: too short"));
         }
-        let mut limbs = [0u64; B160::LIMBS];
-        for limb in &mut limbs {
-            *limb = unsafe { <u64 as WordDeserializable>::read_words(src).unwrap_unchecked() };
+        let mut limbs = MaybeUninit::<[u64; B160::LIMBS]>::uninit();
+        let limbs_ptr = limbs.as_mut_ptr().cast::<u64>();
+        for idx in 0..B160::LIMBS {
+            limbs_ptr
+                .add(idx)
+                .write(<u64 as WordDeserializable>::read_words(src).unwrap_unchecked());
         }
-        this.write(B160::from_limbs(limbs));
+        this.write(B160::from_limbs(limbs.assume_init()));
 
         Ok(())
     }

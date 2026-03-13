@@ -10,6 +10,7 @@ use crate::system::constants::*;
 use crate::system::errors::internal::InternalError;
 use crate::types_config::{EthereumIOTypesConfig, SystemIOTypesConfig};
 use crate::utils::Bytes32;
+use core::mem::MaybeUninit;
 use ruint::aliases::{B160, U256};
 
 pub type ZkMetadata = SystemMetadata<
@@ -57,11 +58,38 @@ impl Default for BlockHashes {
 
 impl WordDeserializable for BlockHashes {
     fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        let mut hashes = [U256::ZERO; BLOCK_HASHES_WINDOW_SIZE];
-        for hash in &mut hashes {
-            *hash = U256::read_words(src)?;
+        struct InitializedHashesGuard {
+            ptr: *mut U256,
+            initialized: usize,
         }
-        Ok(Self(hashes))
+
+        impl Drop for InitializedHashesGuard {
+            fn drop(&mut self) {
+                for idx in 0..self.initialized {
+                    unsafe {
+                        self.ptr.add(idx).drop_in_place();
+                    }
+                }
+            }
+        }
+
+        let mut hashes = MaybeUninit::<[U256; BLOCK_HASHES_WINDOW_SIZE]>::uninit();
+        let hashes_ptr = hashes.as_mut_ptr().cast::<U256>();
+        let mut guard = InitializedHashesGuard {
+            ptr: hashes_ptr,
+            initialized: 0,
+        };
+
+        while guard.initialized < BLOCK_HASHES_WINDOW_SIZE {
+            let hash = unsafe { &mut *hashes_ptr.add(guard.initialized).cast::<MaybeUninit<U256>>() };
+            unsafe {
+                U256::init_from_words(hash, src)?;
+            }
+            guard.initialized += 1;
+        }
+
+        core::mem::forget(guard);
+        Ok(Self(unsafe { hashes.assume_init() }))
     }
 }
 

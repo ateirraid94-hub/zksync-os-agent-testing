@@ -145,10 +145,6 @@ impl Bytes32 {
         self.inner.iter().all(|el| *el == 0)
     }
 
-    fn as_usize_array_mut(&mut self) -> &mut [usize; BYTES32_USIZE_SIZE] {
-        &mut self.inner
-    }
-
     #[cfg(target_pointer_width = "32")]
     fn as_u32_array_ref(&self) -> &[u32; 8] {
         unsafe { &*(&self.inner as *const usize).cast::<[u32; 8]>() }
@@ -293,15 +289,11 @@ impl WordSerializable for Bytes32 {
 
 impl WordDeserializable for Bytes32 {
     fn read_words(src: &mut impl ExactSizeIterator<Item = usize>) -> Result<Self, InternalError> {
-        if src.len() < BYTES32_USIZE_SIZE {
-            return Err(internal_error!("Bytes32 deserialization failed: too short"));
+        let mut new = MaybeUninit::uninit();
+        unsafe {
+            Self::init_from_words(&mut new, src)?;
+            Ok(new.assume_init())
         }
-        let mut new = Bytes32::ZERO;
-        for dst in new.as_usize_array_mut().iter_mut() {
-            *dst = unsafe { src.next().unwrap_unchecked() };
-        }
-
-        Ok(new)
     }
 
     unsafe fn init_from_words(
@@ -311,10 +303,9 @@ impl WordDeserializable for Bytes32 {
         if src.len() < BYTES32_USIZE_SIZE {
             return Err(internal_error!("Bytes32 deserialization failed: too short"));
         }
-        // Initialize
-        let value: &mut Self = this.write(Self::ZERO);
-        for dst in value.as_usize_array_mut().iter_mut() {
-            *dst = src.next().unwrap_unchecked()
+        let words_ptr = core::ptr::addr_of_mut!((*this.as_mut_ptr()).inner).cast::<usize>();
+        for idx in 0..BYTES32_USIZE_SIZE {
+            words_ptr.add(idx).write(src.next().unwrap_unchecked());
         }
 
         Ok(())
