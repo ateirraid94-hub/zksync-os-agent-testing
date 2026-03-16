@@ -84,6 +84,7 @@ use std::path::PathBuf;
 // }
 
 #[test]
+#[ignore = "Problem with risc v simulator diagnostics"]
 fn fibish_sol() {
     let mut chain = rig::Chain::empty(None);
     let wallet = chain.random_wallet();

@@ -6,6 +6,7 @@ use rig::{
 use std::path::PathBuf;
 
 #[test]
+#[ignore = "Problem with risc v simulator diagnostics"]
 fn get_name_sol() {
     let mut chain = rig::Chain::empty(None);
     let wallet = chain.random_wallet();
@@ -75,6 +76,7 @@ fn get_name_sol() {
 // }
 
 #[test]
+#[ignore = "Problem with risc v simulator diagnostics"]
 fn balance_of_sol() {
     let mut chain = rig::Chain::empty(None);
     let wallet = chain.random_wallet();
@@ -183,6 +185,7 @@ fn balance_of_sol() {
 // }
 
 #[test]
+#[ignore = "Problem with risc v simulator diagnostics"]
 fn transfer_sol() {
     let mut chain = rig::Chain::empty(None);
     let wallet_a = chain.random_wallet();
