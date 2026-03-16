@@ -161,10 +161,8 @@ fn read_execution_witness() -> ParsedWitness {
 }
 
 fn rlp_encode_short_slice(slice: &[u8]) -> Vec<u8> {
-    if slice.len() == 1 {
-        if slice[0] < 0x80 {
-            return slice.to_vec();
-        }
+    if slice.len() == 1 && slice[0] < 0x80 {
+        return slice.to_vec();
     }
 
     if slice.len() <= 55 {
@@ -232,7 +230,7 @@ fn test_from_execution_witness() {
             } else {
                 encoded_accounts.insert(*address_key, account_data.to_vec());
                 let data = decode_address_data(account_data);
-                initial_state_roots.insert(address_key.clone(), data[2].data().to_vec());
+                initial_state_roots.insert(*address_key, data[2].data().to_vec());
 
                 if let Some(nonce) = account_state.nonce.as_ref() {
                     let encoding = nonce.to_be_bytes();
@@ -243,9 +241,9 @@ fn test_from_execution_witness() {
                 }
                 // There are fee-related divergences
                 if let Some(balance) = account_state.balance.as_ref() {
-                    if &address != &coinbase {
+                    if address != coinbase {
                         // unclear why
-                        if &balance.to_be_bytes_trimmed_vec() != data[1].data() {
+                        if balance.to_be_bytes_trimmed_vec() != data[1].data() {
                             println!(
                                 "Account 0x{}: prestate balance is dirty",
                                 hex::encode(&address)

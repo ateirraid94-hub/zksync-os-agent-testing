@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use crate::ark_ff_delegation::BigInt;
 use crate::bigint_delegation::{u256, DelegatedModParams, DelegatedMontParams};
 

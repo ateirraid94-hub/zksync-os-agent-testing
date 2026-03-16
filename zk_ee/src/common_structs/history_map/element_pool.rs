@@ -127,7 +127,7 @@ mod tests {
 
         elements_pool.reuse_memory(element, element);
 
-        assert!(elements_pool.head != None);
+        assert!(elements_pool.head.is_some());
 
         let element = elements_pool.create_element(2, None, CacheSnapshotId(10));
         assert_eq!(unsafe { element.as_ref().value }, 2);

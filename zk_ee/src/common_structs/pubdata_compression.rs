@@ -26,12 +26,17 @@ pub enum ValueDiffCompressionStrategy {
 }
 
 impl ValueDiffCompressionStrategy {
+    #[inline(always)]
+    fn byte_len(value: U256) -> u8 {
+        value.bit_len().div_ceil(8) as u8
+    }
+
     fn compression_length(&self, initial_value: U256, final_value: U256) -> Option<u8> {
         match self {
             Self::Nothing => Some(33), //full value + metadata byte
             Self::Add => {
                 let (result, of) = final_value.overflowing_sub(initial_value);
-                let length = (result.bit_len().next_multiple_of(8) / 8) as u8;
+                let length = Self::byte_len(result);
                 if of || length == 32 {
                     None
                 } else {
@@ -40,7 +45,7 @@ impl ValueDiffCompressionStrategy {
             }
             Self::Sub => {
                 let (result, of) = initial_value.overflowing_sub(final_value);
-                let length = (result.bit_len().next_multiple_of(8) / 8) as u8;
+                let length = Self::byte_len(result);
                 if of || length == 32 {
                     None
                 } else {
@@ -48,7 +53,7 @@ impl ValueDiffCompressionStrategy {
                 }
             }
             Self::Transform => {
-                let length = (final_value.bit_len().next_multiple_of(8) / 8) as u8;
+                let length = Self::byte_len(final_value);
                 if length == 32 {
                     None
                 } else {
@@ -77,7 +82,7 @@ impl ValueDiffCompressionStrategy {
             }
             Self::Add => {
                 let (result, of) = final_value.overflowing_sub(initial_value);
-                let length = (result.bit_len().next_multiple_of(8) / 8) as u8;
+                let length = Self::byte_len(result);
 
                 if of || length == 32 {
                     Err(())
@@ -93,7 +98,7 @@ impl ValueDiffCompressionStrategy {
             }
             Self::Sub => {
                 let (result, of) = initial_value.overflowing_sub(final_value);
-                let length = (result.bit_len().next_multiple_of(8) / 8) as u8;
+                let length = Self::byte_len(result);
 
                 if of || length == 32 {
                     Err(())
@@ -108,7 +113,7 @@ impl ValueDiffCompressionStrategy {
                 }
             }
             Self::Transform => {
-                let length = (final_value.bit_len().next_multiple_of(8) / 8) as u8;
+                let length = Self::byte_len(final_value);
                 if length == 32 {
                     Err(())
                 } else {

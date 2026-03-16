@@ -262,7 +262,7 @@ impl<SF: StackFactory<M>, const M: usize, A: Allocator + Clone + Default> LogsSt
 
     pub fn messages_ref_iter(
         &self,
-    ) -> impl Iterator<Item = GenericLogContentWithTxRef<EthereumIOTypesConfig>> {
+    ) -> impl Iterator<Item = GenericLogContentWithTxRef<'_, EthereumIOTypesConfig>> {
         self.list.iter().map(|message| message.to_ref())
     }
 

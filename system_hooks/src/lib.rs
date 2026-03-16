@@ -1,7 +1,6 @@
 #![cfg_attr(target_arch = "riscv32", no_std)]
 #![feature(allocator_api)]
 #![feature(get_mut_unchecked)]
-#![feature(const_type_id)]
 #![feature(vec_push_within_capacity)]
 #![feature(ptr_alignment_type)]
 #![feature(btreemap_alloc)]
@@ -9,8 +8,6 @@
 #![feature(ptr_metadata)]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-#![feature(alloc_layout_extra)]
-#![feature(array_windows)]
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::needless_borrows_for_generic_args)]
 #![allow(clippy::result_unit_err)]
@@ -316,7 +313,7 @@ fn make_error_return_state<'a, S: SystemTypes>(
 fn make_return_state_from_returndata_region<S: SystemTypes>(
     remaining_resources: S::Resources,
     returndata: &[u8],
-) -> CompletedExecution<S> {
+) -> CompletedExecution<'_, S> {
     let return_values = ReturnValues {
         returndata,
         return_scratch_space: None,

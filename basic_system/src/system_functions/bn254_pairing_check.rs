@@ -42,7 +42,7 @@ impl<R: Resources> SystemFunction<R, Bn254PairingCheckErrors> for Bn254PairingCh
                 <R::Native as zk_ee::system::Computational>::from_computational(native_cost),
             ))?;
 
-            if src.len() % 192 != 0 {
+            if !src.len().is_multiple_of(192) {
                 return Err(interface_error!(
                     Bn254PairingCheckInterfaceError::InvalidPairingSize
                 ));
@@ -217,7 +217,7 @@ mod test {
                 .unwrap();
         let mut dst = vec![];
 
-        let _ = Bn254PairingCheckImpl::execute(src, &mut dst, &mut resource, allocator).unwrap();
+        Bn254PairingCheckImpl::execute(src, &mut dst, &mut resource, allocator).unwrap();
 
         assert_eq!(expected, dst.as_slice());
 
@@ -226,7 +226,7 @@ mod test {
                 .unwrap();
         let mut dst = vec![];
 
-        let _ = Bn254PairingCheckImpl::execute(src, &mut dst, &mut resource, allocator).unwrap();
+        Bn254PairingCheckImpl::execute(src, &mut dst, &mut resource, allocator).unwrap();
 
         assert_eq!(expected, dst.as_slice());
     }

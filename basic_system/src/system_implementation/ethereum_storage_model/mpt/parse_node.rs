@@ -224,6 +224,6 @@ pub(crate) fn parse_node_from_bytes<'a>(
 
         Ok((ParsedNode::Branch(branch_node), pieces))
     } else {
-        return Err(());
+        Err(())
     }
 }

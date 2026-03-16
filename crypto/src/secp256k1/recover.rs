@@ -390,7 +390,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_0I_0G() {
+    fn ecmult_0_i_0_g() {
         assert_eq!(ECRECOVER_CONTEXT.pre_g[0].to_affine(), Affine::GENERATOR);
 
         // 0*infinity + 0*G = 0
@@ -407,7 +407,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_0I_1G() {
+    fn ecmult_0_i_1_g() {
         // 0*infinity + 1*G = G
         let mut res = ecmult(
             &Jacobian::INFINITY,
@@ -424,7 +424,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_0I_3G() {
+    fn ecmult_0_i_3_g() {
         // 0*infinity + 3*G = 3*G
         let res = ecmult(
             &Jacobian::INFINITY,
@@ -439,7 +439,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_0I_5G() {
+    fn ecmult_0_i_5_g() {
         let res = ecmult(
             &Jacobian::INFINITY,
             &Scalar::ZERO,
@@ -453,7 +453,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_0I_8G() {
+    fn ecmult_0_i_8_g() {
         // t = 5G + 3G
         let mut t = ECRECOVER_CONTEXT.pre_g[2].to_affine().to_jacobian();
         t.add_ge_in_place(ECRECOVER_CONTEXT.pre_g[1].to_affine(), None);
@@ -474,7 +474,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_1G_0G() {
+    fn ecmult_1_g_0_g() {
         let res = ecmult(
             &Affine::GENERATOR.to_jacobian(),
             &Scalar::ONE,
@@ -488,7 +488,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_1G_1G() {
+    fn ecmult_1_g_1_g() {
         let res = ecmult(
             &Affine::GENERATOR.to_jacobian(),
             &Scalar::ONE,
@@ -505,7 +505,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_1G_2G() {
+    fn ecmult_1_g_2_g() {
         let res = ecmult(
             &Affine::GENERATOR.to_jacobian(),
             &Scalar::ONE,
@@ -519,7 +519,7 @@ mod tests {
 
     #[cfg(feature = "secp256k1-static-context")]
     #[test]
-    fn ecmult_2G_1G() {
+    fn ecmult_2_g_1_g() {
         let mut res = ecmult(
             &Affine::GENERATOR.to_jacobian(),
             &Scalar::from_u128(2),
@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn test_generator_multipules() {
         for (k, x, y) in MUL_TEST_VECTORS {
-            let k = Scalar::from_repr(k.clone().into());
+            let k = Scalar::from_repr((*k).into());
 
             let computed_ctx =
                 ecmult(&Jacobian::INFINITY, &Scalar::ZERO, &k, &ECRECOVER_CONTEXT).to_affine();

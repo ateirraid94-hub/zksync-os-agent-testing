@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use crate::{
     ark_ff_delegation::BigInt,
     bigint_delegation::{u256, DelegatedModParams, DelegatedMontParams},
@@ -11,7 +13,7 @@ impl core::fmt::Debug for FieldElement {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("0x")?;
         let bytes = self.to_be_bytes();
-        for b in bytes.as_slice().iter() {
+        for b in bytes.iter() {
             f.write_fmt(format_args!("{:02x}", b))?;
         }
         core::fmt::Result::Ok(())
@@ -156,7 +158,7 @@ mod tests {
     impl proptest::arbitrary::Arbitrary for FieldElement {
         type Parameters = ();
 
-        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             use proptest::prelude::{any, Strategy};
 
             any::<u256::U256Wrapper<FieldParams>>().prop_map(|x| Self(x.0).to_representation())

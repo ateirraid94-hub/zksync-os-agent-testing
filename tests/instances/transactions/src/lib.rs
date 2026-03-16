@@ -44,8 +44,6 @@ fn run_base_system() {
         "a226d3a5c8c408741c3446c762aee8dff742f21e381a0e5ab85a96c5c00100be",
     )
     .unwrap();
-    let eoa_wallet_ethers = LocalWallet::from_bytes(eoa_wallet.to_bytes().as_slice()).unwrap();
-
     let from = wallet_ethers.address();
     let to = address!("0000000000000000000000000000000000010002");
 
@@ -807,7 +805,7 @@ fn test_balance_overflow_protection() {
     )
     .unwrap();
 
-    let from = alloy::primitives::Address::from_slice(&wallet.address().as_slice());
+    let from = alloy::primitives::Address::from_slice(wallet.address().as_slice());
     let to = address!("0000000000000000000000000000000000010002");
 
     // Set a reasonable balance that would be sufficient for normal transactions
@@ -854,7 +852,7 @@ fn test_balance_overflow_protection() {
     );
 
     assert!(
-        output.tx_results.get(0).unwrap().is_err(),
+        output.tx_results.first().unwrap().is_err(),
         "Transaction with fee overflow should fail"
     );
     assert!(

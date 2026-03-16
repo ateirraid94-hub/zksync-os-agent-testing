@@ -13,7 +13,7 @@ fn test_unit_serialization() {
 
     // Test deserialization
     let mut empty_iter = core::iter::empty();
-    let deserialized = <() as UsizeDeserializable>::from_iter(&mut empty_iter).unwrap();
+    <() as UsizeDeserializable>::from_iter(&mut empty_iter).unwrap();
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_bool_serialization() {
 
     let mut iter = collected.into_iter();
     let deserialized = bool::from_iter(&mut iter).unwrap();
-    assert_eq!(deserialized, true);
+    assert!(deserialized);
 
     // Test false
     let val = false;
@@ -34,7 +34,7 @@ fn test_bool_serialization() {
 
     let mut iter = collected.into_iter();
     let deserialized = bool::from_iter(&mut iter).unwrap();
-    assert_eq!(deserialized, false);
+    assert!(!deserialized);
 }
 
 #[test]

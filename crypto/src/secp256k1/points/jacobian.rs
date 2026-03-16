@@ -567,12 +567,12 @@ mod tests {
 
         let mut p = g.to_jacobian();
 
-        for i in 0..ADD_TEST_VECTORS.len() {
+        for (expected_x, expected_y) in ADD_TEST_VECTORS.iter() {
             let a = p.to_affine();
 
             let expected = Affine {
-                x: FieldElement::from_bytes(&ADD_TEST_VECTORS[i].0).unwrap(),
-                y: FieldElement::from_bytes(&ADD_TEST_VECTORS[i].1).unwrap(),
+                x: FieldElement::from_bytes(expected_x).unwrap(),
+                y: FieldElement::from_bytes(expected_y).unwrap(),
                 infinity: false,
             };
 
@@ -588,12 +588,12 @@ mod tests {
 
         let mut p = g.to_jacobian();
 
-        for i in 0..ADD_TEST_VECTORS.len() {
+        for (expected_x, expected_y) in ADD_TEST_VECTORS.iter() {
             let a = p.to_affine_const();
 
             let expected = AffineConst {
-                x: FieldElementConst::from_bytes_unchecked(&ADD_TEST_VECTORS[i].0),
-                y: FieldElementConst::from_bytes_unchecked(&ADD_TEST_VECTORS[i].1),
+                x: FieldElementConst::from_bytes_unchecked(expected_x),
+                y: FieldElementConst::from_bytes_unchecked(expected_y),
                 infinity: false,
             };
 

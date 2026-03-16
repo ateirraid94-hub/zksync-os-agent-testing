@@ -12,12 +12,14 @@ use zk_ee::{
 /// queries. It's primarily used for testing or scenarios where the entire
 /// storage state can be held in memory.
 #[cfg_attr(feature = "testing", derive(serde::Serialize, serde::Deserialize))]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct InMemoryInitialStorageSlotValueResponder {
     /// Two-level map: address -> (storage_key -> storage_value)
     pub values_map: HashMap<B160, HashMap<Bytes32, Bytes32>>,
 }
 
+#[allow(dead_code)]
 impl InMemoryInitialStorageSlotValueResponder {
     const SUPPORTED_QUERY_IDS: &[u32] = &[INITIAL_STORAGE_SLOT_VALUE_QUERY_ID];
 }

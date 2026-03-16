@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod tests {
+mod error_context_tests {
     use crate::error_ctx;
     use crate::system::errors::context::IErrorContext;
 
@@ -335,7 +335,7 @@ mod tests {
     fn test_numeric_and_boolean_values() {
         let enabled = true;
         let count = 42u64;
-        let ratio = 3.14f64;
+        let ratio = 314_f64 / 100.0;
 
         let ctx = error_ctx! {
             "enabled" => enabled,

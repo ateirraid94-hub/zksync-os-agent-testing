@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use crate::ark_ff_delegation::BigInt;
 use crate::bigint_delegation::{u256, DelegatedModParams, DelegatedMontParams};
 use crate::secp256r1::Secp256r1Err;
@@ -115,7 +117,7 @@ mod tests {
     impl proptest::arbitrary::Arbitrary for Scalar {
         type Parameters = ();
 
-        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             use proptest::prelude::{any, Strategy};
             any::<u256::U256Wrapper<ScalarParams>>().prop_map(|x| Self(x.0).to_repressentation())
         }

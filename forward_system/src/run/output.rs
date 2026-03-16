@@ -68,14 +68,13 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
             .map(|result| {
                 result
                     .map(|output| {
+                        let contract_address = output.contract_address;
                         let execution_result = if output.status {
-                            ExecutionResult::Success(if output.contract_address.is_some() {
-                                ExecutionOutput::Create(
-                                    output.output,
-                                    output.contract_address.unwrap(),
-                                )
-                            } else {
-                                ExecutionOutput::Call(output.output)
+                            ExecutionResult::Success(match contract_address {
+                                Some(contract_address) => {
+                                    ExecutionOutput::Create(output.output, contract_address)
+                                }
+                                None => ExecutionOutput::Call(output.output),
                             })
                         } else {
                             ExecutionResult::Revert(output.output)
@@ -87,7 +86,7 @@ impl<TR: TxResultCallback> From<ForwardRunningResultKeeper<TR>> for BlockOutput 
                             native_used: output.native_used,
                             computational_native_used: output.computational_native_used,
                             pubdata_used: output.pubdata_used,
-                            contract_address: output.contract_address,
+                            contract_address,
                             logs: events
                                 .iter()
                                 .filter_map(|e| {

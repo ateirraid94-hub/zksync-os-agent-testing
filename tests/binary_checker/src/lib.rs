@@ -27,7 +27,7 @@ mod tests {
         type M = prover::cs::machine::machine_configurations::full_isa_with_delegation_no_exceptions_no_signed_mul_div::FullIsaMachineWithDelegationNoExceptionHandlingNoSignedMulDiv;
         let unsupported_opcodes =
             <M as Machine<Mersenne31Field>>::verify_bytecode_base(&text_section);
-        if unsupported_opcodes.len() > 0 {
+        if !unsupported_opcodes.is_empty() {
             for (pc, opcode) in unsupported_opcodes.into_iter() {
                 println!(
                     "Potentially unsupported opcode 0x{:08x} at PC = 0x{:08x}",

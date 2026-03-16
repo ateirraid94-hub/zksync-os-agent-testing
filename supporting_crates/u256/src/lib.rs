@@ -132,11 +132,10 @@ mod tests {
             let (mut x1, mut x2) = from_limbs(x_limbs);
             let (y1, y2) = from_limbs(y_limbs);
 
-            let of1 = x1.wrapping_mul_assign(&y1);
-            let of2 = x2.wrapping_mul_assign(&y2);
+            x1.wrapping_mul_assign(&y1);
+            x2.wrapping_mul_assign(&y2);
 
             prop_assert_eq!(x1.as_limbs(), x2.as_limbs());
-            prop_assert_eq!(of1, of2);
         });
 
         proptest!(|(x_limbs: [u64; 4], y_limbs: [u64; 4])| {
@@ -469,17 +468,17 @@ mod tests {
     #[should_panic]
     fn riscv_divceil_by_zero_panics() {
         let mut x = risc_v::U256::one();
-        let mut y = risc_v::U256::zero();
+        let y = risc_v::U256::zero();
 
-        risc_v::U256::div_ceil(&mut x, &mut y);
+        risc_v::U256::div_ceil(&mut x, &y);
     }
 
     #[test]
     #[should_panic]
     fn naive_divceil_by_zero_panics() {
         let mut x = naive::U256::one();
-        let mut y = naive::U256::zero();
+        let y = naive::U256::zero();
 
-        naive::U256::div_ceil(&mut x, &mut y);
+        naive::U256::div_ceil(&mut x, &y);
     }
 }

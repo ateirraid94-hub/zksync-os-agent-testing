@@ -8,7 +8,7 @@ use basic_bootloader::bootloader::constants::MAX_BLOCK_GAS_LIMIT;
 use rig::alloy::primitives::{Address, B256};
 use rig::ruint::aliases::{B160, U256};
 use rig::utils::run_block_of_erc20;
-use rig::{zk_ee::utils::Bytes32, Chain};
+use rig::Chain;
 
 // Run a block of ERC20 transactions and check invariants on the block header.
 #[test]

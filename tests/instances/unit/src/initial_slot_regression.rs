@@ -151,7 +151,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
         let zk_proof_data_responder = ZKProofDataResponder { data: proof_data };
 
         let da_commitment_scheme_responder = DACommitmentSchemeResponder {
-            da_commitment_scheme: da_commitment_scheme,
+            da_commitment_scheme,
         };
 
         let mut oracle = ZkEENonDeterminismSource::default();

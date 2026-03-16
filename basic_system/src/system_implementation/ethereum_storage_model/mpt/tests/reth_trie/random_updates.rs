@@ -207,9 +207,9 @@ fn generate_test_data(size: usize) -> (BTreeMap<B256, U256>, BTreeMap<B256, U256
             }
         }
     }
-    let initial_storage = BTreeMap::from_iter(initial_state.into_iter());
+    let initial_storage = BTreeMap::from_iter(initial_state);
 
-    let final_storage = BTreeMap::from_iter(final_state.into_iter());
+    let final_storage = BTreeMap::from_iter(final_state);
 
     (initial_storage, final_storage)
 }

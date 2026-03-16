@@ -683,9 +683,9 @@ impl<'a, A: Allocator + Clone> EthereumMPT<'a, A> {
             for next_child in self.branch_nodes[index].child_nodes.into_iter() {
                 self.ensure_linked_pair(child_node, next_child);
             }
-        } else if child_node.is_terminal_value_in_branch() {
-            assert!(parent.is_branch())
-        } else if child_node.is_unreferenced_value_in_branch() {
+        } else if child_node.is_terminal_value_in_branch()
+            || child_node.is_unreferenced_value_in_branch()
+        {
             assert!(parent.is_branch())
         } else {
             panic!("Unknown pair {:?} -> {:?}", parent, child_node);

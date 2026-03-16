@@ -375,11 +375,7 @@ where
     // - additional_data (length of additional_data)
     let message_length = 76 + length;
     let abi_encoded_message_length = 32 + 32 + message_length;
-    let abi_encoded_message_length = if abi_encoded_message_length % 32 != 0 {
-        abi_encoded_message_length + (32 - (abi_encoded_message_length % 32))
-    } else {
-        abi_encoded_message_length
-    };
+    let abi_encoded_message_length = abi_encoded_message_length.next_multiple_of(32);
 
     // First we charge for copying the message
     let native_copy_cost = evm_interpreter::native_resource_constants::COPY_BASE_NATIVE_COST
@@ -430,11 +426,7 @@ where
 
     // ABI encode event data: _amount (32 bytes) + _additionalData offset (32) + length (32) + data
     let abi_encoded_event_length = 32 + 32 + 32 + additional_data.len();
-    let abi_encoded_event_length = if abi_encoded_event_length % 32 != 0 {
-        abi_encoded_event_length + (32 - (abi_encoded_event_length % 32))
-    } else {
-        abi_encoded_event_length
-    };
+    let abi_encoded_event_length = abi_encoded_event_length.next_multiple_of(32);
 
     // Now we charge for copying the event data
     let native_copy_cost = evm_interpreter::native_resource_constants::COPY_BASE_NATIVE_COST

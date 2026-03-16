@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use core::ops::{
     AddAssign, BitAndAssign, BitOrAssign, BitXorAssign, ShlAssign, ShrAssign, SubAssign,
 };
@@ -171,7 +173,7 @@ impl U256 {
         // Eventually it'll be solved via non-determinism and comparison that a = q * divisor + r,
         // but for now it's just a naive one
         let is_zero = divisor_or_remainder.0.is_zero_mut();
-        assert!(is_zero == false);
+        assert!(!is_zero);
         ruint::algorithms::div(
             dividend_or_quotient.as_limbs_mut(),
             divisor_or_remainder.as_limbs_mut(),
@@ -186,7 +188,7 @@ impl U256 {
 
         if !divisor_or_remainder.0.is_zero_mut() {
             let overflowed = dividend_or_quotient.overflowing_add_assign(&Self::one());
-            assert!(overflowed == false); // Should not ever overflow
+            assert!(!overflowed); // Should not ever overflow
         }
     }
 
@@ -252,8 +254,8 @@ impl U256 {
     }
 
     pub fn add_mod(a: &mut Self, b: &mut Self, modulus_or_result: &mut Self) {
-        a.reduce_mod(&modulus_or_result);
-        b.reduce_mod(&modulus_or_result);
+        a.reduce_mod(modulus_or_result);
+        b.reduce_mod(modulus_or_result);
 
         let of = unsafe { bigint_op_delegation::<ADD_OP_BIT_IDX>(&mut a.0, &b.0) != 0 };
 
@@ -285,13 +287,13 @@ impl U256 {
             Self::wrapping_mul_assign(dst, &tmp);
 
             if i {
-                Self::wrapping_mul_assign(dst, &base);
+                Self::wrapping_mul_assign(dst, base);
             }
         }
     }
 
     pub fn byte_len(&self) -> usize {
-        (self.bit_len() + 7) / 8
+        self.bit_len().div_ceil(8)
     }
 
     pub fn checked_add(&self, rhs: &Self) -> Option<Self> {
@@ -355,10 +357,10 @@ impl From<u128> for U256 {
     }
 }
 
-impl Into<ruint::aliases::U256> for U256 {
+impl From<U256> for ruint::aliases::U256 {
     #[inline(always)]
-    fn into(self) -> ruint::aliases::U256 {
-        ruint::aliases::U256::from_limbs(self.0.to_limbs())
+    fn from(val: U256) -> Self {
+        ruint::aliases::U256::from_limbs(val.0.to_limbs())
     }
 }
 

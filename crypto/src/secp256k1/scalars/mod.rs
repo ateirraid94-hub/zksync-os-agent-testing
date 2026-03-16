@@ -53,11 +53,6 @@ impl Scalar {
         Self(ScalarInner::from_u128(n))
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_be_hex(hex: &str) -> Self {
-        Self(ScalarInner::from_be_hex(hex))
-    }
-
     pub(crate) fn from_signature(signature: &crate::k256::ecdsa::Signature) -> (Self, Self) {
         let (r, s) = signature.split_scalars();
         (Self::from_k256_scalar(*r), Self::from_k256_scalar(*s))
@@ -69,8 +64,8 @@ impl Scalar {
 
     #[cfg(test)]
     pub(crate) fn from_repr(bytes: FieldBytes) -> Self {
-        let bytes = bytes.as_slice().try_into().unwrap();
-        Self(ScalarInner::from_be_bytes(bytes))
+        let bytes: [u8; 32] = bytes.into();
+        Self(ScalarInner::from_be_bytes(&bytes))
     }
 
     #[inline(always)]
@@ -136,7 +131,7 @@ impl proptest::arbitrary::Arbitrary for Scalar {
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::{any, Strategy};
 
-        any::<ScalarInner>().prop_map(|inner| Self(inner))
+        any::<ScalarInner>().prop_map(Self)
     }
 
     type Strategy = proptest::arbitrary::Mapped<ScalarInner, Self>;
@@ -235,22 +230,16 @@ mod tests {
     #[test]
     fn test_decompose() {
         proptest!(|(k: Scalar)| {
-            let (mut r1, mut r2) = k.decompose();
+            let (r1, r2) = k.decompose();
             let lambda = -Scalar::MINUS_LAMBDA;
 
             #[cfg(feature = "bigint_ops")]
-            {
-                r1 = Scalar(r1.0.to_representation());
-                r2 = Scalar(r2.0.to_representation());
-            }
+            let (r1, r2) = (Scalar(r1.0.to_representation()), Scalar(r2.0.to_representation()));
 
             prop_assert_eq!(r1 + r2 * lambda, k);
 
             #[cfg(feature = "bigint_ops")]
-            {
-                r1 = Scalar(r1.0.to_integer());
-                r2 = Scalar(r2.0.to_integer());
-            }
+            let (r1, r2) = (Scalar(r1.0.to_integer()), Scalar(r2.0.to_integer()));
 
             let bound = Scalar::from_bytes_unchecked(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
             prop_assert!(r1 < bound || -r1 < bound);

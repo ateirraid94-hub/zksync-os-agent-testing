@@ -155,7 +155,7 @@ fn bench_addmod() {
 
     // Some handy builders for U256
     let shl = |bits: u32| U256::from(1u64) << bits;
-    let ones = |bits: u32| (shl(bits) - U256::from(1u64)); // ((1<<bits) - 1)
+    let ones = |bits: u32| shl(bits) - U256::from(1u64); // ((1<<bits) - 1)
     let max = ones(256);
 
     // “Interesting” vectors that tickle 32-bit costs (carry storms, divider sizes, edge cases)
@@ -425,7 +425,7 @@ fn bench_mulmod() {
 
     // Helpers for vectors
     let shl = |bits: u32| U256::from(1u64) << bits;
-    let ones = |bits: u32| (shl(bits) - U256::from(1u64));
+    let ones = |bits: u32| shl(bits) - U256::from(1u64);
     let max = ones(256);
 
     // Byte-pattern helpers that keep limb0 ≠ 0

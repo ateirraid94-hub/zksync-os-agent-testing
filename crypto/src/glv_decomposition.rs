@@ -70,9 +70,8 @@ where
 
         let scalar: BigInt = k.into_bigint().into().into();
 
-        let coeff_bigints: [BigInt; 4] = Self::SCALAR_DECOMP_COEFFS.map(|x| {
-            BigInt::from_biguint(x.0.then_some(Sign::Plus).unwrap_or(Sign::Minus), x.1.into())
-        });
+        let coeff_bigints: [BigInt; 4] = Self::SCALAR_DECOMP_COEFFS
+            .map(|x| BigInt::from_biguint(if x.0 { Sign::Plus } else { Sign::Minus }, x.1.into()));
 
         let [n11, n12, n21, n22] = coeff_bigints;
 

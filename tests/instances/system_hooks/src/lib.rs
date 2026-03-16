@@ -180,7 +180,7 @@ fn test_l2_base_token_withdraw_events() {
         .logs
         .iter()
         .find(|event| {
-            event.address == l2_base_token_address && Withdrawal::decode_log_data(&event).is_ok()
+            event.address == l2_base_token_address && Withdrawal::decode_log_data(event).is_ok()
         });
     assert!(
         withdrawal_event.is_some(),
@@ -269,7 +269,7 @@ fn test_l2_base_token_withdraw_with_message_events() {
         .iter()
         .find(|event| {
             event.address == l2_base_token_address
-                && WithdrawalWithMessage::decode_log_data(&event).is_ok()
+                && WithdrawalWithMessage::decode_log_data(event).is_ok()
         });
     assert!(
         withdrawal_event.is_some(),
@@ -458,7 +458,7 @@ fn test_l2_base_token_no_mint_event_regression() {
         .logs
         .iter()
         .filter(|event| {
-            event.address == l2_base_token_address && Mint::decode_log_data(&event).is_ok()
+            event.address == l2_base_token_address && Mint::decode_log_data(event).is_ok()
         })
         .collect();
 
