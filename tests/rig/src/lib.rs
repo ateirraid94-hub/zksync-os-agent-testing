@@ -9,8 +9,11 @@
 //!
 use std::str::FromStr;
 use std::sync::Once;
+pub mod assertions;
 pub mod chain;
+pub mod constants;
 pub mod revm_consistency_checker;
+pub mod run_config;
 pub mod testing_utils;
 pub mod utils;
 
