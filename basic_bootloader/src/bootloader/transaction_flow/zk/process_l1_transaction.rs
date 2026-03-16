@@ -726,10 +726,7 @@ const INITIAL_BASE_TOKEN_HOLDER_BALANCE: U256 =
 
 /// Computes keccak256(abi.encode(key, base_slot)) for Solidity mapping slot derivation.
 fn solidity_mapping_slot(key: &[u8; 32], base_slot: u64) -> Bytes32 {
-    let mut hasher = Keccak256::new();
-    hasher.update(key);
-    hasher.update(&U256::from(base_slot).to_be_bytes::<32>());
-    Bytes32::from_array(hasher.finalize().into())
+    solidity_mapping_slot_nested(key, &U256::from(base_slot).to_be_bytes::<32>())
 }
 
 /// Computes keccak256(abi.encode(key, base_slot_bytes)) for nested Solidity mapping slot derivation.
@@ -763,6 +760,10 @@ fn handle_finalize_base_token_bridging<S: EthereumLikeTypes>(
 where
     S::IO: IOSubsystemExt,
 {
+    if amount.is_zero() {
+        return Ok(());
+    }
+
     let ee = ExecutionEnvironmentType::EVM;
 
     // Read BASE_TOKEN_ASSET_ID from L2AssetTracker
@@ -783,25 +784,45 @@ where
     let chain_id_bytes = U256::from(chain_id).to_be_bytes::<32>();
     let asset_id_bytes = base_token_asset_id.as_u8_array();
 
-    // --- Step 1: _registerLegacyTokenIfNeeded ---
-    // For ZKOS chains, the base token is registered during the V31 upgrade via
-    // registerBaseTokenDuringUpgrade() and backFillZKSyncOSBaseTokenV31MigrationData().
-    // The base token should already be registered (isAssetRegistered[assetId] == true).
-    // We check and skip the legacy registration path since it's not applicable for the base token
-    // on ZKOS chains (the base token address is a system contract, not a standard ERC20).
+    // Step 1: _registerLegacyTokenIfNeeded — skipped for ZKOS chains.
+    // The base token is registered during the V31 upgrade via registerBaseTokenDuringUpgrade()
+    // and backFillZKSyncOSBaseTokenV31MigrationData().
 
-    // --- Step 2: _needToForceSetAssetMigrationOnL2 ---
-    // Base token originates from L1 (tokenOriginChainId != block.chainid), so we don't
-    // return false early. Check: assetMigrationNumber[block.chainid][assetId] == 0 &&
-    // totalSupply() == 0 → force set migration number.
-    //
+    // Step 2: _needToForceSetAssetMigrationOnL2 → _forceSetAssetMigrationNumber
+    maybe_force_set_asset_migration_number(
+        system, ee, resources, &chain_id_bytes, &asset_id_bytes,
+    )?;
+
+    // Step 3: chainBalance update — skipped since base token originates from L1
+    // (tokenOriginChainId != block.chainid), so the chainBalance path is never viable.
+
+    // Step 4: interopInfo[assetId].totalSuccessfulDepositsFromL1 += amount
+    update_interop_deposits_from_l1(system, ee, resources, &asset_id_bytes, amount)?;
+
+    Ok(())
+}
+
+/// Replicates Solidity `_needToForceSetAssetMigrationOnL2` + `_forceSetAssetMigrationNumber`.
+///
+/// If `assetMigrationNumber[chainId][assetId] == 0` and base token `totalSupply() == 0`,
+/// force-sets the migration number from L2ChainAssetHandler.
+fn maybe_force_set_asset_migration_number<S: EthereumLikeTypes>(
+    system: &mut System<S>,
+    ee: ExecutionEnvironmentType,
+    resources: &mut S::Resources,
+    chain_id_bytes: &[u8; 32],
+    asset_id_bytes: &[u8; 32],
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+{
     // assetMigrationNumber[chainId][assetId]:
     //   level1 = keccak256(abi.encode(chainId, baseSlot))
     //   level2 = keccak256(abi.encode(assetId, level1))
     let asset_migration_level1 =
-        solidity_mapping_slot(&chain_id_bytes, ASSET_TRACKER_ASSET_MIGRATION_NUMBER_SLOT);
+        solidity_mapping_slot(chain_id_bytes, ASSET_TRACKER_ASSET_MIGRATION_NUMBER_SLOT);
     let asset_migration_slot =
-        solidity_mapping_slot_nested(&asset_id_bytes, &asset_migration_level1.as_u8_array());
+        solidity_mapping_slot_nested(asset_id_bytes, &asset_migration_level1.as_u8_array());
     let saved_asset_migration_number = system.io.storage_read::<false>(
         ee,
         resources,
@@ -809,71 +830,93 @@ where
         &asset_migration_slot,
     )?;
 
-    if saved_asset_migration_number.is_zero() {
-        // Check if totalSupply() == 0 for the base token.
-        // The Solidity _needToForceSetAssetMigrationOnL2 calls IERC20(tokenAddress).totalSupply().
-        // For L2BaseTokenZKOS, totalSupply() computes:
-        //   zkosPreV31TotalSupply + (INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance)
-        // where INITIAL_BASE_TOKEN_HOLDER_BALANCE = 2^127 - 1.
-        //
-        // This equals 0 only when zkosPreV31TotalSupply == 0 AND
-        // holderBalance == INITIAL_BASE_TOKEN_HOLDER_BALANCE (i.e. no tokens spent from treasury).
-        //
-        // Note: totalSupply() reverts if needBaseTokenTotalSupplyBackfill is true,
-        // but that state shouldn't occur during normal L1 tx processing since the
-        // backfill happens during the V31 upgrade before any L1 txs are processed.
-        //
-        let pre_v31_supply = system.io.storage_read::<false>(
-            ee,
-            resources,
-            &system_hooks::addresses_constants::L2_BASE_TOKEN_ADDRESS,
-            &Bytes32::from_u256_be(&U256::from(BASE_TOKEN_ZKOS_PRE_V31_SUPPLY_SLOT)),
-        )?;
-        let pre_v31_supply_u256 = pre_v31_supply.into_u256_be();
-
-        let holder_balance = system.io.get_nominal_token_balance(
-            ee,
-            resources,
-            &system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS,
-        )?;
-
-        let total_supply =
-            pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE.saturating_sub(holder_balance);
-
-        if total_supply.is_zero() {
-            // Force set: assetMigrationNumber[chainId][assetId] = migrationNumber[chainId]
-            let migration_number_slot =
-                solidity_mapping_slot(&chain_id_bytes, CHAIN_ASSET_HANDLER_MIGRATION_NUMBER_SLOT);
-            let migration_number = system.io.storage_read::<false>(
-                ee,
-                resources,
-                &L2_CHAIN_ASSET_HANDLER_ADDRESS,
-                &migration_number_slot,
-            )?;
-
-            system.io.storage_write::<false>(
-                ee,
-                resources,
-                &L2_ASSET_TRACKER_ADDRESS,
-                &asset_migration_slot,
-                &migration_number,
-            )?;
-
-            system_log!(
-                system,
-                "Force-set assetMigrationNumber for base token to {migration_number:?}\n"
-            );
-        }
+    if !saved_asset_migration_number.is_zero() {
+        return Ok(());
     }
 
-    // --- Step 3: chainBalance update ---
-    // Skipped: base token originates from L1 (tokenOriginChainId != block.chainid),
-    // so the chainBalance path is never viable.
-
-    // --- Step 4: interopInfo[assetId].totalSuccessfulDepositsFromL1 += amount ---
-    // Only when fromChainId == L1_CHAIN_ID && currentSettlementLayerChainId == L1_CHAIN_ID.
-    // For L1 transactions, fromChainId is always L1_CHAIN_ID.
+    // Check if totalSupply() == 0 for the base token.
+    // For L2BaseTokenZKOS, totalSupply() computes:
+    //   zkosPreV31TotalSupply + (INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance)
+    // where INITIAL_BASE_TOKEN_HOLDER_BALANCE = 2^127 - 1.
     //
+    // This equals 0 only when zkosPreV31TotalSupply == 0 AND
+    // holderBalance == INITIAL_BASE_TOKEN_HOLDER_BALANCE (i.e. no tokens spent from treasury).
+    //
+    // Note: totalSupply() reverts if needBaseTokenTotalSupplyBackfill is true,
+    // but that state shouldn't occur during normal L1 tx processing since the
+    // backfill happens during the V31 upgrade before any L1 txs are processed.
+    let pre_v31_supply = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &system_hooks::addresses_constants::L2_BASE_TOKEN_ADDRESS,
+        &Bytes32::from_u256_be(&U256::from(BASE_TOKEN_ZKOS_PRE_V31_SUPPLY_SLOT)),
+    )?;
+    let pre_v31_supply_u256 = pre_v31_supply.into_u256_be();
+
+    let holder_balance = system.io.get_nominal_token_balance(
+        ee,
+        resources,
+        &system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS,
+    )?;
+
+    // Subtraction: holder_balance <= INITIAL_BASE_TOKEN_HOLDER_BALANCE (2^127 - 1) because
+    // the holder starts with exactly INITIAL_BASE_TOKEN_HOLDER_BALANCE and can only decrease
+    // (tokens are transferred out, never minted into the holder). saturating_sub guards
+    // against any unexpected state where holder_balance exceeds the initial value.
+    //
+    // Addition: pre_v31_supply_u256 is a stored uint256 that in practice fits well within
+    // 128 bits (total ETH supply is ~120M << 2^128), and the subtraction result is at most
+    // 2^127 - 1, so the sum cannot overflow a U256. The Solidity contract uses checked
+    // arithmetic (default in Solidity >=0.8) which would revert on overflow; here we rely
+    // on the same economic bounds making overflow impossible.
+    let total_supply =
+        pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE.saturating_sub(holder_balance);
+
+    if !total_supply.is_zero() {
+        return Ok(());
+    }
+
+    // Force set: assetMigrationNumber[chainId][assetId] = migrationNumber[chainId]
+    let migration_number_slot =
+        solidity_mapping_slot(chain_id_bytes, CHAIN_ASSET_HANDLER_MIGRATION_NUMBER_SLOT);
+    let migration_number = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &L2_CHAIN_ASSET_HANDLER_ADDRESS,
+        &migration_number_slot,
+    )?;
+
+    system.io.storage_write::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &asset_migration_slot,
+        &migration_number,
+    )?;
+
+    system_log!(
+        system,
+        "Force-set assetMigrationNumber for base token to {migration_number:?}\n"
+    );
+
+    Ok(())
+}
+
+/// Replicates the interop deposit tracking from `_handleFinalizeBridgingOnL2Inner`.
+///
+/// Increments `interopInfo[assetId].totalSuccessfulDepositsFromL1 += amount` when
+/// `fromChainId == L1_CHAIN_ID && currentSettlementLayerChainId == L1_CHAIN_ID`.
+/// For L1 transactions, `fromChainId` is always `L1_CHAIN_ID`.
+fn update_interop_deposits_from_l1<S: EthereumLikeTypes>(
+    system: &mut System<S>,
+    ee: ExecutionEnvironmentType,
+    resources: &mut S::Resources,
+    asset_id_bytes: &[u8; 32],
+    amount: &U256,
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+{
     // Read L1_CHAIN_ID from L2AssetTracker
     let l1_chain_id_bytes = system.io.storage_read::<false>(
         ee,
@@ -890,38 +933,43 @@ where
             .storage_read::<false>(ee, resources, &SYSTEM_CONTEXT_ADDRESS, &Bytes32::ZERO)?;
     let settlement_layer_chain_id = settlement_layer_chain_id_bytes.into_u256_be();
 
-    if settlement_layer_chain_id == l1_chain_id {
-        // interopInfo[assetId] maps to InteropL2Info struct:
-        //   struct_base = keccak256(abi.encode(assetId, baseSlot))
-        //   totalWithdrawalsToL1 at struct_base + 0
-        //   totalSuccessfulDepositsFromL1 at struct_base + 1
-        let interop_struct_base =
-            solidity_mapping_slot(&asset_id_bytes, ASSET_TRACKER_INTEROP_INFO_SLOT);
-        let deposits_slot_u256 = interop_struct_base.into_u256_be() + U256::from(1);
-        let deposits_slot = Bytes32::from_u256_be(&deposits_slot_u256);
-
-        let current_deposits = system.io.storage_read::<false>(
-            ee,
-            resources,
-            &L2_ASSET_TRACKER_ADDRESS,
-            &deposits_slot,
-        )?;
-        let current_deposits_u256 = current_deposits.into_u256_be();
-        let new_deposits = current_deposits_u256 + *amount;
-
-        system.io.storage_write::<false>(
-            ee,
-            resources,
-            &L2_ASSET_TRACKER_ADDRESS,
-            &deposits_slot,
-            &Bytes32::from_u256_be(&new_deposits),
-        )?;
-
-        system_log!(
-            system,
-            "Updated interopInfo.totalSuccessfulDepositsFromL1: {current_deposits_u256:?} -> {new_deposits:?}\n"
-        );
+    if settlement_layer_chain_id != l1_chain_id {
+        return Ok(());
     }
+
+    // interopInfo[assetId] maps to InteropL2Info struct:
+    //   struct_base = keccak256(abi.encode(assetId, baseSlot))
+    //   totalWithdrawalsToL1 at struct_base + 0
+    //   totalSuccessfulDepositsFromL1 at struct_base + 1
+    let interop_struct_base =
+        solidity_mapping_slot(asset_id_bytes, ASSET_TRACKER_INTEROP_INFO_SLOT);
+    let deposits_slot_u256 = interop_struct_base.into_u256_be() + U256::from(1);
+    let deposits_slot = Bytes32::from_u256_be(&deposits_slot_u256);
+
+    let current_deposits = system.io.storage_read::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &deposits_slot,
+    )?;
+    let current_deposits_u256 = current_deposits.into_u256_be();
+    // Addition: both current_deposits and amount represent token quantities bounded by total
+    // token supply (well below 2^128), so the sum cannot overflow a U256. The Solidity
+    // contract uses checked arithmetic (default >=0.8); here the same economic bounds apply.
+    let new_deposits = current_deposits_u256 + *amount;
+
+    system.io.storage_write::<false>(
+        ee,
+        resources,
+        &L2_ASSET_TRACKER_ADDRESS,
+        &deposits_slot,
+        &Bytes32::from_u256_be(&new_deposits),
+    )?;
+
+    system_log!(
+        system,
+        "Updated interopInfo.totalSuccessfulDepositsFromL1: {current_deposits_u256:?} -> {new_deposits:?}\n"
+    );
 
     Ok(())
 }

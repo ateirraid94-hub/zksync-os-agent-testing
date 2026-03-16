@@ -1383,6 +1383,49 @@ mod asset_tracker_tests {
         );
     }
 
+    /// When amount == 0, handle_finalize_base_token_bridging should exit early
+    /// without touching any asset tracker storage.
+    #[test]
+    fn test_l1_tx_zero_value_skips_asset_tracker() {
+        let sender = address!("1234567890123456789012345678901234567890");
+        let recipient = address!("2222567890123456789012345678901234567890");
+
+        // Set up asset tracker fully (settling on L1, migration number set)
+        // so that a non-zero value *would* update interop deposits.
+        let (mut tester, asset_id) = setup_asset_tracker(TEST_L1_CHAIN_ID);
+        let migration_slot = asset_migration_number_slot(TEST_CHAIN_ID, &asset_id);
+        tester.set_storage_slot(
+            b160_to_address(L2_ASSET_TRACKER_ADDRESS),
+            migration_slot,
+            B256::from(U256::from(1)),
+        );
+
+        let tx = L1TxBuilder::new()
+            .from(sender)
+            .to(recipient)
+            .input(Vec::new())
+            .value(alloy::primitives::U256::ZERO)
+            .gas_price(0)
+            .gas_limit(200_000)
+            .nonce(0)
+            .build();
+        let output = tester.execute_block(vec![tx]);
+
+        assert!(tx_succeeded(&output, 0), "L1 tx with zero value must succeed");
+
+        // totalSuccessfulDepositsFromL1 should remain zero because the early exit skips everything
+        let deposits_slot = interop_deposits_slot(&asset_id);
+        let deposits = tester
+            .get_storage_slot(&b160_to_address(L2_ASSET_TRACKER_ADDRESS), deposits_slot)
+            .map(|s| s.into_u256_be())
+            .unwrap_or(U256::ZERO);
+        assert_eq!(
+            deposits,
+            U256::ZERO,
+            "totalSuccessfulDepositsFromL1 should be zero when amount is zero"
+        );
+    }
+
     /// When assetMigrationNumber == 0 and totalSupply == 0, the migration number
     /// should be force-set to the chain's current migration number.
     #[test]
