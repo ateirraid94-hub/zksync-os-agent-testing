@@ -52,6 +52,12 @@ pub struct ZKsyncOS {
     pub chain: Chain,
 }
 
+impl Default for ZKsyncOS {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ZKsyncOS {
     pub fn new() -> Self {
         let chain = Chain::empty(Some(1));
@@ -100,9 +106,9 @@ impl ZKsyncOS {
             check_storage_diff_hashes: proof_run,
             ..Default::default()
         };
-        let result = self
-            .chain
-            .run_block_no_panic(encoded_txs, Some(context), None, Some(run_config));
+        let result =
+            self.chain
+                .run_block_no_panic(encoded_txs, Some(context), None, Some(run_config));
 
         self.get_block_execution_result(result)
     }
@@ -129,9 +135,10 @@ impl ZKsyncOS {
     ) -> anyhow::Result<ZKsyncOSTxExecutionResult, String> {
         match tx_result {
             Ok(tx_output) => {
-                let mut execution_result = ZKsyncOSTxExecutionResult::default();
-
-                execution_result.gas = U256::from(tx_output.gas_used);
+                let mut execution_result = ZKsyncOSTxExecutionResult {
+                    gas: U256::from(tx_output.gas_used),
+                    ..Default::default()
+                };
                 // TODO events
 
                 match &tx_output.execution_result {
@@ -195,7 +202,7 @@ impl ZKsyncOS {
     pub fn get_storage_slot(&mut self, address: Address, key: U256) -> Option<B256> {
         self.chain
             .get_storage_slot(address_to_b160(address), key)
-            .map(|v| bytes32_to_b256(v.clone()))
+            .map(|value| bytes32_to_b256(*value))
     }
 
     pub fn set_storage_slot(&mut self, address: Address, key: U256, value: B256) {

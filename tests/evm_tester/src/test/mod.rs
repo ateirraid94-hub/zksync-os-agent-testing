@@ -112,7 +112,7 @@ impl Test {
         let test_definition = test_structure.get(keys[0]).expect("Always exists");
         let test_filler = test_filler_structure.get(keys[0]).expect("Always exists");
 
-        let cases = if filters.check_test_name(&test_name) {
+        let cases = if filters.check_test_name(test_name) {
             Case::from_ethereum_test(test_definition, test_filler, filters)
         } else {
             vec![]
@@ -129,7 +129,7 @@ impl Test {
         let mut mutation_tests_directory = directory;
 
         if let Some(mutation_path) = mutation_path.as_ref() {
-            let base_directory_path = PathBuf::from_str(&mutation_path).unwrap();
+            let base_directory_path = PathBuf::from_str(mutation_path).unwrap();
 
             mutation_tests_directory = base_directory_path.join(relative_path.clone());
             mutation_tests_directory.pop();
@@ -142,9 +142,9 @@ impl Test {
             .filter(|x| {
                 let filename = x.file_name();
                 let filename = filename.to_str().unwrap();
-                if MUTATION_TESTS_RE.is_match(&filename) {
+                if MUTATION_TESTS_RE.is_match(filename) {
                     let base_name = MUTATION_TESTS_RE
-                        .captures(&filename)
+                        .captures(filename)
                         .unwrap()
                         .get(1)
                         .unwrap()
@@ -268,10 +268,10 @@ impl Test {
                 if filter_calldata.contains(
                     &case
                         .pre_blocks
-                        .get(0)
+                        .first()
                         .unwrap()
                         .transactions
-                        .get(0)
+                        .first()
                         .unwrap()
                         .common()
                         .data,

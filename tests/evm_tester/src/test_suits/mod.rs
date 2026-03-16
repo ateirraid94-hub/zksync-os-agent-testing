@@ -15,14 +15,14 @@ use std::path::PathBuf;
 pub fn read_all(
     directory_path: &Path,
     filters: &Filters,
-    environment: Environment,
+    _environment: Environment,
     mutation_path: Option<String>,
     index_path: &Path,
 ) -> anyhow::Result<Vec<Test>> {
     let mut index_maybe = read_index(index_path);
 
     if index_maybe.is_err() {
-        create_index(&index_path, directory_path)?;
+        create_index(index_path, directory_path)?;
         index_maybe = read_index(index_path);
         assert!(index_maybe.is_ok());
     }

@@ -45,13 +45,11 @@ impl FromStr for U256Parsed {
                 )))
             }
         } else {
-            let res_10 = U256::from_str_radix(value, 10);
-            if res_10.is_ok() {
-                Ok(U256Parsed::Value(res_10.unwrap()))
+            if let Ok(value) = U256::from_str_radix(value, 10) {
+                Ok(U256Parsed::Value(value))
             } else {
-                let res_16 = U256::from_str_radix(value, 16);
-                if res_16.is_ok() {
-                    Ok(U256Parsed::Value(res_16.unwrap()))
+                if let Ok(value) = U256::from_str_radix(value, 16) {
+                    Ok(U256Parsed::Value(value))
                 } else {
                     Err(ParseU256Error(format!("Invalid input: {}", value)))
                 }
@@ -309,11 +307,7 @@ impl<'de> Deserialize<'de> for GenericSerializedSimpleValue {
 
 impl GenericSerializedSimpleValue {
     pub fn is_string(&self) -> bool {
-        if let GenericSerializedSimpleValue::String(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, GenericSerializedSimpleValue::String(_))
     }
 
     pub fn as_string(&self) -> String {

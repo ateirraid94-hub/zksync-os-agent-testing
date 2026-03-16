@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use crate::test::filler_structure::AccountFillerStructMaybe;
 use crate::test::filler_structure::AddressMaybe;
 use crate::test::test_structure::block_section::blocks_from_plain_or_wrapped;
-use crate::test::test_structure::pre_state::AccountState;
-use alloy::primitives::*;
 use block_section::BlockSection;
 use env_section::EnvSection;
 use info_section::InfoSection;
@@ -12,8 +10,6 @@ use post_state::PostState;
 use pre_state::PreState;
 use serde::{de::IgnoredAny, Deserialize};
 use transaction_section::TransactionSection;
-
-use super::filler_structure::AccountFillerStruct;
 
 pub mod block_section;
 pub mod env_section;
@@ -54,6 +50,7 @@ pub struct BlockchainTestStructure {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum TestStructure {
     State(StateTestStructure),
     Blockchain(BlockchainTestStructure),
