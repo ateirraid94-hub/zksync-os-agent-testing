@@ -1192,8 +1192,8 @@ mod asset_tracker_tests {
     const ASSET_TRACKER_INTEROP_INFO_SLOT: u64 = 156;
     const CHAIN_ASSET_HANDLER_MIGRATION_NUMBER_SLOT: u64 = 207;
 
-    // Default test chain ID used by the testing framework
-    const TEST_CHAIN_ID: u64 = 270;
+    // Default test chain ID used by the testing framework (see Chain::empty)
+    const TEST_CHAIN_ID: u64 = 37;
     const TEST_L1_CHAIN_ID: u64 = 1;
 
     fn b160_to_address(value: B160) -> Address {
@@ -1278,11 +1278,14 @@ mod asset_tracker_tests {
         );
         tester = tester.with_balance(sender, value);
 
+        // to_mint = value + gas_limit * gas_price. With gas_price=0, to_mint = value.
+        // This sets reserved[0] (total_deposited) so the treasury transfer is non-zero.
         let tx = L1TxBuilder::new()
             .from(sender)
             .to(recipient)
             .input(Vec::new())
             .value(value)
+            .to_mint(value)
             .gas_price(0)
             .gas_limit(200_000)
             .nonce(0)
@@ -1298,9 +1301,7 @@ mod asset_tracker_tests {
             .map(|s| s.into_u256_be())
             .unwrap_or(U256::ZERO);
 
-        // The transfer amount is total_deposited - max_fee_commitment.
-        // With gas_price=0, max_fee_commitment=0, so to_transfer = total_deposited.
-        // total_deposited = reserved[0] which the L1TxBuilder sets = value.
+        // to_transfer = total_deposited (to_mint) - max_fee_commitment (0) = value
         assert!(
             deposits > U256::ZERO,
             "totalSuccessfulDepositsFromL1 should be non-zero after L1 tx with value"
@@ -1329,6 +1330,7 @@ mod asset_tracker_tests {
             .to(recipient)
             .input(Vec::new())
             .value(value)
+            .to_mint(value)
             .gas_price(0)
             .gas_limit(200_000)
             .nonce(0)
@@ -1366,6 +1368,7 @@ mod asset_tracker_tests {
             .to(recipient)
             .input(Vec::new())
             .value(value)
+            .to_mint(value)
             .gas_price(0)
             .gas_limit(200_000)
             .nonce(0)
@@ -1411,7 +1414,10 @@ mod asset_tracker_tests {
             .build();
         let output = tester.execute_block(vec![tx]);
 
-        assert!(tx_succeeded(&output, 0), "L1 tx with zero value must succeed");
+        assert!(
+            tx_succeeded(&output, 0),
+            "L1 tx with zero value must succeed"
+        );
 
         // totalSuccessfulDepositsFromL1 should remain zero because the early exit skips everything
         let deposits_slot = interop_deposits_slot(&asset_id);
@@ -1457,6 +1463,7 @@ mod asset_tracker_tests {
             .to(recipient)
             .input(Vec::new())
             .value(value)
+            .to_mint(value)
             .gas_price(0)
             .gas_limit(200_000)
             .nonce(0)

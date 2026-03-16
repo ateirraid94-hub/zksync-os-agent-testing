@@ -790,7 +790,11 @@ where
 
     // Step 2: _needToForceSetAssetMigrationOnL2 → _forceSetAssetMigrationNumber
     maybe_force_set_asset_migration_number(
-        system, ee, resources, &chain_id_bytes, &asset_id_bytes,
+        system,
+        ee,
+        resources,
+        &chain_id_bytes,
+        &asset_id_bytes,
     )?;
 
     // Step 3: chainBalance update — skipped since base token originates from L1
