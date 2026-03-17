@@ -1302,9 +1302,9 @@ mod asset_tracker_tests {
             .unwrap_or(U256::ZERO);
 
         // to_transfer = total_deposited (to_mint) - max_fee_commitment (0) = value
-        assert!(
-            deposits > U256::ZERO,
-            "totalSuccessfulDepositsFromL1 should be non-zero after L1 tx with value"
+        assert_eq!(
+            deposits, value,
+            "totalSuccessfulDepositsFromL1 should equal the L1 tx value when gas_price=0"
         );
     }
 
@@ -1383,6 +1383,29 @@ mod asset_tracker_tests {
             tester.get_balance(&recipient),
             value,
             "recipient must receive value"
+        );
+
+        // Verify asset tracker storage was not touched.
+        // Use the same asset ID as other tests — if the early exit on
+        // BASE_TOKEN_ASSET_ID==0 were missing, these slots could be written.
+        let asset_id = U256::from(0xBEEF_u64).to_be_bytes::<32>();
+        let amn_slot = asset_migration_number_slot(TEST_CHAIN_ID, &asset_id);
+        assert_eq!(
+            tester
+                .get_storage_slot(&b160_to_address(L2_ASSET_TRACKER_ADDRESS), amn_slot)
+                .map(|s| s.into_u256_be())
+                .unwrap_or(U256::ZERO),
+            U256::ZERO,
+            "assetMigrationNumber must remain zero when BASE_TOKEN_ASSET_ID is not initialized"
+        );
+        let deposits_slot = interop_deposits_slot(&asset_id);
+        assert_eq!(
+            tester
+                .get_storage_slot(&b160_to_address(L2_ASSET_TRACKER_ADDRESS), deposits_slot)
+                .map(|s| s.into_u256_be())
+                .unwrap_or(U256::ZERO),
+            U256::ZERO,
+            "totalSuccessfulDepositsFromL1 must remain zero when BASE_TOKEN_ASSET_ID is not initialized"
         );
     }
 
