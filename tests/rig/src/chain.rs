@@ -177,6 +177,8 @@ impl Default for BlockContext {
 
 #[derive(Clone)]
 pub struct RunConfig {
+    // Runtime execution controls for `Chain` block execution.
+    // Setup conveniences (for example, treasury pre-funding) are owned by `TestingFramework`.
     // Config for the profiler
     pub profiler_config: Option<ProfilerConfig>,
     // If set, the witness will be dumped to the given file path
@@ -189,30 +191,73 @@ pub struct RunConfig {
     // Only to be used when state-diffs-pi feature is enabled in the binary and
     // do_riscv_run is true
     pub check_storage_diff_hashes: bool,
-    pub skip_minting_tokens_to_treasury: bool,
+    // Whether to replay the block in REVM and assert no state divergences.
+    // Can be enabled via ZKSYNC_REVM_CONSISTENCY_CHECK env var.
+    pub check_revm_consistency: bool,
+    pub update_state_after_block_execution: bool,
 }
 
 impl Default for RunConfig {
     fn default() -> Self {
-        let do_riscv_run = Self::should_do_riscv_run(
-            std::env::var_os("ZKSYNC_RISC_V_RUN").is_some(),
-            std::env::var_os("CI").is_some(),
-        );
+        let zksync_risc_v_run =
+            Self::parse_explicit_bool("ZKSYNC_RISC_V_RUN", std::env::var("ZKSYNC_RISC_V_RUN").ok());
+        let ci_is_true =
+            Self::parse_explicit_bool("CI", std::env::var("CI").ok()).is_some_and(|value| value);
+        let do_riscv_run = Self::should_do_riscv_run(zksync_risc_v_run, ci_is_true);
+        let check_revm_consistency =
+            Self::should_check_revm_consistency(Self::parse_explicit_bool(
+                "ZKSYNC_REVM_CONSISTENCY_CHECK",
+                std::env::var("ZKSYNC_REVM_CONSISTENCY_CHECK").ok(),
+            ));
 
         RunConfig {
             app: Some("for_tests".to_string()),
             do_riscv_run,
             check_storage_diff_hashes: do_riscv_run, // Enable storage diff hash checks when doing RISC-V run
-            skip_minting_tokens_to_treasury: false,
+            check_revm_consistency,
             profiler_config: None,
             witness_output_file: None,
+            update_state_after_block_execution: true,
         }
     }
 }
 
 impl RunConfig {
-    fn should_do_riscv_run(zksync_proving_run_set: bool, ci_set: bool) -> bool {
-        zksync_proving_run_set || ci_set
+    fn parse_explicit_bool(var_name: &str, value: Option<String>) -> Option<bool> {
+        let raw_value = value?;
+        let normalized = raw_value.trim();
+
+        if normalized.eq_ignore_ascii_case("true")
+            || normalized.eq_ignore_ascii_case("yes")
+            || normalized.eq_ignore_ascii_case("on")
+            || normalized == "1"
+        {
+            return Some(true);
+        }
+
+        if normalized.eq_ignore_ascii_case("false")
+            || normalized.eq_ignore_ascii_case("no")
+            || normalized.eq_ignore_ascii_case("off")
+            || normalized == "0"
+        {
+            return Some(false);
+        }
+
+        if !normalized.is_empty() {
+            warn!(
+                "Ignoring unsupported value for {var_name}: '{raw_value}'. Supported values: true/false, 1/0, yes/no, on/off"
+            );
+        }
+
+        None
+    }
+
+    fn should_do_riscv_run(zksync_risc_v_run: Option<bool>, ci_is_true: bool) -> bool {
+        zksync_risc_v_run == Some(true) || (ci_is_true && zksync_risc_v_run != Some(false))
+    }
+
+    fn should_check_revm_consistency(zksync_revm_consistency: Option<bool>) -> bool {
+        zksync_revm_consistency == Some(true)
     }
 
     pub fn without_riscv_run() -> Self {
@@ -232,6 +277,14 @@ impl RunConfig {
     pub fn disable_riscv_run(&mut self) {
         self.do_riscv_run = false;
         self.check_storage_diff_hashes = false; // Disable storage diff hash checks when RISC-V run is disabled
+    }
+
+    pub fn enable_revm_consistency_check(&mut self) {
+        self.check_revm_consistency = true;
+    }
+
+    pub fn disable_revm_consistency_check(&mut self) {
+        self.check_revm_consistency = false;
     }
 }
 
@@ -301,6 +354,10 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
 
     pub fn block_hashes(&self) -> [U256; 256] {
         self.block_hashes
+    }
+
+    pub fn set_timestamp(&mut self, timestamp: u64) {
+        self.block_timestamp = timestamp;
     }
 
     pub fn set_block_hashes(&mut self, block_hashes: [U256; 256]) {
@@ -540,12 +597,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             app,
             do_riscv_run,
             check_storage_diff_hashes,
-            skip_minting_tokens_to_treasury,
+            check_revm_consistency: _,
+            update_state_after_block_execution,
         } = run_config;
-
-        if !skip_minting_tokens_to_treasury {
-            self.mint_tokens_to_treasury();
-        }
 
         let block_context = block_context.unwrap_or_default();
         let block_metadata = BlockMetadataFromOracle {
@@ -648,27 +702,29 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             stats.computational_native_used = Some(native_used);
         }
 
-        // update state
-        self.previous_block_number = Some(self.next_block_number());
-        self.block_timestamp = block_context.timestamp;
-        for i in 0..255 {
-            self.block_hashes[i] = self.block_hashes[i + 1];
-        }
-        self.block_hashes[255] = U256::from_be_bytes(block_output.header.hash().0);
+        if update_state_after_block_execution {
+            // update state
+            self.previous_block_number = Some(self.next_block_number());
+            self.block_timestamp = block_context.timestamp;
+            for i in 0..255 {
+                self.block_hashes[i] = self.block_hashes[i + 1];
+            }
+            self.block_hashes[255] = U256::from_be_bytes(block_output.header.hash().0);
 
-        for storage_write in block_output.storage_writes.iter() {
-            self.state_tree
-                .cold_storage
-                .insert(storage_write.key.0.into(), storage_write.value.0.into());
-            self.state_tree
-                .storage_tree
-                .insert(&storage_write.key.0.into(), &storage_write.value.0.into());
-        }
+            for storage_write in block_output.storage_writes.iter() {
+                self.state_tree
+                    .cold_storage
+                    .insert(storage_write.key.0.into(), storage_write.value.0.into());
+                self.state_tree
+                    .storage_tree
+                    .insert(&storage_write.key.0.into(), &storage_write.value.0.into());
+            }
 
-        for (hash, preimage) in block_output.published_preimages.iter() {
-            self.preimage_source
-                .inner
-                .insert(hash.0.into(), preimage.clone());
+            for (hash, preimage) in block_output.published_preimages.iter() {
+                self.preimage_source
+                    .inner
+                    .insert(hash.0.into(), preimage.clone());
+            }
         }
 
         let proof_input = if do_riscv_run {
@@ -850,7 +906,10 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
                     let key = B160::from_be_bytes::<20>(el[..].try_into().unwrap());
                     account_properties.insert(key, props);
                 } else {
-                    warn!("Account 0x{} is in preimages list, but there is no MTP witness to get it's properties", hex::encode(el));
+                    warn!(
+                        "Account 0x{} is in preimages list, but there is no MTP witness to get its properties",
+                        hex::encode(el)
+                    );
                 }
             }
         }
@@ -1243,14 +1302,77 @@ fn run_prover(csr_reads: &[u32]) {
 
 #[cfg(test)]
 mod tests {
-    use super::RunConfig;
+    use super::{Chain, RunConfig};
+    use ruint::aliases::U256;
+    use system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS;
 
     #[test]
     fn run_config_should_do_riscv_run_matches_env_signals() {
-        assert!(RunConfig::should_do_riscv_run(true, false));
-        assert!(RunConfig::should_do_riscv_run(false, true));
-        assert!(RunConfig::should_do_riscv_run(true, true));
-        assert!(!RunConfig::should_do_riscv_run(false, false));
+        assert!(RunConfig::should_do_riscv_run(Some(true), false));
+        assert!(RunConfig::should_do_riscv_run(Some(true), true));
+
+        assert!(!RunConfig::should_do_riscv_run(Some(false), false));
+        assert!(!RunConfig::should_do_riscv_run(Some(false), true));
+
+        assert!(!RunConfig::should_do_riscv_run(None, false));
+        assert!(RunConfig::should_do_riscv_run(None, true));
+    }
+
+    #[test]
+    fn parse_explicit_bool_parses_common_boolean_aliases() {
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("true".to_owned())),
+            Some(true)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("TRUE".to_owned())),
+            Some(true)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("false".to_owned())),
+            Some(false)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("FALSE".to_owned())),
+            Some(false)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("1".to_owned())),
+            Some(true)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("yes".to_owned())),
+            Some(true)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("on".to_owned())),
+            Some(true)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("0".to_owned())),
+            Some(false)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("no".to_owned())),
+            Some(false)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("off".to_owned())),
+            Some(false)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("  true  ".to_owned())),
+            Some(true)
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("   ".to_owned())),
+            None
+        );
+        assert_eq!(
+            RunConfig::parse_explicit_bool("TEST_BOOL", Some("maybe".to_owned())),
+            None
+        );
+        assert_eq!(RunConfig::parse_explicit_bool("TEST_BOOL", None), None);
     }
 
     #[test]
@@ -1263,5 +1385,28 @@ mod tests {
         config.disable_riscv_run();
         assert!(!config.do_riscv_run);
         assert!(!config.check_storage_diff_hashes);
+    }
+
+    #[test]
+    fn run_config_should_check_revm_consistency_requires_explicit_true() {
+        assert!(RunConfig::should_check_revm_consistency(Some(true)));
+        assert!(!RunConfig::should_check_revm_consistency(Some(false)));
+        assert!(!RunConfig::should_check_revm_consistency(None));
+    }
+
+    #[test]
+    fn chain_run_block_does_not_auto_mint_treasury() {
+        let mut chain = Chain::empty(None);
+        let initial_treasury_balance = chain
+            .get_account_properties(&BASE_TOKEN_HOLDER_ADDRESS)
+            .balance;
+        assert_eq!(initial_treasury_balance, U256::ZERO);
+
+        let _ = chain.run_block(vec![], None, None, Some(RunConfig::without_riscv_run()));
+
+        let final_treasury_balance = chain
+            .get_account_properties(&BASE_TOKEN_HOLDER_ADDRESS)
+            .balance;
+        assert_eq!(final_treasury_balance, U256::ZERO);
     }
 }

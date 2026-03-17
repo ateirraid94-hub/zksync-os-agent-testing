@@ -4,10 +4,17 @@
 //! This crate contains infrastructure to write ZKsync OS integration tests.
 //! It contains `Chain` - in memory chain state structure with methods to run blocks, change state
 //! and few utility methods(in the `utils` module) to encode transactions, load contracts, etc.
+//! `TestingFramework` owns convenience setup behavior (for example, treasury minting),
+//! while `Chain` is intended to remain a neutral in-memory state abstraction.
 //!
 use std::str::FromStr;
 use std::sync::Once;
+pub mod assertions;
 pub mod chain;
+pub mod constants;
+pub mod evm_bytecode;
+pub mod revm_consistency_checker;
+pub mod run_config;
 pub mod testing_utils;
 pub mod utils;
 
@@ -45,12 +52,14 @@ use zk_ee::system::validator::TxValidator;
 pub use zksync_os_api;
 pub use zksync_os_interface;
 use zksync_os_interface::types::BlockOutput;
+use zksync_os_revm_runner::revm_runner::RevmRunner;
 pub use zksync_os_tests_common;
 use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 use crate::chain::TestingOracleFactory;
 use crate::chain::{BlockExtraStats, RunConfig};
+use crate::revm_consistency_checker::{generate_block_context_interface, ChainStateView};
 
 static INIT_LOGGER_ONCE: Once = Once::new();
 pub fn init_logger() {
@@ -91,6 +100,9 @@ pub struct TestingFramework<const RANDOMIZED_TREE: bool = false> {
     block_context: Option<BlockContext>,
     da_commitment_scheme: Option<DACommitmentScheme>,
     run_config: Option<RunConfig>,
+    // Test-setup convenience flag: when false, each block execution pre-funds treasury.
+    // This stays framework-local to keep `Chain` execution APIs neutral.
+    skip_minting_tokens_to_treasury: bool,
     last_executed_block_info: Option<LastExecutedBlockInfo>,
     oracle_factory: Option<Box<dyn TestingOracleFactory<RANDOMIZED_TREE>>>,
 }
@@ -105,6 +117,7 @@ impl TestingFramework<true> {
             block_context: None,
             da_commitment_scheme: None,
             run_config: Some(Default::default()),
+            skip_minting_tokens_to_treasury: false,
             last_executed_block_info: None,
             oracle_factory: None,
         }
@@ -127,6 +140,7 @@ impl TestingFramework<false> {
             block_context: None,
             da_commitment_scheme: None,
             run_config: Some(Default::default()),
+            skip_minting_tokens_to_treasury: false,
             last_executed_block_info: None,
             oracle_factory: None,
         }
@@ -134,6 +148,105 @@ impl TestingFramework<false> {
 }
 
 impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
+    fn revm_consistency_check_enabled(&self) -> bool {
+        self.run_config
+            .as_ref()
+            .is_some_and(|config| config.check_revm_consistency)
+    }
+
+    fn run_revm_consistency_check(
+        &self,
+        pre_block_chain: Chain<RANDOMIZED_TREE>,
+        transactions: Vec<ZKsyncTxEnvelope>,
+        block_context: BlockContext,
+        block_output: &BlockOutput,
+    ) -> Result<(), String> {
+        let block_context_interface =
+            generate_block_context_interface(&pre_block_chain, &block_context);
+        let mut revm_runner = RevmRunner::new(ChainStateView {
+            chain: pre_block_chain,
+        });
+
+        revm_runner
+            .run(
+                transactions,
+                block_context_interface,
+                Some(block_output.clone()),
+            )
+            .map_err(|err| format!("{err:#}"))
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn execute_block_internal(
+        &mut self,
+        transactions: Vec<ZKsyncTxEnvelope>,
+        tracer: &mut impl Tracer<ForwardRunningSystem>,
+        validator: &mut impl TxValidator<ForwardRunningSystem>,
+    ) -> Result<BlockOutput, BootloaderSubsystemError> {
+        let run_config = self.run_config.clone().unwrap_or_default();
+        if !self.skip_minting_tokens_to_treasury {
+            self.chain.mint_tokens_to_treasury();
+        }
+
+        let should_check_revm_consistency = self.revm_consistency_check_enabled();
+        let pre_block_chain = should_check_revm_consistency.then(|| self.chain.clone());
+        let transactions_for_revm = should_check_revm_consistency.then(|| transactions.clone());
+        let block_context_for_revm =
+            should_check_revm_consistency.then(|| self.block_context.clone().unwrap_or_default());
+
+        let encoded_txs = transactions
+            .into_iter()
+            .map(ZKsyncTxEnvelope::encode)
+            .collect::<Vec<_>>();
+
+        let (block_output, block_extra_stats, proof_input) =
+            if let Some(oracle_factory) = &self.oracle_factory {
+                self.chain.run_block_with_extra_stats_with_oracle_factory(
+                    encoded_txs,
+                    self.block_context.clone(),
+                    self.da_commitment_scheme,
+                    Some(run_config),
+                    tracer,
+                    validator,
+                    oracle_factory.as_ref(),
+                )?
+            } else {
+                self.chain.run_block_with_extra_stats(
+                    encoded_txs,
+                    self.block_context.clone(),
+                    self.da_commitment_scheme,
+                    Some(run_config),
+                    tracer,
+                    validator,
+                )?
+            };
+
+        self.last_executed_block_info = Some(LastExecutedBlockInfo {
+            block_output: block_output.clone(),
+            block_extra_stats,
+            proof_input,
+        });
+
+        if let (Some(pre_block_chain), Some(transactions), Some(block_context)) = (
+            pre_block_chain,
+            transactions_for_revm,
+            block_context_for_revm,
+        ) {
+            self.run_revm_consistency_check(
+                pre_block_chain,
+                transactions,
+                block_context,
+                &block_output,
+            )
+            .map_err(|err| -> BootloaderSubsystemError {
+                log::error!("REVM consistency check failed: {err:#}");
+                zk_ee::internal_error!("REVM consistency check failed").into()
+            })?;
+        }
+
+        Ok(block_output)
+    }
+
     /// Builder: sets the chain ID used for block metadata and transaction signing.
     pub fn with_chain_id(mut self, chain_id: u64) -> Self {
         self.chain.set_chain_id(chain_id);
@@ -177,6 +290,23 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
     /// Builder: sets run-level configuration for forward/proving execution.
     pub fn with_run_config(mut self, run_config: RunConfig) -> Self {
         self.run_config = Some(run_config);
+        self
+    }
+
+    /// Builder: disables framework-level automatic treasury minting before block execution.
+    ///
+    /// By default, `TestingFramework` pre-funds treasury before each executed block.
+    /// This toggle is setup-only and intentionally not part of `RunConfig`.
+    pub fn without_minting_tokens_to_treasury(mut self) -> Self {
+        self.skip_minting_tokens_to_treasury = true;
+        self
+    }
+
+    /// Builder: disables REVM consistency checks for this framework instance.
+    pub fn without_revm_consistency_check(mut self) -> Self {
+        self.run_config
+            .get_or_insert_with(Default::default)
+            .disable_revm_consistency_check();
         self
     }
 
@@ -259,6 +389,23 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
     /// Setter: updates run configuration for subsequent block execution.
     pub fn set_run_config(&mut self, run_config: Option<RunConfig>) -> &mut Self {
         self.run_config = run_config;
+        self
+    }
+
+    /// Setter: disables framework-level automatic treasury minting for subsequent block executions.
+    ///
+    /// By default, `TestingFramework` pre-funds treasury before each executed block.
+    /// This toggle is setup-only and intentionally not part of `RunConfig`.
+    pub fn disable_minting_tokens_to_treasury(&mut self) -> &mut Self {
+        self.skip_minting_tokens_to_treasury = true;
+        self
+    }
+
+    /// Setter: disables REVM consistency checks for subsequent block executions.
+    pub fn disable_revm_consistency_check(&mut self) -> &mut Self {
+        self.run_config
+            .get_or_insert_with(Default::default)
+            .disable_revm_consistency_check();
         self
     }
 
@@ -408,44 +555,8 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
         tracer: &mut impl Tracer<ForwardRunningSystem>,
         validator: &mut impl TxValidator<ForwardRunningSystem>,
     ) -> BlockOutput {
-        let encoded_txs = transactions
-            .into_iter()
-            .map(ZKsyncTxEnvelope::encode)
-            .collect::<Vec<_>>();
-        let (block_output, block_extra_stats, proof_input) = if let Some(oracle_factory) =
-            &self.oracle_factory
-        {
-            self.chain
-                .run_block_with_extra_stats_with_oracle_factory(
-                    encoded_txs,
-                    self.block_context.clone(),
-                    self.da_commitment_scheme,
-                    self.run_config.clone(),
-                    tracer,
-                    validator,
-                    oracle_factory.as_ref(),
-                )
-                .unwrap_or_else(|err| panic!("block execution failed with custom oracle: {err:?}"))
-        } else {
-            self.chain
-                .run_block_with_extra_stats(
-                    encoded_txs,
-                    self.block_context.clone(),
-                    self.da_commitment_scheme,
-                    self.run_config.clone(),
-                    tracer,
-                    validator,
-                )
-                .unwrap_or_else(|err| panic!("block execution failed: {err:?}"))
-        };
-
-        self.last_executed_block_info = Some(LastExecutedBlockInfo {
-            block_output: block_output.clone(),
-            block_extra_stats,
-            proof_input,
-        });
-
-        block_output
+        self.execute_block_internal(transactions, tracer, validator)
+            .unwrap_or_else(|err| panic!("block execution failed: {err:?}"))
     }
 
     /// Simulate a block in forward mode only.
@@ -468,39 +579,9 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
         &mut self,
         transactions: Vec<ZKsyncTxEnvelope>,
     ) -> Result<BlockOutput, BootloaderSubsystemError> {
-        let encoded_txs = transactions
-            .into_iter()
-            .map(ZKsyncTxEnvelope::encode)
-            .collect::<Vec<_>>();
-        let block_execution_result = if let Some(oracle_factory) = &self.oracle_factory {
-            self.chain.run_block_with_extra_stats_with_oracle_factory(
-                encoded_txs,
-                self.block_context.clone(),
-                self.da_commitment_scheme,
-                self.run_config.clone(),
-                &mut NopTracer::default(),
-                &mut NopTxValidator,
-                oracle_factory.as_ref(),
-            )
-        } else {
-            self.chain.run_block_with_extra_stats(
-                encoded_txs,
-                self.block_context.clone(),
-                self.da_commitment_scheme,
-                self.run_config.clone(),
-                &mut NopTracer::default(),
-                &mut NopTxValidator,
-            )
-        };
-
-        block_execution_result.map(|(block_output, block_extra_stats, proof_input)| {
-            self.last_executed_block_info = Some(LastExecutedBlockInfo {
-                block_output: block_output.clone(),
-                block_extra_stats,
-                proof_input,
-            });
-            block_output
-        })
+        let mut tracer = NopTracer::default();
+        let mut validator = NopTxValidator;
+        self.execute_block_internal(transactions, &mut tracer, &mut validator)
     }
 
     /// Asserts that every transaction in block output completed successfully.
@@ -546,4 +627,67 @@ pub fn testing_signer(index: u64) -> PrivateKeySigner {
 
 pub fn common_target_address() -> alloy::primitives::Address {
     address!("4242000000000000000000000000000000000000")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chain::RunConfig, TestingFramework};
+    use forward_system::run::convert_alloy::IntoAlloy;
+    use ruint::aliases::U256;
+    use system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS;
+
+    #[test]
+    fn builder_disables_revm_consistency_check() {
+        let tester = TestingFramework::new().without_revm_consistency_check();
+        let run_config = tester.run_config.expect("run config should be set");
+        assert!(!run_config.check_revm_consistency);
+    }
+
+    #[test]
+    fn setter_disables_revm_consistency_check_even_if_run_config_is_none() {
+        let mut tester = TestingFramework::new();
+        tester.set_run_config(None);
+        tester.disable_revm_consistency_check();
+
+        let run_config = tester.run_config.expect("run config should be set");
+        assert!(!run_config.check_revm_consistency);
+    }
+
+    #[test]
+    fn setter_overrides_enabled_revm_consistency_check() {
+        let mut tester = TestingFramework::new().with_run_config({
+            let mut run_config = RunConfig::default();
+            run_config.enable_revm_consistency_check();
+            run_config
+        });
+        tester.disable_revm_consistency_check();
+
+        let run_config = tester.run_config.expect("run config should be set");
+        assert!(!run_config.check_revm_consistency);
+    }
+
+    #[test]
+    fn testing_framework_mints_treasury_by_default() {
+        let treasury = BASE_TOKEN_HOLDER_ADDRESS.into_alloy();
+        let mut tester = TestingFramework::new().with_run_config(RunConfig::without_riscv_run());
+        assert_eq!(tester.get_balance(&treasury), U256::ZERO);
+
+        let _ = tester.execute_block(vec![]);
+
+        let max_treasury_balance = (U256::ONE << 128) - U256::ONE;
+        assert_eq!(tester.get_balance(&treasury), max_treasury_balance);
+    }
+
+    #[test]
+    fn testing_framework_can_disable_automatic_treasury_minting() {
+        let treasury = BASE_TOKEN_HOLDER_ADDRESS.into_alloy();
+        let mut tester = TestingFramework::new()
+            .without_minting_tokens_to_treasury()
+            .with_run_config(RunConfig::without_riscv_run());
+        assert_eq!(tester.get_balance(&treasury), U256::ZERO);
+
+        let _ = tester.execute_block(vec![]);
+
+        assert_eq!(tester.get_balance(&treasury), U256::ZERO);
+    }
 }
