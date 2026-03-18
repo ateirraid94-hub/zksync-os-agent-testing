@@ -1126,8 +1126,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
     pub fn mint_tokens_to_treasury(&mut self) {
         use system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS;
 
-        // Set treasury balance to 2^128 - 1
-        let treasury_balance = (U256::ONE << 128) - U256::ONE;
+        // Set treasury balance to 2^127 - 1, matching the Solidity constant
+        // INITIAL_BASE_TOKEN_HOLDER_BALANCE (see Config.sol).
+        let treasury_balance = (U256::ONE << 127) - U256::ONE;
 
         self.set_balance(BASE_TOKEN_HOLDER_ADDRESS, treasury_balance);
     }

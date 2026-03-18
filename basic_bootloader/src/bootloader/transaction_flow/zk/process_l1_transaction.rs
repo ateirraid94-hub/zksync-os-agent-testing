@@ -529,6 +529,13 @@ where
         .checked_sub(max_fee_commitment)
         .ok_or(internal_error!("mfc+tic"))?;
 
+    // Notify L2AssetTracker ONCE with the full deposit amount, BEFORE any balance changes.
+    // Matches Solidity where handleFinalizeBaseTokenBridgingOnL2 is called once in mint()
+    // with the full mintValue, not per-transfer.
+    resources.with_infinite_ergs(|inf_resources| {
+        handle_finalize_base_token_bridging(system, &total_deposited, inf_resources)
+    })?;
+
     // First we transfer from treasury
     // We want to ensure that the simulation of a transaction
     // never underestimates gas/pubdata compared to the actual execution
@@ -654,11 +661,6 @@ where
     );
 
     let treasury_address = &system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS;
-
-    // Replicate L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 BEFORE changing balances,
-    // matching the Solidity invariant that the asset tracker is notified before
-    // totalSupply/balances change.
-    handle_finalize_base_token_bridging(system, nominal_token_value, resources)?;
 
     let _ = system
         .io
@@ -870,10 +872,7 @@ where
     // We add before subtracting to avoid underflow when holder_balance exceeds
     // INITIAL_BASE_TOKEN_HOLDER_BALANCE (possible if funds from pre_v31_supply are withdrawn from he chain).
     // The sum pre_v31 + INITIAL fits in U256 since both are below 2^127.
-    //
-    // See: matter-labs/era-contracts#2079
-    let total_supply =
-        pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holder_balance;
+    let total_supply = pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holder_balance;
 
     if !total_supply.is_zero() {
         return Ok(());

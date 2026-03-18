@@ -674,7 +674,7 @@ mod tests {
 
         let _ = tester.execute_block(vec![]);
 
-        let max_treasury_balance = (U256::ONE << 128) - U256::ONE;
+        let max_treasury_balance = (U256::ONE << 127) - U256::ONE;
         assert_eq!(tester.get_balance(&treasury), max_treasury_balance);
     }
 
