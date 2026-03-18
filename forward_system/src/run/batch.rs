@@ -4,9 +4,11 @@ use oracle_provider::MemorySource;
 use oracle_provider::OracleQueryProcessor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::common_structs::ProofData;
 use zk_ee::oracle::basic_queries::ZKProofDataQuery;
 use zk_ee::oracle::query_ids::BLOCK_METADATA_QUERY_ID;
+use zk_ee::oracle::query_ids::DA_COMMITMENT_SCHEME_QUERY_ID;
 use zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
 use zk_ee::oracle::usize_serialization::dyn_usize_iterator::DynUsizeIterator;
 use zk_ee::oracle::usize_serialization::UsizeSerializable;
@@ -225,5 +227,38 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BatchZKProofDataResponder {
             self.proof_data[self.cursor.current()],
             UsizeSerializable::iter,
         )
+    }
+}
+
+#[derive(Debug)]
+pub struct BatchDACommitmentSchemeResponder {
+    da_commitment_scheme: DACommitmentScheme,
+}
+
+impl BatchDACommitmentSchemeResponder {
+    pub fn new(da_commitment_scheme: DACommitmentScheme) -> Self {
+        Self {
+            da_commitment_scheme,
+        }
+    }
+}
+
+impl<M: MemorySource> OracleQueryProcessor<M> for BatchDACommitmentSchemeResponder {
+    fn supported_query_ids(&self) -> Vec<u32> {
+        vec![DA_COMMITMENT_SCHEME_QUERY_ID]
+    }
+
+    fn supports_query_id(&self, query_id: u32) -> bool {
+        query_id == DA_COMMITMENT_SCHEME_QUERY_ID
+    }
+
+    fn process_buffered_query(
+        &mut self,
+        query_id: u32,
+        _query: Vec<usize>,
+        _memory: &M,
+    ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
+        assert_eq!(query_id, DA_COMMITMENT_SCHEME_QUERY_ID);
+        DynUsizeIterator::from_constructor(self.da_commitment_scheme as u8, UsizeSerializable::iter)
     }
 }

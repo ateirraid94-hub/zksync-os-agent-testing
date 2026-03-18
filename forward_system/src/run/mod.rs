@@ -191,10 +191,11 @@ pub fn generate_proof_input<
 /// Important: da_commitment_scheme should correspond to one used for blocks proof input generation.
 ///
 pub fn generate_batch_proof_input(
-    mut blocks_proof_inputs: Vec<&[u32]>,
+    blocks_proof_inputs: Vec<&[u32]>,
     da_commitment_scheme: DACommitmentScheme,
     blocks_pubdata: Vec<&[u8]>,
 ) -> Vec<u32> {
+    let mut block_blob_advice_words = vec![0; blocks_proof_inputs.len()];
     let blobs_advice = match da_commitment_scheme {
         DACommitmentScheme::BlobsZKsyncOS => {
             let total_pubdata_length: usize = blocks_pubdata
@@ -206,9 +207,7 @@ pub fn generate_batch_proof_input(
             blobs_data.extend_from_slice(&[0u8; 23]); // pad to 31
             for (i, block_pubdata) in blocks_pubdata.into_iter().enumerate() {
                 blobs_data.extend_from_slice(block_pubdata);
-                let length_without_advice = blocks_proof_inputs[i].len()
-                    - (block_pubdata.len() + 31).div_ceil(31 * 4096) * 25;
-                blocks_proof_inputs[i] = &blocks_proof_inputs[i][..length_without_advice];
+                block_blob_advice_words[i] = (block_pubdata.len() + 31).div_ceil(31 * 4096) * 25;
             }
             let mut blobs_advice = Vec::with_capacity(25 * blobs_data.len().div_ceil(31 * 4096));
             for blob_data in blobs_data.chunks(31 * 4096) {
@@ -240,7 +239,22 @@ pub fn generate_batch_proof_input(
             + blobs_advice.len(),
     );
     proof_input.push(blocks_proof_inputs.len() as u32);
-    for block_proof_input in blocks_proof_inputs {
+    for (idx, block_proof_input) in blocks_proof_inputs.into_iter().enumerate() {
+        if da_commitment_scheme == DACommitmentScheme::BlobsZKsyncOS {
+            let blob_advice_words = block_blob_advice_words[idx];
+            if blob_advice_words != 0 {
+                // Native single-block witnesses end with a disconnect-oracle query length marker (`0`).
+                // Preserve that trailing marker while removing the per-block blob advice that precedes it.
+                let trailing_disconnect = usize::from(block_proof_input.last() == Some(&0));
+                let payload_end = block_proof_input.len() - blob_advice_words - trailing_disconnect;
+                proof_input.extend_from_slice(&block_proof_input[..payload_end]);
+                if trailing_disconnect == 1 {
+                    proof_input.push(0);
+                }
+                continue;
+            }
+        }
+
         proof_input.extend_from_slice(block_proof_input);
     }
     proof_input.extend_from_slice(blobs_advice.as_slice());
@@ -288,9 +302,9 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
         proof_data,
         cursor.clone(),
     ));
-    oracle.add_external_processor(DACommitmentSchemeResponder {
-        da_commitment_scheme: Some(da_commitment_scheme),
-    });
+    oracle.add_external_processor(batch::BatchDACommitmentSchemeResponder::new(
+        da_commitment_scheme,
+    ));
     oracle.add_external_processor(GenericPreimageResponder {
         preimage_source: batch::BatchPreimageSource::new(preimage_sources, cursor.clone()),
     });
@@ -327,10 +341,14 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
         block_outputs.push(current_forward_result.into());
 
         if block_idx + 1 != batch_len {
+            // Multiblock post-op disconnects the external oracle at the end of each block.
+            // Reconnect it before replaying the next block on the host.
+            oracle.reconnect_external_oracle();
             cursor.advance();
         }
     }
 
+    oracle.reconnect_external_oracle();
     let (batch_public_input, batch_output) =
         batch_data.into_public_input_and_output(NullLogger, &mut oracle);
     let mut prover_input = Vec::with_capacity(1 + oracle.get_read_items().borrow().len());

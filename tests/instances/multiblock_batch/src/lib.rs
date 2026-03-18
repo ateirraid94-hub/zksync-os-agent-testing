@@ -1,28 +1,41 @@
 //!
-//! These tests are focused on different tx types
+//! These tests are focused on multiblock batch proving inputs.
 //!
 #![cfg(test)]
 
-use alloy::consensus::{TxEip1559, TxLegacy};
-use alloy::primitives::TxKind;
+use rig::alloy::consensus::{TxEip1559, TxLegacy};
 use rig::alloy::primitives::address;
+use rig::alloy::primitives::TxKind;
 use rig::chain::RunConfig;
-use rig::forward_system::run::generate_batch_proof_input;
-use rig::log::debug;
+use rig::forward_system::run::convert_alloy::FromAlloy;
+use rig::forward_system::run::{generate_batch_proof_input, generate_batch_proof_input_native};
 use rig::ruint::aliases::U256;
 use rig::utils::{ERC_20_BYTECODE, ERC_20_MINT_CALLDATA, ERC_20_TRANSFER_CALLDATA};
 use rig::zk_ee::common_structs::DACommitmentScheme;
+use rig::zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
 use rig::zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
-use rig::{alloy, testing_signer, TestingFramework};
-use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
-use std::path::PathBuf;
+use rig::{testing_signer, Chain};
+
+const TEST_STACK_SIZE: usize = 64 << 20;
+
+fn first_mismatch<T: PartialEq>(lhs: &[T], rhs: &[T]) -> Option<usize> {
+    lhs.iter()
+        .zip(rhs.iter())
+        .position(|(lhs_item, rhs_item)| lhs_item != rhs_item)
+        .or_else(|| (lhs.len() != rhs.len()).then_some(lhs.len().min(rhs.len())))
+}
 
 fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
     let wallet = testing_signer(0);
-
     let to = address!("0000000000000000000000000000000000010002");
-
     let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
+
+    let mut chain = Chain::empty(None);
+    chain.set_evm_bytecode(rig::ruint::aliases::B160::from_alloy(to), &bytecode);
+    chain.set_balance(
+        rig::ruint::aliases::B160::from_alloy(wallet.address()),
+        U256::from(1_000_000_000_000_000_u64),
+    );
 
     let mint_tx = {
         let mint_tx = TxLegacy {
@@ -36,23 +49,26 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         };
         ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet.clone())
     };
-
-    let mut tester = TestingFramework::new()
-        .with_evm_contract(to, &bytecode)
-        .with_balance(wallet.address(), U256::from(1_000_000_000_000_000_u64))
-        .with_run_config(RunConfig::with_riscv_run())
-        .with_da_commitment_scheme(da_commitment_scheme);
-
-    tester.execute_block(vec![mint_tx]);
-    let block1_info = tester.last_executed_block_info().unwrap();
-    let block1_proof_input = block1_info.proof_input.clone();
-    let block1_pubdata = block1_info.pubdata.clone();
+    chain.mint_tokens_to_treasury();
+    let block1_encoded = mint_tx.encode();
+    let block1_batch_input =
+        chain.prepare_native_batch_block_input(vec![block1_encoded.clone()], None);
+    let (block1_output, _stats, block1_proof_input, block1_pubdata) = chain
+        .run_block_with_extra_stats(
+            vec![block1_encoded],
+            None,
+            Some(da_commitment_scheme),
+            Some(RunConfig::without_riscv_run()),
+            &mut rig::zk_ee::system::tracer::NopTracer::default(),
+            &mut rig::zk_ee::system::validator::NopTxValidator,
+        )
+        .unwrap();
     assert!(
         !block1_proof_input.is_empty(),
         "block1 proof input must be non-empty; proving run is required"
     );
 
-    let encoded_transfer_tx = {
+    let transfer_tx = {
         let transfer_tx = TxEip1559 {
             chain_id: 37u64,
             nonce: 1,
@@ -66,48 +82,90 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         };
         ZKsyncTxEnvelope::from_eth_tx(transfer_tx, wallet.clone())
     };
-
-    tester.execute_block(vec![encoded_transfer_tx]);
-    let block2_info = tester.last_executed_block_info().unwrap();
-    let block2_proof_input = block2_info.proof_input.clone();
-    let block2_pubdata = block2_info.pubdata.clone();
+    chain.mint_tokens_to_treasury();
+    let block2_encoded = transfer_tx.encode();
+    let block2_batch_input =
+        chain.prepare_native_batch_block_input(vec![block2_encoded.clone()], None);
+    let (block2_output, _stats, block2_proof_input, block2_pubdata) = chain
+        .run_block_with_extra_stats(
+            vec![block2_encoded],
+            None,
+            Some(da_commitment_scheme),
+            Some(RunConfig::without_riscv_run()),
+            &mut rig::zk_ee::system::tracer::NopTracer::default(),
+            &mut rig::zk_ee::system::validator::NopTxValidator,
+        )
+        .unwrap();
     assert!(
         !block2_proof_input.is_empty(),
         "block2 proof input must be non-empty; proving run is required"
     );
 
-    let batch_input = generate_batch_proof_input(
+    let assembled_batch_input = generate_batch_proof_input(
         vec![&block1_proof_input, &block2_proof_input],
         da_commitment_scheme,
         vec![block1_pubdata.as_slice(), block2_pubdata.as_slice()],
     );
+    let native_batch_output = generate_batch_proof_input_native(
+        vec![block1_batch_input, block2_batch_input],
+        da_commitment_scheme,
+    )
+    .expect("native batch prover input generation failed");
 
-    let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
-        .join("zksync_os")
-        .join("multiblock_batch.bin");
-
-    let proof_output = zksync_os_runner::run(
-        multinblock_program_path,
-        None,
-        1 << 36,
-        QuasiUARTSource::new_with_reads(batch_input),
+    let proof_input_mismatch =
+        first_mismatch(&native_batch_output.prover_input, &assembled_batch_input);
+    let mismatch_window = proof_input_mismatch.map(|idx| {
+        let start = idx.saturating_sub(4);
+        let end = (idx + 5)
+            .min(native_batch_output.prover_input.len())
+            .min(assembled_batch_input.len());
+        (
+            start,
+            end,
+            native_batch_output.prover_input[start..end].to_vec(),
+            assembled_batch_input[start..end].to_vec(),
+        )
+    });
+    assert!(
+        native_batch_output.prover_input == assembled_batch_input,
+        "batch-native prover input mismatch at {:?} (native len {}, assembled len {}, window {:?})",
+        proof_input_mismatch,
+        native_batch_output.prover_input.len(),
+        assembled_batch_input.len(),
+        mismatch_window,
     );
-
-    debug!("Proof running output = 0x",);
-    for word in proof_output.into_iter() {
-        debug!("{word:08x}");
-    }
-
-    // Ensure that proof running didn't fail: check that output is not zero
-    assert!(proof_output.into_iter().any(|word| word != 0));
+    assert!(
+        native_batch_output.pubdata == [block1_pubdata.clone(), block2_pubdata.clone()].concat(),
+        "batch-native pubdata does not match concatenated block-native pubdata"
+    );
+    assert_eq!(
+        native_batch_output.block_outputs[0].pubdata_used, block1_output.pubdata_used,
+        "block 1 pubdata_used mismatch between batch-native and block-native paths"
+    );
+    assert_eq!(
+        native_batch_output.block_outputs[1].pubdata_used, block2_output.pubdata_used,
+        "block 2 pubdata_used mismatch between batch-native and block-native paths"
+    );
 }
 
 #[test]
 fn run_multiblock_batch_proof_run_calldata() {
-    run_multiblock_batch_proof_run(DACommitmentScheme::BlobsAndPubdataKeccak256);
+    std::thread::Builder::new()
+        .name("multiblock_batch_calldata".to_owned())
+        .stack_size(TEST_STACK_SIZE)
+        .spawn(|| run_multiblock_batch_proof_run(DACommitmentScheme::BlobsAndPubdataKeccak256))
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 #[test]
 fn run_multiblock_batch_proof_run_blobs() {
-    run_multiblock_batch_proof_run(DACommitmentScheme::BlobsZKsyncOS);
+    std::thread::Builder::new()
+        .name("multiblock_batch_blobs".to_owned())
+        .stack_size(TEST_STACK_SIZE)
+        .spawn(|| run_multiblock_batch_proof_run(DACommitmentScheme::BlobsZKsyncOS))
+        .unwrap()
+        .join()
+        .unwrap();
 }
