@@ -22,6 +22,7 @@ pub mod public_input;
 /// Version byte for pubdata encoding format.
 /// Version 1: Initial versioned pubdata format
 pub const PUBDATA_ENCODING_VERSION: u8 = 1;
+pub const BLOCK_PUBDATA_OVERHEAD_BYTES: u64 = 1 + 32 + 8;
 
 /// Helper method to write the pubdata to the DA commitment generator and result keeper.
 fn write_pubdata<

@@ -494,6 +494,10 @@ fn assert_block_outputs_match(actual: &BlockOutput, expected: &BlockOutput) {
         "block computational_native_used mismatch between forward and prover-input runs"
     );
     assert_eq!(
+        actual.pubdata_used, expected.pubdata_used,
+        "block pubdata_used mismatch between forward and prover-input runs"
+    );
+    assert_eq!(
         actual.published_preimages, expected.published_preimages,
         "published preimages mismatch between forward and prover-input runs"
     );

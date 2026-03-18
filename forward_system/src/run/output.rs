@@ -63,6 +63,7 @@ impl<TR: TxResultCallback>
             storage_writes,
             tx_results,
             new_preimages,
+            block_pubdata_used,
             ..
         } = value;
 
@@ -142,6 +143,7 @@ impl<TR: TxResultCallback>
             storage_writes,
             account_diffs,
             published_preimages,
+            pubdata_used: block_pubdata_used,
             computational_native_used: block_computational_native_used,
             // TODO: will be populated in the follow-up PR
             pubdata_used: 0,
