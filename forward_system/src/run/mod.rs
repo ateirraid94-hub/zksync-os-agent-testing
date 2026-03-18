@@ -262,6 +262,7 @@ pub fn generate_batch_proof_input(
 }
 
 pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource, TS: TxSource>(
+    initial_proof_data: ProofData<StorageCommitment>,
     blocks: Vec<NativeBatchBlockInput<T, PS, TS>>,
     da_commitment_scheme: DACommitmentScheme,
 ) -> Result<NativeBatchRunOutput, ForwardSubsystemError> {
@@ -274,18 +275,17 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
     let cursor = BatchCursor::new(batch_len);
 
     let mut block_metadata = Vec::with_capacity(batch_len);
-    let mut proof_data = Vec::with_capacity(batch_len);
     let mut trees = Vec::with_capacity(batch_len);
     let mut preimage_sources = Vec::with_capacity(batch_len);
     let mut tx_sources = Vec::with_capacity(batch_len);
 
     for block in blocks {
         block_metadata.push(block.block_context);
-        proof_data.push(block.proof_data);
         trees.push(block.tree);
         preimage_sources.push(block.preimage_source);
         tx_sources.push(block.tx_source);
     }
+    let proof_data = batch::SharedProofData::new(initial_proof_data);
 
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(batch::BatchBlockMetadataResponder::new(
@@ -298,10 +298,7 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
         next_tx_format: None,
         next_tx_from: None,
     });
-    oracle.add_external_processor(batch::BatchZKProofDataResponder::new(
-        proof_data,
-        cursor.clone(),
-    ));
+    oracle.add_external_processor(batch::BatchZKProofDataResponder::new(proof_data.clone()));
     oracle.add_external_processor(batch::BatchDACommitmentSchemeResponder::new(
         da_commitment_scheme,
     ));
@@ -341,6 +338,10 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
         block_outputs.push(current_forward_result.into());
 
         if block_idx + 1 != batch_len {
+            let next_proof_data = batch_data
+                .current_proof_data()
+                .expect("batch-native prover input must expose next proof data");
+            proof_data.set(next_proof_data);
             // Multiblock post-op disconnects the external oracle at the end of each block.
             // Reconnect it before replaying the next block on the host.
             oracle.reconnect_external_oracle();

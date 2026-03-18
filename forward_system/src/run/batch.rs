@@ -3,7 +3,7 @@ use crate::run::{NextTxResponse, PreimageSource, ReadStorage, ReadStorageTree, T
 use oracle_provider::MemorySource;
 use oracle_provider::OracleQueryProcessor;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use zk_ee::common_structs::da_commitment_scheme::DACommitmentScheme;
 use zk_ee::common_structs::ProofData;
 use zk_ee::oracle::basic_queries::ZKProofDataQuery;
@@ -18,7 +18,6 @@ use super::BlockContext;
 #[derive(Debug)]
 pub struct NativeBatchBlockInput<T, PS, TS> {
     pub block_context: BlockContext,
-    pub proof_data: ProofData<StorageCommitment>,
     pub tree: T,
     pub preimage_source: PS,
     pub tx_source: TS,
@@ -186,14 +185,42 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BatchBlockMetadataResponder {
 }
 
 #[derive(Debug)]
+pub struct SharedProofData {
+    proof_data: Arc<Mutex<ProofData<StorageCommitment>>>,
+}
+
+impl SharedProofData {
+    pub fn new(proof_data: ProofData<StorageCommitment>) -> Self {
+        Self {
+            proof_data: Arc::new(Mutex::new(proof_data)),
+        }
+    }
+
+    pub fn get(&self) -> ProofData<StorageCommitment> {
+        *self.proof_data.lock().unwrap()
+    }
+
+    pub fn set(&self, proof_data: ProofData<StorageCommitment>) {
+        *self.proof_data.lock().unwrap() = proof_data;
+    }
+}
+
+impl Clone for SharedProofData {
+    fn clone(&self) -> Self {
+        Self {
+            proof_data: Arc::clone(&self.proof_data),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct BatchZKProofDataResponder {
-    proof_data: Vec<ProofData<StorageCommitment>>,
-    cursor: BatchCursor,
+    proof_data: SharedProofData,
 }
 
 impl BatchZKProofDataResponder {
-    pub fn new(proof_data: Vec<ProofData<StorageCommitment>>, cursor: BatchCursor) -> Self {
-        Self { proof_data, cursor }
+    pub fn new(proof_data: SharedProofData) -> Self {
+        Self { proof_data }
     }
 }
 
@@ -223,10 +250,7 @@ impl<M: MemorySource> OracleQueryProcessor<M> for BatchZKProofDataResponder {
             query_id,
             ZKProofDataQuery::<zk_ee::types_config::EthereumIOTypesConfig, StorageCommitment>::QUERY_ID
         );
-        DynUsizeIterator::from_constructor(
-            self.proof_data[self.cursor.current()],
-            UsizeSerializable::iter,
-        )
+        DynUsizeIterator::from_constructor(self.proof_data.get(), UsizeSerializable::iter)
     }
 }
 

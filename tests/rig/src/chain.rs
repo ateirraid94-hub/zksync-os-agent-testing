@@ -593,6 +593,20 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         self.chain_id = chain_id;
     }
 
+    pub fn prepare_native_batch_initial_proof_data(
+        &self,
+    ) -> ProofData<FlatStorageCommitment<TREE_HEIGHT>> {
+        let state_commitment = FlatStorageCommitment::<{ TREE_HEIGHT }> {
+            root: *self.state_tree.storage_tree.root(),
+            next_free_slot: self.state_tree.storage_tree.next_free_slot,
+        };
+
+        ProofData {
+            state_root_view: state_commitment,
+            last_block_timestamp: self.block_timestamp,
+        }
+    }
+
     pub fn prepare_native_batch_block_input(
         &self,
         transactions: Vec<EncodedTx>,
@@ -614,18 +628,9 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             mix_hash: block_context.mix_hash,
             blob_fee: block_context.blob_fee,
         };
-        let state_commitment = FlatStorageCommitment::<{ TREE_HEIGHT }> {
-            root: *self.state_tree.storage_tree.root(),
-            next_free_slot: self.state_tree.storage_tree.next_free_slot,
-        };
-        let proof_data = ProofData {
-            state_root_view: state_commitment,
-            last_block_timestamp: self.block_timestamp,
-        };
 
         NativeBatchBlockInput {
             block_context: block_metadata,
-            proof_data,
             tree: self.state_tree.clone(),
             preimage_source: self.preimage_source.clone(),
             tx_source: TxListSource {

@@ -176,6 +176,10 @@ where
             last_256_block_hashes_blake: blocks_hasher.finalize().into(),
             last_block_timestamp: metadata.block_timestamp(),
         };
+        let next_proof_data = ProofData {
+            state_root_view: state_commitment,
+            last_block_timestamp: metadata.block_timestamp(),
+        };
         logger_log!(
             logger,
             "PI calculation: state commitment after {:?}",
@@ -185,6 +189,7 @@ where
         batch_data.apply_block(
             chain_state_commitment_before.hash().into(),
             chain_state_commitment_after.hash().into(),
+            next_proof_data,
             metadata.block_timestamp(),
             U256::from(metadata.chain_id()),
             upgrade_tx_hash,

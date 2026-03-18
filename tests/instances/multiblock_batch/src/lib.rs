@@ -50,6 +50,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet.clone())
     };
     chain.mint_tokens_to_treasury();
+    let initial_proof_data = chain.prepare_native_batch_initial_proof_data();
     let block1_encoded = mint_tx.encode();
     let block1_batch_input =
         chain.prepare_native_batch_block_input(vec![block1_encoded.clone()], None);
@@ -107,6 +108,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         vec![block1_pubdata.as_slice(), block2_pubdata.as_slice()],
     );
     let native_batch_output = generate_batch_proof_input_native(
+        initial_proof_data,
         vec![block1_batch_input, block2_batch_input],
         da_commitment_scheme,
     )
