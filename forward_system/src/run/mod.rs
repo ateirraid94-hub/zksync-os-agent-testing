@@ -1,3 +1,4 @@
+mod batch;
 pub mod errors;
 pub mod output;
 mod preimage_source;
@@ -24,9 +25,11 @@ use crate::run::query_processors::{BlockMetadataResponder, DACommitmentSchemeRes
 use crate::run::result_keeper::ForwardRunningResultKeeper;
 use crate::system::bootloader::run_forward;
 use crate::system::bootloader::run_prover_input_no_panic;
+use crate::system::system_types::BatchProverInputBootloader;
 use crate::system::system_types::CallSimulationBootloader;
 use crate::system::system_types::CallSimulationSystem;
 use crate::system::system_types::ForwardRunningSystem;
+use basic_bootloader::bootloader::block_flow::public_input::{BatchOutput, BatchPublicInput};
 use basic_bootloader::bootloader::config::{
     BasicBootloaderCallSimulationConfig, BasicBootloaderForwardSimulationConfig,
     BasicBootloaderProvingExecutionConfig,
@@ -37,9 +40,11 @@ use oracle_provider::ReadWitnessSource;
 use oracle_provider::ZkEENonDeterminismSource;
 use result_keeper::ProverInputResultKeeper;
 use zk_ee::common_structs::ProofData;
+use zk_ee::system::logger::NullLogger;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
 
+pub use self::batch::{BatchCursor, NativeBatchBlockInput};
 pub use interface_impl::RunBlockForward;
 pub use tree::LeafProof;
 pub use tree::ReadStorage;
@@ -67,6 +72,14 @@ pub use zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle as BlockCo
 use zksync_os_interface::traits::TxListSource;
 
 pub type StorageCommitment = FlatStorageCommitment<{ TREE_HEIGHT }>;
+
+pub struct NativeBatchRunOutput {
+    pub prover_input: Vec<u32>,
+    pub pubdata: Vec<u8>,
+    pub batch_public_input: BatchPublicInput,
+    pub batch_output: BatchOutput,
+    pub block_outputs: Vec<BlockOutput>,
+}
 
 pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxResultCallback>(
     block_context: BlockContext,
@@ -232,6 +245,105 @@ pub fn generate_batch_proof_input(
     }
     proof_input.extend_from_slice(blobs_advice.as_slice());
     proof_input
+}
+
+pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource, TS: TxSource>(
+    blocks: Vec<NativeBatchBlockInput<T, PS, TS>>,
+    da_commitment_scheme: DACommitmentScheme,
+) -> Result<NativeBatchRunOutput, ForwardSubsystemError> {
+    assert!(
+        !blocks.is_empty(),
+        "batch-native prover input requires at least one block",
+    );
+
+    let batch_len = blocks.len();
+    let cursor = BatchCursor::new(batch_len);
+
+    let mut block_metadata = Vec::with_capacity(batch_len);
+    let mut proof_data = Vec::with_capacity(batch_len);
+    let mut trees = Vec::with_capacity(batch_len);
+    let mut preimage_sources = Vec::with_capacity(batch_len);
+    let mut tx_sources = Vec::with_capacity(batch_len);
+
+    for block in blocks {
+        block_metadata.push(block.block_context);
+        proof_data.push(block.proof_data);
+        trees.push(block.tree);
+        preimage_sources.push(block.preimage_source);
+        tx_sources.push(block.tx_source);
+    }
+
+    let mut oracle = ZkEENonDeterminismSource::default();
+    oracle.add_external_processor(batch::BatchBlockMetadataResponder::new(
+        block_metadata,
+        cursor.clone(),
+    ));
+    oracle.add_external_processor(TxDataResponder {
+        tx_source: batch::BatchTxSource::new(tx_sources, cursor.clone()),
+        next_tx: None,
+        next_tx_format: None,
+        next_tx_from: None,
+    });
+    oracle.add_external_processor(batch::BatchZKProofDataResponder::new(
+        proof_data,
+        cursor.clone(),
+    ));
+    oracle.add_external_processor(DACommitmentSchemeResponder {
+        da_commitment_scheme: Some(da_commitment_scheme),
+    });
+    oracle.add_external_processor(GenericPreimageResponder {
+        preimage_source: batch::BatchPreimageSource::new(preimage_sources, cursor.clone()),
+    });
+    oracle.add_external_processor(ReadTreeResponder {
+        tree: batch::BatchTree::new(trees, cursor.clone()),
+    });
+    oracle.add_external_processor(callable_oracles::arithmetic::NativeArithmeticQuery::default());
+    oracle.add_external_processor(
+        callable_oracles::blob_kzg_commitment::NativeBlobCommitmentAndProofQuery::default(),
+    );
+    oracle.add_external_processor(callable_oracles::field_hints::NativeFieldOpsQuery::default());
+
+    let mut oracle = ReadWitnessSource::new(oracle);
+    let mut tracer = NopTracer::default();
+    let mut validator = NopTxValidator;
+    let mut result_keeper = ProverInputResultKeeper::new(NoopTxCallback);
+    let mut batch_data = basic_bootloader::bootloader::block_flow::ZKBatchDataKeeper::new();
+    let mut block_outputs = Vec::with_capacity(batch_len);
+
+    for block_idx in 0..batch_len {
+        oracle = BatchProverInputBootloader::run_prepared::<BasicBootloaderProvingExecutionConfig>(
+            oracle,
+            &mut batch_data,
+            &mut result_keeper,
+            &mut tracer,
+            &mut validator,
+        )
+        .map_err(|e| wrap_error!(e))?;
+
+        let current_forward_result = std::mem::replace(
+            &mut result_keeper.forward_running_rk,
+            ForwardRunningResultKeeper::new(NoopTxCallback),
+        );
+        block_outputs.push(current_forward_result.into());
+
+        if block_idx + 1 != batch_len {
+            cursor.advance();
+        }
+    }
+
+    let (batch_public_input, batch_output) =
+        batch_data.into_public_input_and_output(NullLogger, &mut oracle);
+    let mut prover_input = Vec::with_capacity(1 + oracle.get_read_items().borrow().len());
+    prover_input.push(batch_len as u32);
+    prover_input.extend(oracle.get_read_items().borrow().iter().copied());
+
+    Ok(NativeBatchRunOutput {
+        prover_input,
+        pubdata: result_keeper.pubdata,
+        batch_public_input,
+        batch_output,
+        block_outputs,
+    })
 }
 
 pub fn make_oracle_for_proofs_and_dumps<

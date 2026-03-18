@@ -118,7 +118,18 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
     ///
     /// Create public input for a batch that contains previously added blocks.
     ///
-    pub fn into_public_input(self, mut logger: impl Logger, oracle: &mut O) -> BatchPublicInput {
+    pub fn into_public_input(self, logger: impl Logger, oracle: &mut O) -> BatchPublicInput {
+        self.into_public_input_and_output(logger, oracle).0
+    }
+
+    ///
+    /// Create public input and batch output for a batch that contains previously added blocks.
+    ///
+    pub fn into_public_input_and_output(
+        self,
+        mut logger: impl Logger,
+        oracle: &mut O,
+    ) -> (BatchPublicInput, BatchOutput) {
         assert!(!self.is_first_block);
         let has_upgrade_tx = self.has_upgrade_tx();
 
@@ -172,7 +183,7 @@ impl<A: alloc::alloc::Allocator, O: IOOracle> ZKBatchDataKeeper<A, O> {
             "PI calculation: final batch public input {public_input:?}\n",
         );
 
-        public_input
+        (public_input, batch_output)
     }
 
     fn l2_logs_root(mut logs: ArrayVec<Bytes32, 16384>) -> Bytes32 {
