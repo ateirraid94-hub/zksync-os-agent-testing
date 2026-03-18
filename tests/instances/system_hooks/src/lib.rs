@@ -1239,7 +1239,10 @@ mod asset_tracker_tests {
         // Use a deterministic asset ID for tests
         let base_token_asset_id = U256::from(0xBEEF_u64).to_be_bytes::<32>();
 
+        // Disable REVM consistency check: these tests use L1 transactions which
+        // have no equivalent in standard Ethereum and cannot be replayed by REVM.
         let tester = TestingFramework::new()
+            .without_revm_consistency_check()
             // Set BASE_TOKEN_ASSET_ID in L2AssetTracker (slot 155)
             .with_storage_slot(
                 b160_to_address(L2_ASSET_TRACKER_ADDRESS),
@@ -1363,7 +1366,10 @@ mod asset_tracker_tests {
         let value = alloy::primitives::U256::from(1_000_000_000u64);
 
         // No asset tracker storage set up — BASE_TOKEN_ASSET_ID defaults to 0
-        let mut tester = TestingFramework::new().with_balance(sender, value);
+        // Disable REVM consistency check: L1 transactions cannot be replayed by REVM.
+        let mut tester = TestingFramework::new()
+            .without_revm_consistency_check()
+            .with_balance(sender, value);
 
         let tx = L1TxBuilder::new()
             .from(sender)
