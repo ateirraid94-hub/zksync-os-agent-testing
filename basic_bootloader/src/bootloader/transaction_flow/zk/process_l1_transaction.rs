@@ -840,11 +840,12 @@ where
 
     // Check if totalSupply() == 0 for the base token.
     // For L2BaseTokenZKOS, totalSupply() computes:
-    //   zkosPreV31TotalSupply + (INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance)
+    //   zkosPreV31TotalSupply + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance
     // where INITIAL_BASE_TOKEN_HOLDER_BALANCE = 2^127 - 1.
     //
     // This equals 0 only when zkosPreV31TotalSupply == 0 AND
-    // holderBalance == INITIAL_BASE_TOKEN_HOLDER_BALANCE (i.e. no tokens spent from treasury).
+    // holderBalance = INITIAL_BASE_TOKEN_HOLDER_BALANCE (i.e. no tokens spent from treasury,
+    // or extra funds force-sent to the holder).
     //
     // Note: totalSupply() reverts if needBaseTokenTotalSupplyBackfill is true,
     // but that state shouldn't occur during normal L1 tx processing since the
@@ -863,18 +864,16 @@ where
         &system_hooks::addresses_constants::BASE_TOKEN_HOLDER_ADDRESS,
     )?;
 
-    // Subtraction: holder_balance <= INITIAL_BASE_TOKEN_HOLDER_BALANCE (2^127 - 1) because
-    // the holder starts with exactly INITIAL_BASE_TOKEN_HOLDER_BALANCE and can only decrease
-    // (tokens are transferred out, never minted into the holder). saturating_sub guards
-    // against any unexpected state where holder_balance exceeds the initial value.
+    // Matches Solidity totalSupply():
+    //   zkosPreV31TotalSupply + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance
     //
-    // Addition: pre_v31_supply_u256 is a stored uint256 that in practice fits well within
-    // 128 bits (total ETH supply is ~120M << 2^128), and the subtraction result is at most
-    // 2^127 - 1, so the sum cannot overflow a U256. The Solidity contract uses checked
-    // arithmetic (default in Solidity >=0.8) which would revert on overflow; here we rely
-    // on the same economic bounds making overflow impossible.
+    // We add before subtracting to avoid underflow when holder_balance exceeds
+    // INITIAL_BASE_TOKEN_HOLDER_BALANCE (possible if funds from pre_v31_supply are withdrawn from he chain).
+    // The sum pre_v31 + INITIAL fits in U256 since both are below 2^127.
+    //
+    // See: matter-labs/era-contracts#2079
     let total_supply =
-        pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE.saturating_sub(holder_balance);
+        pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holder_balance;
 
     if !total_supply.is_zero() {
         return Ok(());
