@@ -531,7 +531,7 @@ where
 
     // Notify L2AssetTracker ONCE with the full deposit amount, BEFORE any balance changes.
     // Matches Solidity where handleFinalizeBaseTokenBridgingOnL2 is called once in mint()
-    // with the full mintValue, not per-transfer.
+    // with the full mintValue.
     resources.with_infinite_ergs(|inf_resources| {
         handle_finalize_base_token_bridging(system, &total_deposited, inf_resources)
     })?;
@@ -870,9 +870,12 @@ where
     //   zkosPreV31TotalSupply + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holderBalance
     //
     // We add before subtracting to avoid underflow when holder_balance exceeds
-    // INITIAL_BASE_TOKEN_HOLDER_BALANCE (possible if funds from pre_v31_supply are withdrawn from he chain).
-    // The sum pre_v31 + INITIAL fits in U256 since both are below 2^127.
-    let total_supply = pre_v31_supply_u256 + INITIAL_BASE_TOKEN_HOLDER_BALANCE - holder_balance;
+    // INITIAL_BASE_TOKEN_HOLDER_BALANCE (possible if funds from pre_v31_supply are withdrawn from the chain).
+    let total_supply = pre_v31_supply_u256
+        .checked_add(INITIAL_BASE_TOKEN_HOLDER_BALANCE)
+        .ok_or(internal_error!("totalSupply add overflow"))?
+        .checked_sub(holder_balance)
+        .ok_or(internal_error!("totalSupply sub underflow"))?;
 
     if !total_supply.is_zero() {
         return Ok(());
@@ -955,10 +958,9 @@ where
         &deposits_slot,
     )?;
     let current_deposits_u256 = current_deposits.into_u256_be();
-    // Addition: both current_deposits and amount represent token quantities bounded by total
-    // token supply (well below 2^128), so the sum cannot overflow a U256. The Solidity
-    // contract uses checked arithmetic (default >=0.8); here the same economic bounds apply.
-    let new_deposits = current_deposits_u256 + *amount;
+    let new_deposits = current_deposits_u256
+        .checked_add(*amount)
+        .ok_or(internal_error!("deposits overflow"))?;
 
     system.io.storage_write::<false>(
         ee,
