@@ -118,7 +118,7 @@ fn run_base_system() {
             .to(common_target_address())
             .value(alloy::primitives::U256::from(100))
             .gas_price(1000)
-            .gas_limit(21_000)
+            .gas_limit(100_000)
             .build()
             .into()
     };
@@ -129,7 +129,7 @@ fn run_base_system() {
             .to(to)
             .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into())
             .gas_price(1000)
-            .gas_limit(40_000)
+            .gas_limit(150_000)
             .nonce(3)
             .build()
             .into()

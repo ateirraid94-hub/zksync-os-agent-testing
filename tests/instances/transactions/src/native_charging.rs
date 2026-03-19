@@ -65,7 +65,7 @@ fn test_l1_tx_low_ratio() {
         .from(wallet.address())
         .to(TO)
         .gas_price(gas_price.into())
-        .gas_limit(70_000)
+        .gas_limit(150_000)
         .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
         .build()
         .into();
@@ -83,7 +83,7 @@ fn test_l1_tx_avg_ratio() {
         .from(wallet.address())
         .to(TO)
         .gas_price(gas_price.into())
-        .gas_limit(70_000)
+        .gas_limit(150_000)
         .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
         .build()
         .into();
@@ -101,7 +101,7 @@ fn test_l1_tx_high_ratio() {
         .from(wallet.address())
         .to(TO)
         .gas_price(gas_price.into())
-        .gas_limit(70_000)
+        .gas_limit(150_000)
         .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
         .build()
         .into();
@@ -346,7 +346,7 @@ fn test_0_gas_price() {
         .from(wallet.address())
         .to(TO)
         .gas_price(gas_price.into())
-        .gas_limit(70_000)
+        .gas_limit(150_000)
         .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap())
         .build()
         .into();

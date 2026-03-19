@@ -29,14 +29,17 @@ pub const TX_CALLDATA_OFFSET: usize = 0x60;
 pub const MAX_BLOCK_GAS_LIMIT: u64 = u64::MAX / ERGS_PER_GAS;
 
 // Just for EVM compatibility.
-pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
+// Includes base 21k + ~65k for the L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2
+// call (cold storage reads/writes in steady state).
+pub const L1_TX_INTRINSIC_L2_GAS: u64 = 86_000;
 
 // Includes:
 //  - Storing and hashing the l1 tx log.
 //  - Transferring fee to coinbase.
 //  - Hashing of tx hash into rolling hash.
 //  - Adding tx hash into l1 tx linear hasher
-pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 130_000;
+//  - EVM call to L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2
+pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 230_000;
 
 // Pubdata needed for the diff in balance as a result of
 // the fee payment to the coinbase.
@@ -44,8 +47,14 @@ pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 130_000;
 // the uncompressed update.
 const COINBASE_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 
-// Needed to publish the l1 tx log and coinbase balance.
-pub const L1_TX_INTRINSIC_PUBDATA: u64 = 88 + COINBASE_BALANCE_INTRINSIC_PUBDATA;
+// Pubdata for the L2AssetTracker storage writes:
+// chainBalance and interopInfo.totalSuccessfulDepositsFromL1 SSTOREs,
+// each needing up to 66 bytes (32 key + 34 value).
+const ASSET_TRACKER_INTRINSIC_PUBDATA: u64 = 2 * (32 + 34);
+
+// Needed to publish the l1 tx log, coinbase balance, and asset tracker storage writes.
+pub const L1_TX_INTRINSIC_PUBDATA: u64 =
+    88 + COINBASE_BALANCE_INTRINSIC_PUBDATA + ASSET_TRACKER_INTRINSIC_PUBDATA;
 
 pub const L2_TX_INTRINSIC_GAS: u64 = 21_000;
 
