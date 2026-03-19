@@ -6,7 +6,6 @@ use core::alloc::Allocator;
 use core::mem::MaybeUninit;
 use zk_ee::logger_log;
 use zk_ee::memory::ZSTAllocator;
-use zk_ee::oracle::query_ids::DISCONNECT_ORACLE_QUERY_ID;
 use zk_ee::oracle::IOOracle;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::validator::NopTxValidator;
@@ -202,6 +201,8 @@ pub fn run_proving_inner<
 >(
     mut oracle: O,
 ) -> [u32; 8] {
+    use zk_ee::oracle::query_ids::DISCONNECT_ORACLE_QUERY_ID;
+
     logger_log!(L::default(), "IO implementer init is complete");
 
     // simulating query, just in case
