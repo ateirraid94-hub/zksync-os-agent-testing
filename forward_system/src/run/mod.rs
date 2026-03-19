@@ -250,7 +250,7 @@ pub fn generate_legacy_batch_proof_input(
         if da_commitment_scheme == DACommitmentScheme::BlobsZKsyncOS {
             let blob_advice_words = block_blob_advice_words[idx];
             if blob_advice_words != 0 {
-                // Native single-block witnesses end with a disconnect-oracle query length marker (`0`).
+                // Single-block witnesses end with a disconnect-oracle query length marker (`0`).
                 // Preserve that trailing marker while removing the per-block blob advice that precedes it.
                 let trailing_disconnect = usize::from(block_proof_input.last() == Some(&0));
                 let payload_end = block_proof_input.len() - blob_advice_words - trailing_disconnect;
