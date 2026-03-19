@@ -39,6 +39,7 @@ jobs:
                   rustup component add llvm-tools-preview
                   rustup component add rust-src
                   ./dump_bin.sh --type for-tests
+                  ./dump_bin.sh --type singleblock-batch
                   ./dump_bin.sh --type multiblock-batch
             - name: Compile
               run: cargo test --release --no-run
@@ -66,6 +67,7 @@ jobs:
                   rustup component add llvm-tools-preview
                   rustup component add rust-src
                   ./dump_bin.sh --type for-tests
+                  ./dump_bin.sh --type singleblock-batch
                   ./dump_bin.sh --type multiblock-batch
             - name: Compile
               run: cargo test --release --no-run
