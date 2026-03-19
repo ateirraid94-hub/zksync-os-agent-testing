@@ -26,6 +26,7 @@ pub use alloy_sol_types;
 pub use basic_bootloader;
 use basic_bootloader::bootloader::errors::BootloaderSubsystemError;
 pub use basic_system;
+use basic_system::system_implementation::flat_storage_model::{FlatStorageCommitment, TREE_HEIGHT};
 pub use callable_oracles;
 pub use chain::BlockContext;
 pub use chain::Chain;
@@ -34,6 +35,8 @@ pub use cli_lib;
 pub use crypto;
 pub use forward_system;
 use forward_system::run::convert_alloy::FromAlloy;
+use forward_system::run::test_impl::InMemoryBatchState;
+use forward_system::run::NativeBatchBlockInput;
 use forward_system::system::system_types::ForwardRunningSystem;
 #[cfg(feature = "gpu")]
 pub use gpu_prover;
@@ -45,12 +48,14 @@ pub use ruint;
 pub use system_hooks;
 pub use zk_ee;
 use zk_ee::common_structs::DACommitmentScheme;
+use zk_ee::common_structs::ProofData;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
 use zk_ee::system::validator::NopTxValidator;
 use zk_ee::system::validator::TxValidator;
 pub use zksync_os_api;
 pub use zksync_os_interface;
+use zksync_os_interface::traits::TxListSource;
 use zksync_os_interface::types::BlockOutput;
 use zksync_os_revm_runner::revm_runner::RevmRunner;
 pub use zksync_os_tests_common;
@@ -511,6 +516,32 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
     /// Returns execution metadata of the most recently executed block, if any.
     pub fn last_executed_block_info(&self) -> Option<&LastExecutedBlockInfo> {
         self.last_executed_block_info.as_ref()
+    }
+
+    /// Returns the batch pre-state passed to the native batch prover-input runner.
+    pub fn prepare_native_batch_initial_proof_data(
+        &self,
+    ) -> ProofData<FlatStorageCommitment<TREE_HEIGHT>> {
+        self.chain.prepare_native_batch_initial_proof_data()
+    }
+
+    /// Returns the mutable batch-start state used by native batch tests.
+    pub fn prepare_native_batch_state(&self) -> InMemoryBatchState<RANDOMIZED_TREE> {
+        self.chain.prepare_native_batch_state()
+    }
+
+    /// Builds one native batch input from framework-level transactions and block context.
+    pub fn prepare_native_batch_block_input(
+        &self,
+        transactions: Vec<ZKsyncTxEnvelope>,
+        block_context: Option<BlockContext>,
+    ) -> NativeBatchBlockInput<TxListSource> {
+        let encoded_txs = transactions
+            .into_iter()
+            .map(ZKsyncTxEnvelope::encode)
+            .collect::<Vec<_>>();
+        self.chain
+            .prepare_native_batch_block_input(encoded_txs, block_context)
     }
 
     /// Builds and executes an ERC20 transfer block using default fee settings.
