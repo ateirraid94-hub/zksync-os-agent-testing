@@ -534,8 +534,8 @@ where
     // can update its accounting (e.g. deposits, totalSupply) atomically.
     // We call handleFinalizeBaseTokenBridgingOnL2(uint256 _fromChainId, uint256 _amount)
     // as L2_BASE_TOKEN_ADDRESS (0x800a) to pass the onlyBaseTokenHolderOrL2BaseToken modifier.
-    // Gas for this call is covered by the L1 TX intrinsic costs (L1_TX_INTRINSIC_L2_GAS,
-    // L1_TX_INTRINSIC_NATIVE_COST, L1_TX_INTRINSIC_PUBDATA).
+    // This call uses infinite resources (not charged to the user) since it is
+    // a protocol-level operation that must always succeed.
     if total_deposited > U256::ZERO {
         // Read settlement layer chain ID from SystemContext storage slot 0
         let sl_chain_id = {
@@ -558,10 +558,9 @@ where
         calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
         calldata[36..68].copy_from_slice(&total_deposited.to_be_bytes::<32>());
 
-        let resources_for_call = resources.clone();
         let CompletedExecution {
-            resources_returned,
             result: asset_tracker_result,
+            ..
         } = BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
             system,
             system_functions,
@@ -569,13 +568,12 @@ where
             &calldata,
             &L2_BASE_TOKEN_ADDRESS,
             &L2_ASSET_TRACKER_ADDRESS,
-            resources_for_call,
+            S::Resources::FORMAL_INFINITE,
             &U256::ZERO,
             true, // should_make_frame - isolate state changes
             tracer,
             validator,
         )?;
-        *resources = resources_returned;
 
         if asset_tracker_result.failed() {
             return Err(internal_error!(
