@@ -44,7 +44,7 @@ use zk_ee::system::logger::NullLogger;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
 
-pub use self::batch::{BatchCursor, NativeBatchBlockInput};
+pub use self::batch::{BatchState, NativeBatchBlockInput};
 pub use interface_impl::RunBlockForward;
 pub use tree::LeafProof;
 pub use tree::ReadStorage;
@@ -73,11 +73,17 @@ use zksync_os_interface::traits::TxListSource;
 
 pub type StorageCommitment = FlatStorageCommitment<{ TREE_HEIGHT }>;
 
+/// Result of the native batch prover-input run.
 pub struct NativeBatchRunOutput {
+    /// Canonical batch prover input.
     pub prover_input: Vec<u32>,
+    /// Canonical batch pubdata accumulated across all blocks.
     pub pubdata: Vec<u8>,
+    /// Batch public input derived by the multiblock post-op.
     pub batch_public_input: BatchPublicInput,
+    /// Batch output derived by the multiblock post-op.
     pub batch_output: BatchOutput,
+    /// Per-block forward outputs observed while executing the batch.
     pub block_outputs: Vec<BlockOutput>,
 }
 
@@ -119,7 +125,6 @@ pub fn run_block<T: ReadStorageTree, PS: PreimageSource, TS: TxSource, TR: TxRes
     Ok(result_keeper.into())
 }
 
-// Returns (prover_input, block_output, pubdata)
 pub fn generate_proof_input<
     T: ReadStorageTree,
     PS: PreimageSource,
@@ -178,19 +183,21 @@ pub fn generate_proof_input<
         &mut NopTxValidator,
     )
     .map_err(|e| wrap_error!(e))?;
-    // Take pubdata, as it's not part of BlockOutput
     let pubdata = std::mem::take(&mut result_keeper.pubdata);
+    let block_output = result_keeper.into();
 
-    Ok((prover_input, result_keeper.into(), pubdata))
+    Ok((prover_input, block_output, pubdata))
 }
 
-// TODO(EVM-1184): in future we should generate input per batch
+/// Legacy helper that derives the multiblock witness from per-block witnesses.
 ///
-/// Generate batch proof input from blocks proof inputs.
+/// This matches the existing RISC-V-based multiblock flow, where each block is
+/// executed independently first and then combined into a batch witness.
 ///
-/// Important: da_commitment_scheme should correspond to one used for blocks proof input generation.
+/// Important: `da_commitment_scheme` must match the scheme used for the
+/// per-block proof input generation.
 ///
-pub fn generate_batch_proof_input(
+pub fn generate_legacy_batch_proof_input(
     blocks_proof_inputs: Vec<&[u32]>,
     da_commitment_scheme: DACommitmentScheme,
     blocks_pubdata: Vec<&[u8]>,
@@ -261,9 +268,20 @@ pub fn generate_batch_proof_input(
     proof_input
 }
 
-pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource, TS: TxSource>(
+/// Execute a whole batch natively and return canonical batch prover input and pubdata.
+///
+/// The caller provides:
+/// - the batch pre-state as `initial_proof_data`
+/// - the mutable batch state before block 1
+/// - per-block metadata and transaction sources
+///
+/// The runner derives later `ProofData` values internally and mutates the batch
+/// state between blocks using the observed `BlockOutput`, so the next block sees
+/// the correct pre-state.
+pub fn generate_batch_proof_input<BS: BatchState, TS: TxSource>(
     initial_proof_data: ProofData<StorageCommitment>,
-    blocks: Vec<NativeBatchBlockInput<T, PS, TS>>,
+    batch_state: BS,
+    blocks: Vec<NativeBatchBlockInput<TS>>,
     da_commitment_scheme: DACommitmentScheme,
 ) -> Result<NativeBatchRunOutput, ForwardSubsystemError> {
     assert!(
@@ -272,28 +290,25 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
     );
 
     let batch_len = blocks.len();
-    let cursor = BatchCursor::new(batch_len);
+    let batch_index = batch::BatchIndex::new(batch_len);
 
     let mut block_metadata = Vec::with_capacity(batch_len);
-    let mut trees = Vec::with_capacity(batch_len);
-    let mut preimage_sources = Vec::with_capacity(batch_len);
     let mut tx_sources = Vec::with_capacity(batch_len);
 
     for block in blocks {
         block_metadata.push(block.block_context);
-        trees.push(block.tree);
-        preimage_sources.push(block.preimage_source);
         tx_sources.push(block.tx_source);
     }
     let proof_data = batch::SharedProofData::new(initial_proof_data);
+    let batch_state = batch::BatchStateHandle::new(batch_state);
 
     let mut oracle = ZkEENonDeterminismSource::default();
     oracle.add_external_processor(batch::BatchBlockMetadataResponder::new(
         block_metadata,
-        cursor.clone(),
+        batch_index.clone(),
     ));
     oracle.add_external_processor(TxDataResponder {
-        tx_source: batch::BatchTxSource::new(tx_sources, cursor.clone()),
+        tx_source: batch::BatchTxSource::new(tx_sources, batch_index.clone()),
         next_tx: None,
         next_tx_format: None,
         next_tx_from: None,
@@ -303,10 +318,10 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
         da_commitment_scheme,
     ));
     oracle.add_external_processor(GenericPreimageResponder {
-        preimage_source: batch::BatchPreimageSource::new(preimage_sources, cursor.clone()),
+        preimage_source: batch_state.clone(),
     });
     oracle.add_external_processor(ReadTreeResponder {
-        tree: batch::BatchTree::new(trees, cursor.clone()),
+        tree: batch_state.clone(),
     });
     oracle.add_external_processor(callable_oracles::arithmetic::NativeArithmeticQuery::default());
     oracle.add_external_processor(
@@ -322,6 +337,8 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
     let mut block_outputs = Vec::with_capacity(batch_len);
 
     for block_idx in 0..batch_len {
+        // Re-enter the proving bootloader for the next block while preserving the
+        // shared witness stream and the multiblock batch keeper.
         oracle = BatchProverInputBootloader::run_prepared::<BasicBootloaderProvingExecutionConfig>(
             oracle,
             &mut batch_data,
@@ -335,9 +352,12 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
             &mut result_keeper.forward_running_rk,
             ForwardRunningResultKeeper::new(NoopTxCallback),
         );
-        block_outputs.push(current_forward_result.into());
+        let block_output = current_forward_result.into();
 
         if block_idx + 1 != batch_len {
+            // Make the current block's writes and newly published preimages
+            // visible to the next block in the batch.
+            batch_state.apply_block_output(&block_output);
             let next_proof_data = batch_data
                 .current_proof_data()
                 .expect("batch-native prover input must expose next proof data");
@@ -345,8 +365,10 @@ pub fn generate_batch_proof_input_native<T: ReadStorageTree, PS: PreimageSource,
             // Multiblock post-op disconnects the external oracle at the end of each block.
             // Reconnect it before replaying the next block on the host.
             oracle.reconnect_external_oracle();
-            cursor.advance();
+            batch_index.advance();
         }
+
+        block_outputs.push(block_output);
     }
 
     oracle.reconnect_external_oracle();
