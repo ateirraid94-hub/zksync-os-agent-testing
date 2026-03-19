@@ -40,6 +40,8 @@ use oracle_provider::ReadWitnessSource;
 use oracle_provider::ZkEENonDeterminismSource;
 use result_keeper::ProverInputResultKeeper;
 use zk_ee::common_structs::ProofData;
+use zk_ee::oracle::query_ids::DISCONNECT_ORACLE_QUERY_ID;
+use zk_ee::oracle::IOOracle;
 use zk_ee::system::logger::NullLogger;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
@@ -247,24 +249,24 @@ pub fn generate_legacy_batch_proof_input(
     );
     proof_input.push(blocks_proof_inputs.len() as u32);
     for (idx, block_proof_input) in blocks_proof_inputs.into_iter().enumerate() {
+        let trailing_disconnect = usize::from(block_proof_input.last() == Some(&0));
         if da_commitment_scheme == DACommitmentScheme::BlobsZKsyncOS {
             let blob_advice_words = block_blob_advice_words[idx];
             if blob_advice_words != 0 {
-                // Single-block witnesses end with a disconnect-oracle query length marker (`0`).
-                // Preserve that trailing marker while removing the per-block blob advice that precedes it.
-                let trailing_disconnect = usize::from(block_proof_input.last() == Some(&0));
+                // Single-block witnesses end with a disconnect-oracle query
+                // length marker (`0`). Batch proving now disconnects once at the
+                // end, so strip per-block blob advice and per-block disconnects.
                 let payload_end = block_proof_input.len() - blob_advice_words - trailing_disconnect;
                 proof_input.extend_from_slice(&block_proof_input[..payload_end]);
-                if trailing_disconnect == 1 {
-                    proof_input.push(0);
-                }
                 continue;
             }
         }
 
-        proof_input.extend_from_slice(block_proof_input);
+        let payload_end = block_proof_input.len() - trailing_disconnect;
+        proof_input.extend_from_slice(&block_proof_input[..payload_end]);
     }
     proof_input.extend_from_slice(blobs_advice.as_slice());
+    proof_input.push(0);
     proof_input
 }
 
@@ -362,18 +364,17 @@ pub fn generate_batch_proof_input<BS: BatchState, TS: TxSource>(
                 .current_proof_data()
                 .expect("batch prover input must expose next proof data");
             proof_data.set(next_proof_data);
-            // Multiblock post-op disconnects the external oracle at the end of each block.
-            // Reconnect it before replaying the next block on the host.
-            oracle.reconnect_external_oracle();
             batch_index.advance();
         }
 
         block_outputs.push(block_output);
     }
 
-    oracle.reconnect_external_oracle();
     let (batch_public_input, batch_output) =
         batch_data.into_public_input_and_output(NullLogger, &mut oracle);
+    let _ = oracle
+        .raw_query_with_empty_input(DISCONNECT_ORACLE_QUERY_ID)
+        .expect("must disconnect an oracle before performing arbitrary CSR access");
     let mut prover_input = Vec::with_capacity(1 + oracle.get_read_items().borrow().len());
     prover_input.push(batch_len as u32);
     prover_input.extend(oracle.get_read_items().borrow().iter().copied());

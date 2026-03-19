@@ -6,6 +6,7 @@ use core::alloc::Allocator;
 use core::mem::MaybeUninit;
 use zk_ee::logger_log;
 use zk_ee::memory::ZSTAllocator;
+use zk_ee::oracle::query_ids::DISCONNECT_ORACLE_QUERY_ID;
 use zk_ee::oracle::IOOracle;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::validator::NopTxValidator;
@@ -224,6 +225,10 @@ pub fn run_proving_inner<
             .into_public_input(L::default(), &mut oracle)
             .hash(),
     );
+
+    let _ = oracle
+        .raw_query_with_empty_input(DISCONNECT_ORACLE_QUERY_ID)
+        .expect("must disconnect an oracle before performing arbitrary CSR access");
 
     unsafe { core::mem::transmute(public_input) }
 }
