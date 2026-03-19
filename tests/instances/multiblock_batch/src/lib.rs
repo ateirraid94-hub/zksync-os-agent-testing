@@ -8,7 +8,7 @@ use rig::alloy::primitives::address;
 use rig::alloy::primitives::TxKind;
 use rig::chain::RunConfig;
 use rig::forward_system::run::{
-    generate_batch_proof_input, generate_legacy_batch_proof_input, NativeBatchBlockInput,
+    generate_batch_proof_input, generate_legacy_batch_proof_input, BatchBlockInput,
 };
 use rig::log::debug;
 use rig::ruint::aliases::U256;
@@ -71,10 +71,16 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         };
         ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet.clone())
     };
-    let initial_proof_data = batch_tester.prepare_native_batch_initial_proof_data();
-    let batch_state = batch_tester.prepare_native_batch_state();
-    let block1_batch_input = batch_tester
-        .prepare_native_batch_block_input(vec![mint_tx.clone()], Some(block1_context.clone()));
+
+    // Batch proving starts from the batch pre-state before block 1 and
+    // receives the per-block metadata/tx streams separately.
+    let initial_proof_data = batch_tester.prepare_batch_initial_proof_data();
+    let batch_state = batch_tester.prepare_batch_state();
+    let block1_batch_input =
+        batch_tester.prepare_batch_block_input(vec![mint_tx.clone()], Some(block1_context.clone()));
+
+    // Legacy multiblock proving still runs `singleblock_batch` once per block
+    // and stitches the resulting witnesses/pubdata together afterwards.
     let mut legacy_tester = new_multiblock_batch_tester()
         .with_da_commitment_scheme(da_commitment_scheme)
         .with_run_config(legacy_singleblock_run_config());
@@ -105,7 +111,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         ZKsyncTxEnvelope::from_eth_tx(transfer_tx, wallet.clone())
     };
     let block2_batch_input = legacy_tester
-        .prepare_native_batch_block_input(vec![transfer_tx.clone()], Some(block2_context.clone()));
+        .prepare_batch_block_input(vec![transfer_tx.clone()], Some(block2_context.clone()));
     legacy_tester.set_block_context(Some(block2_context.clone()));
     let _ = legacy_tester.execute_block(vec![transfer_tx]);
     let block2_run = legacy_tester
@@ -118,50 +124,53 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         "block2 proof input must be non-empty; proving run is required"
     );
 
+    // The main assertion in this test: batch witness generation must match the
+    // existing RISC-V-based multiblock flow for the same batch.
     let legacy_batch_input = generate_legacy_batch_proof_input(
         vec![&block1_proof_input, &block2_proof_input],
         da_commitment_scheme,
         vec![block1_pubdata.as_slice(), block2_pubdata.as_slice()],
     );
-    let native_batch_output = generate_batch_proof_input(
+    let batch_output = generate_batch_proof_input(
         initial_proof_data,
         batch_state,
         vec![block1_batch_input, block2_batch_input],
         da_commitment_scheme,
     )
-    .expect("native batch prover input generation failed");
+    .expect("batch prover input generation failed");
 
-    let proof_input_mismatch =
-        first_mismatch(&native_batch_output.prover_input, &legacy_batch_input);
+    let proof_input_mismatch = first_mismatch(&batch_output.prover_input, &legacy_batch_input);
     let mismatch_window = proof_input_mismatch.map(|idx| {
         let start = idx.saturating_sub(4);
         let end = (idx + 5)
-            .min(native_batch_output.prover_input.len())
+            .min(batch_output.prover_input.len())
             .min(legacy_batch_input.len());
         (
             start,
             end,
-            native_batch_output.prover_input[start..end].to_vec(),
+            batch_output.prover_input[start..end].to_vec(),
             legacy_batch_input[start..end].to_vec(),
         )
     });
     assert!(
-        native_batch_output.prover_input == legacy_batch_input,
-        "batch-native prover input mismatch at {:?} (native len {}, legacy len {}, window {:?})",
+        batch_output.prover_input == legacy_batch_input,
+        "batch prover input mismatch at {:?} (batch len {}, legacy len {}, window {:?})",
         proof_input_mismatch,
-        native_batch_output.prover_input.len(),
+        batch_output.prover_input.len(),
         legacy_batch_input.len(),
         mismatch_window,
     );
     assert_eq!(
-        native_batch_output.batch_output.first_block_timestamp, block1_context.timestamp,
-        "batch-native first block timestamp mismatch"
+        batch_output.batch_output.first_block_timestamp, block1_context.timestamp,
+        "batch first block timestamp mismatch"
     );
     assert_eq!(
-        native_batch_output.batch_output.last_block_timestamp, block2_context.timestamp,
-        "batch-native last block timestamp mismatch"
+        batch_output.batch_output.last_block_timestamp, block2_context.timestamp,
+        "batch last block timestamp mismatch"
     );
 
+    // Feed the batch witness into the proving binary to ensure it is not
+    // only equal to the legacy witness, but also accepted by the batch prover.
     let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
         .join("zksync_os")
         .join("multiblock_batch.bin");
@@ -169,7 +178,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         multinblock_program_path,
         None,
         1 << 36,
-        QuasiUARTSource::new_with_reads(native_batch_output.prover_input),
+        QuasiUARTSource::new_with_reads(batch_output.prover_input),
     );
 
     debug!("Proof running output = 0x");
@@ -215,15 +224,14 @@ fn run_multiblock_batch_proof_run_validium() {
 }
 
 #[test]
-fn native_batch_helpers_reject_empty_batches() {
+fn batch_helpers_reject_empty_batches() {
     let tester = new_multiblock_batch_tester();
-    let initial_proof_data = tester.prepare_native_batch_initial_proof_data();
-    let batch_state = tester.prepare_native_batch_state();
+    let initial_proof_data = tester.prepare_batch_initial_proof_data();
+    let batch_state = tester.prepare_batch_state();
 
-    let native_batch_rejected = std::panic::catch_unwind(|| {
-        let empty_blocks: Vec<
-            NativeBatchBlockInput<rig::zksync_os_interface::traits::TxListSource>,
-        > = Vec::new();
+    let batch_rejected = std::panic::catch_unwind(|| {
+        let empty_blocks: Vec<BatchBlockInput<rig::zksync_os_interface::traits::TxListSource>> =
+            Vec::new();
         let _ = generate_batch_proof_input(
             initial_proof_data,
             batch_state,
@@ -232,7 +240,7 @@ fn native_batch_helpers_reject_empty_batches() {
         );
     });
     assert!(
-        native_batch_rejected.is_err(),
-        "native batch prover input should reject empty batches"
+        batch_rejected.is_err(),
+        "batch prover input should reject empty batches"
     );
 }

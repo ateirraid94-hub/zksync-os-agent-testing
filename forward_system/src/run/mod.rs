@@ -44,7 +44,7 @@ use zk_ee::system::logger::NullLogger;
 use zk_ee::system::tracer::NopTracer;
 use zk_ee::system::tracer::Tracer;
 
-pub use self::batch::{BatchState, NativeBatchBlockInput};
+pub use self::batch::{BatchBlockInput, BatchState};
 pub use interface_impl::RunBlockForward;
 pub use tree::LeafProof;
 pub use tree::ReadStorage;
@@ -73,8 +73,8 @@ use zksync_os_interface::traits::TxListSource;
 
 pub type StorageCommitment = FlatStorageCommitment<{ TREE_HEIGHT }>;
 
-/// Result of the native batch prover-input run.
-pub struct NativeBatchRunOutput {
+/// Result of the batch prover-input run.
+pub struct BatchRunOutput {
     /// Canonical batch prover input.
     pub prover_input: Vec<u32>,
     /// Canonical batch pubdata accumulated across all blocks.
@@ -268,7 +268,7 @@ pub fn generate_legacy_batch_proof_input(
     proof_input
 }
 
-/// Execute a whole batch natively and return canonical batch prover input and pubdata.
+/// Execute a whole batch and return canonical batch prover input and pubdata.
 ///
 /// The caller provides:
 /// - the batch pre-state as `initial_proof_data`
@@ -281,12 +281,12 @@ pub fn generate_legacy_batch_proof_input(
 pub fn generate_batch_proof_input<BS: BatchState, TS: TxSource>(
     initial_proof_data: ProofData<StorageCommitment>,
     batch_state: BS,
-    blocks: Vec<NativeBatchBlockInput<TS>>,
+    blocks: Vec<BatchBlockInput<TS>>,
     da_commitment_scheme: DACommitmentScheme,
-) -> Result<NativeBatchRunOutput, ForwardSubsystemError> {
+) -> Result<BatchRunOutput, ForwardSubsystemError> {
     assert!(
         !blocks.is_empty(),
-        "batch-native prover input requires at least one block",
+        "batch prover input requires at least one block",
     );
 
     let batch_len = blocks.len();
@@ -360,7 +360,7 @@ pub fn generate_batch_proof_input<BS: BatchState, TS: TxSource>(
             batch_state.apply_block_output(&block_output);
             let next_proof_data = batch_data
                 .current_proof_data()
-                .expect("batch-native prover input must expose next proof data");
+                .expect("batch prover input must expose next proof data");
             proof_data.set(next_proof_data);
             // Multiblock post-op disconnects the external oracle at the end of each block.
             // Reconnect it before replaying the next block on the host.
@@ -378,7 +378,7 @@ pub fn generate_batch_proof_input<BS: BatchState, TS: TxSource>(
     prover_input.push(batch_len as u32);
     prover_input.extend(oracle.get_read_items().borrow().iter().copied());
 
-    Ok(NativeBatchRunOutput {
+    Ok(BatchRunOutput {
         prover_input,
         pubdata: result_keeper.pubdata,
         batch_public_input,

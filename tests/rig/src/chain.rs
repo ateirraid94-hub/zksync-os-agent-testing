@@ -31,7 +31,7 @@ use forward_system::run::result_keeper::ProverInputResultKeeper;
 use forward_system::run::test_impl::{
     InMemoryBatchState, InMemoryPreimageSource, InMemoryTree, NoopTxCallback,
 };
-use forward_system::run::NativeBatchBlockInput;
+use forward_system::run::BatchBlockInput;
 use forward_system::system::bootloader::run_forward_no_panic;
 use forward_system::system::bootloader::run_prover_input_no_panic;
 use forward_system::system::system_types::ethereum::EthereumStorageSystemTypes;
@@ -595,8 +595,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         self.chain_id = chain_id;
     }
 
-    /// Build the batch pre-state passed to the native batch prover-input runner.
-    pub fn prepare_native_batch_initial_proof_data(
+    /// Build the batch pre-state passed to the batch prover-input runner.
+    pub fn prepare_batch_initial_proof_data(
         &self,
     ) -> ProofData<FlatStorageCommitment<TREE_HEIGHT>> {
         let state_commitment = FlatStorageCommitment::<{ TREE_HEIGHT }> {
@@ -610,12 +610,12 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         }
     }
 
-    /// Build the per-block inputs that remain external to the native batch runner.
-    pub fn prepare_native_batch_block_input(
+    /// Build the per-block inputs that remain external to the batch runner.
+    pub fn prepare_batch_block_input(
         &self,
         transactions: Vec<EncodedTx>,
         block_context: Option<BlockContext>,
-    ) -> NativeBatchBlockInput<TxListSource> {
+    ) -> BatchBlockInput<TxListSource> {
         let block_context = block_context.unwrap_or_default();
         let block_metadata = BlockMetadataFromOracle {
             chain_id: self.chain_id,
@@ -632,7 +632,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             blob_fee: block_context.blob_fee,
         };
 
-        NativeBatchBlockInput {
+        BatchBlockInput {
             block_context: block_metadata,
             tx_source: TxListSource {
                 transactions: transactions.into(),
@@ -640,8 +640,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         }
     }
 
-    /// Clone the batch-start state used by native batch tests.
-    pub fn prepare_native_batch_state(&self) -> InMemoryBatchState<RANDOMIZED_TREE> {
+    /// Clone the batch-start state used by batch prover-input tests.
+    pub fn prepare_batch_state(&self) -> InMemoryBatchState<RANDOMIZED_TREE> {
         InMemoryBatchState {
             tree: self.state_tree.clone(),
             preimage_source: self.preimage_source.clone(),

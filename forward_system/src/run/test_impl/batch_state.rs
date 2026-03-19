@@ -4,7 +4,7 @@ use crate::run::{BatchState, PreimageSource, ReadStorage, ReadStorageTree};
 use zksync_os_interface::types::BlockOutput;
 
 #[derive(Debug, Clone)]
-/// Simple in-memory [`BatchState`] used by native batch tests.
+/// Simple in-memory [`BatchState`] used by batch prover-input tests.
 ///
 /// This mirrors the production contract: one batch-start tree and one
 /// preimage source are mutated block by block as outputs are produced.

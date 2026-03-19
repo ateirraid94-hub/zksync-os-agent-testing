@@ -36,7 +36,7 @@ pub use crypto;
 pub use forward_system;
 use forward_system::run::convert_alloy::FromAlloy;
 use forward_system::run::test_impl::InMemoryBatchState;
-use forward_system::run::NativeBatchBlockInput;
+use forward_system::run::BatchBlockInput;
 use forward_system::system::system_types::ForwardRunningSystem;
 #[cfg(feature = "gpu")]
 pub use gpu_prover;
@@ -518,30 +518,30 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
         self.last_executed_block_info.as_ref()
     }
 
-    /// Returns the batch pre-state passed to the native batch prover-input runner.
-    pub fn prepare_native_batch_initial_proof_data(
+    /// Returns the batch pre-state passed to the batch prover-input runner.
+    pub fn prepare_batch_initial_proof_data(
         &self,
     ) -> ProofData<FlatStorageCommitment<TREE_HEIGHT>> {
-        self.chain.prepare_native_batch_initial_proof_data()
+        self.chain.prepare_batch_initial_proof_data()
     }
 
-    /// Returns the mutable batch-start state used by native batch tests.
-    pub fn prepare_native_batch_state(&self) -> InMemoryBatchState<RANDOMIZED_TREE> {
-        self.chain.prepare_native_batch_state()
+    /// Returns the mutable batch-start state used by batch prover-input tests.
+    pub fn prepare_batch_state(&self) -> InMemoryBatchState<RANDOMIZED_TREE> {
+        self.chain.prepare_batch_state()
     }
 
-    /// Builds one native batch input from framework-level transactions and block context.
-    pub fn prepare_native_batch_block_input(
+    /// Builds one batch input from framework-level transactions and block context.
+    pub fn prepare_batch_block_input(
         &self,
         transactions: Vec<ZKsyncTxEnvelope>,
         block_context: Option<BlockContext>,
-    ) -> NativeBatchBlockInput<TxListSource> {
+    ) -> BatchBlockInput<TxListSource> {
         let encoded_txs = transactions
             .into_iter()
             .map(ZKsyncTxEnvelope::encode)
             .collect::<Vec<_>>();
         self.chain
-            .prepare_native_batch_block_input(encoded_txs, block_context)
+            .prepare_batch_block_input(encoded_txs, block_context)
     }
 
     /// Builds and executes an ERC20 transfer block using default fee settings.

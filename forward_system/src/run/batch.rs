@@ -16,7 +16,7 @@ use zksync_os_interface::types::BlockOutput;
 
 use super::BlockContext;
 
-/// Mutable batch pre-state used by the native batch prover-input runner.
+/// Mutable batch pre-state used by the batch prover-input runner.
 ///
 /// The caller provides the state before the first block. After each block run,
 /// the runner applies the resulting writes and published preimages so the next
@@ -31,7 +31,7 @@ pub trait BatchState: ReadStorageTree + PreimageSource {
 ///
 /// `ProofData` is intentionally not included here: the batch runner receives it
 /// once for block 1 and then chains it internally between blocks.
-pub struct NativeBatchBlockInput<TS> {
+pub struct BatchBlockInput<TS> {
     pub block_context: BlockContext,
     pub tx_source: TS,
 }
@@ -45,10 +45,7 @@ pub struct BatchIndex {
 
 impl BatchIndex {
     pub fn new(len: usize) -> Self {
-        assert!(
-            len > 0,
-            "batch-native prover input requires at least one block"
-        );
+        assert!(len > 0, "batch prover input requires at least one block");
         Self {
             index: Rc::new(Cell::new(0)),
             len,
@@ -145,7 +142,7 @@ impl<TS: TxSource> TxSource for BatchTxSource<TS> {
 }
 
 #[derive(Debug)]
-/// Serves block metadata for the current block in the native batch run.
+/// Serves block metadata for the current block in the batch prover-input run.
 pub struct BatchBlockMetadataResponder {
     block_metadata: Vec<BlockContext>,
     index: BatchIndex,
