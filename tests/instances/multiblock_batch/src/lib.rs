@@ -14,6 +14,7 @@ use rig::log::debug;
 use rig::ruint::aliases::U256;
 use rig::utils::{ERC_20_BYTECODE, ERC_20_MINT_CALLDATA, ERC_20_TRANSFER_CALLDATA};
 use rig::zk_ee::common_structs::DACommitmentScheme;
+use rig::zksync_os_interface::types::BlockOutput;
 use rig::zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 use rig::{testing_signer, BlockContext, TestingFramework};
 use risc_v_simulator::abstractions::non_determinism::QuasiUARTSource;
@@ -26,6 +27,41 @@ fn first_mismatch<T: PartialEq>(lhs: &[T], rhs: &[T]) -> Option<usize> {
         .zip(rhs.iter())
         .position(|(lhs_item, rhs_item)| lhs_item != rhs_item)
         .or_else(|| (lhs.len() != rhs.len()).then_some(lhs.len().min(rhs.len())))
+}
+
+fn assert_block_output_matches(actual: &BlockOutput, expected: &BlockOutput, context: &str) {
+    assert_eq!(
+        actual.header.inner(),
+        expected.header.inner(),
+        "{context}: block header mismatch"
+    );
+    assert_eq!(
+        actual.computational_native_used, expected.computational_native_used,
+        "{context}: computational_native_used mismatch"
+    );
+    assert_eq!(
+        actual.pubdata_used, expected.pubdata_used,
+        "{context}: pubdata_used mismatch"
+    );
+    assert_eq!(
+        actual.published_preimages, expected.published_preimages,
+        "{context}: published preimages mismatch"
+    );
+    assert_eq!(
+        format!("{:?}", actual.tx_results),
+        format!("{:?}", expected.tx_results),
+        "{context}: tx_results mismatch"
+    );
+    assert_eq!(
+        format!("{:?}", actual.storage_writes),
+        format!("{:?}", expected.storage_writes),
+        "{context}: storage_writes mismatch"
+    );
+    assert_eq!(
+        format!("{:?}", actual.account_diffs),
+        format!("{:?}", expected.account_diffs),
+        "{context}: account_diffs mismatch"
+    );
 }
 
 fn legacy_singleblock_run_config() -> RunConfig {
@@ -89,6 +125,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
     let block1_run = legacy_tester
         .last_executed_block_info()
         .expect("legacy block1 run must record proof input");
+    let block1_output = block1_run.block_output.clone();
     let block1_proof_input = block1_run.proof_input.clone();
     let block1_pubdata = block1_run.pubdata.clone();
     assert!(
@@ -117,6 +154,7 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
     let block2_run = legacy_tester
         .last_executed_block_info()
         .expect("legacy block2 run must record proof input");
+    let block2_output = block2_run.block_output.clone();
     let block2_proof_input = block2_run.proof_input.clone();
     let block2_pubdata = block2_run.pubdata.clone();
     assert!(
@@ -168,9 +206,27 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         batch_output.batch_output.last_block_timestamp, block2_context.timestamp,
         "batch last block timestamp mismatch"
     );
+    assert_eq!(
+        batch_output.pubdata,
+        [block1_pubdata.clone(), block2_pubdata.clone()].concat(),
+        "batch pubdata mismatch"
+    );
+    assert_eq!(
+        batch_output.block_outputs.len(),
+        2,
+        "batch prover input should return one BlockOutput per block"
+    );
+    assert_block_output_matches(&batch_output.block_outputs[0], &block1_output, "block1");
+    assert_block_output_matches(&batch_output.block_outputs[1], &block2_output, "block2");
+    assert_eq!(
+        batch_output.batch_public_input.batch_output,
+        batch_output.batch_output.hash().into(),
+        "batch public input should commit to the batch output hash"
+    );
 
     // Feed the batch witness into the proving binary to ensure it is not
-    // only equal to the legacy witness, but also accepted by the batch prover.
+    // only equal to the legacy witness, but also produces the expected final
+    // public input hash when executed by the batch prover.
     let multinblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
         .join("zksync_os")
         .join("multiblock_batch.bin");
@@ -186,7 +242,12 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
         debug!("{word:08x}");
     }
 
-    assert!(proof_output.into_iter().any(|word| word != 0));
+    let proof_output_u8: [u8; 32] = unsafe { core::mem::transmute(proof_output) };
+    assert_eq!(
+        proof_output_u8,
+        batch_output.batch_public_input.hash(),
+        "RISC-V batch proof output mismatch"
+    );
 }
 
 #[test]

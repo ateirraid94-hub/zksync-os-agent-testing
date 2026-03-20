@@ -53,6 +53,7 @@ impl BatchIndex {
     }
 
     pub fn current(&self) -> usize {
+        assert!(self.index.get() < self.len);
         self.index.get().min(self.len - 1)
     }
 
