@@ -1,3 +1,4 @@
+use crate::bootloader::block_flow::read_settlement_layer_chain_id;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
     FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
@@ -38,9 +39,7 @@ use zk_ee::system_log;
 use zk_ee::utils::{u256_to_b160_checked, u256_try_to_u64, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
 
-use system_hooks::addresses_constants::{
-    L2_ASSET_TRACKER_ADDRESS, L2_BASE_TOKEN_ADDRESS, SYSTEM_CONTEXT_ADDRESS,
-};
+use system_hooks::addresses_constants::{L2_ASSET_TRACKER_ADDRESS, L2_BASE_TOKEN_ADDRESS};
 
 use super::validation_impl::compute_calldata_tokens;
 use super::{ZkTransactionFlowOnlyEOA, ZkTxResult};
@@ -530,58 +529,15 @@ where
         .ok_or(internal_error!("mfc+tic"))?;
 
     // Notify L2AssetTracker about the base token bridging from L1.
-    // This must happen before the treasury transfer so the asset tracker
-    // can update its accounting (e.g. deposits, totalSupply) atomically.
-    // We call handleFinalizeBaseTokenBridgingOnL2(uint256 _fromChainId, uint256 _amount)
-    // as L2_BASE_TOKEN_ADDRESS (0x800a) to pass the onlyBaseTokenHolderOrL2BaseToken modifier.
-    // This call uses infinite resources (not charged to the user) since it is
-    // a protocol-level operation that must always succeed.
-    if total_deposited > U256::ZERO {
-        // Read settlement layer chain ID from SystemContext storage slot 0
-        let sl_chain_id = {
-            let mut inf_resources = S::Resources::FORMAL_INFINITE;
-            let sl_chain_id_bytes = system
-                .io
-                .storage_read::<false>(
-                    ExecutionEnvironmentType::NoEE,
-                    &mut inf_resources,
-                    &SYSTEM_CONTEXT_ADDRESS,
-                    &Bytes32::ZERO, // slot 0 = settlement layer chain ID
-                )
-                .map_err(BootloaderSubsystemError::from)?;
-            U256::from_be_bytes(sl_chain_id_bytes.as_u8_array())
-        };
-
-        // Encode calldata: selector 0x03117c8c + abi-encoded (fromChainId, amount)
-        let mut calldata = [0u8; 68];
-        calldata[0..4].copy_from_slice(&[0x03, 0x11, 0x7c, 0x8c]);
-        calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
-        calldata[36..68].copy_from_slice(&total_deposited.to_be_bytes::<32>());
-
-        let CompletedExecution {
-            result: asset_tracker_result,
-            ..
-        } = BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
-            system,
-            system_functions,
-            memories.reborrow(),
-            &calldata,
-            &L2_BASE_TOKEN_ADDRESS,
-            &L2_ASSET_TRACKER_ADDRESS,
-            S::Resources::FORMAL_INFINITE,
-            &U256::ZERO,
-            true, // should_make_frame - isolate state changes
-            tracer,
-            validator,
-        )?;
-
-        if asset_tracker_result.failed() {
-            return Err(internal_error!(
-                "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 failed"
-            )
-            .into());
-        }
-    }
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories.reborrow(),
+        total_deposited,
+        resources,
+        tracer,
+        validator,
+    )?;
 
     // First we transfer from treasury
     // We want to ensure that the simulation of a transaction
@@ -749,5 +705,68 @@ where
             }
         })?;
 
+    Ok(())
+}
+
+/// Notify L2AssetTracker about the base token bridging from L1.
+/// This must happen before the treasury transfer so the asset tracker
+/// can update its accounting (e.g. deposits, totalSupply) atomically.
+/// We call handleFinalizeBaseTokenBridgingOnL2(uint256 _fromChainId, uint256 _amount)
+/// as L2_BASE_TOKEN_ADDRESS (0x800a) to pass the onlyBaseTokenHolderOrL2BaseToken modifier.
+/// This call uses infinite gas (not charged to the user) since it is
+/// a protocol-level operation that must always succeed.
+fn notify_l2_asset_tracker<'a, S: EthereumLikeTypes + 'a>(
+    system: &mut System<S>,
+    system_functions: &mut HooksStorage<S, S::Allocator>,
+    mut memories: RunnerMemoryBuffers<'a>,
+    total_deposited: U256,
+    resources: &mut S::Resources,
+    tracer: &mut impl Tracer<S>,
+    validator: &mut impl TxValidator<S>,
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+    S::Metadata: ZkSpecificPricingMetadata
+        + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
+{
+    if total_deposited > U256::ZERO {
+        // Read settlement layer chain ID from SystemContext storage slot 0
+        let sl_chain_id = read_settlement_layer_chain_id(&mut system.io);
+
+        // Encode calldata for handleFinalizeBaseTokenBridgingOnL2(uint256,uint256):
+        // selector 0x03117c8c + abi-encoded (fromChainId, amount)
+        let mut calldata = [0u8; 68];
+        calldata[0..4].copy_from_slice(&[0x03, 0x11, 0x7c, 0x8c]);
+        calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
+        calldata[36..68].copy_from_slice(&total_deposited.to_be_bytes::<32>());
+
+        let CompletedExecution {
+            resources_returned,
+            result: asset_tracker_result,
+        } = resources.with_infinite_ergs(|inf_ergs| {
+            BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+                system,
+                system_functions,
+                memories.reborrow(),
+                &calldata,
+                &L2_BASE_TOKEN_ADDRESS,
+                &L2_ASSET_TRACKER_ADDRESS,
+                inf_ergs.clone(),
+                &U256::ZERO,
+                true, // should_make_frame - isolate state changes
+                tracer,
+                validator,
+            )
+        })?;
+        // Keep the resources returned, as we need to consume native resource
+        *resources = resources_returned;
+
+        if asset_tracker_result.failed() {
+            return Err(internal_error!(
+                "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 failed"
+            )
+            .into());
+        }
+    }
     Ok(())
 }
