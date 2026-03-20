@@ -75,7 +75,6 @@ fn mock_accumulating_contract() -> Vec<u8> {
 /// - SystemContext slot 0 set to the given chain ID
 fn setup_with_chain_id(sl_chain_id: u64) -> TestingFramework {
     TestingFramework::new()
-        .without_revm_consistency_check()
         .with_evm_contract(asset_tracker_address(), &mock_accumulating_contract())
         .with_storage_slot(
             system_context_address(),
