@@ -44,8 +44,19 @@ pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 130_000;
 // the uncompressed update.
 const COINBASE_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 
-// Needed to publish the l1 tx log and coinbase balance.
-pub const L1_TX_INTRINSIC_PUBDATA: u64 = 88 + COINBASE_BALANCE_INTRINSIC_PUBDATA;
+// Pubdata produced by the L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2
+// call that the bootloader makes inside the L1 tx execution frame (value-mint
+// notification). In the steady-state case (base token already registered,
+// settled on L1), the contract performs a single SSTORE:
+//   interopInfo[assetId].totalSuccessfulDepositsFromL1 += _amount
+// Each storage diff is encoded as 32 bytes (derived key) + compressed value
+// diff. The worst-case compressed value using the Add strategy with a
+// 256-bit amount falls back to Nothing encoding = 33 bytes.
+const ASSET_TRACKER_INTRINSIC_PUBDATA: u64 = 32 + 33;
+
+// Needed to publish the l1 tx log, coinbase balance, and asset tracker state diff.
+pub const L1_TX_INTRINSIC_PUBDATA: u64 =
+    88 + COINBASE_BALANCE_INTRINSIC_PUBDATA + ASSET_TRACKER_INTRINSIC_PUBDATA;
 
 pub const L2_TX_INTRINSIC_GAS: u64 = 21_000;
 

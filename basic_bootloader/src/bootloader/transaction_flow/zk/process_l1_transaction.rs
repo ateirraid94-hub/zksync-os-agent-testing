@@ -1,3 +1,4 @@
+use crate::bootloader::block_flow::read_settlement_layer_chain_id;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
     FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
@@ -38,9 +39,7 @@ use zk_ee::system_log;
 use zk_ee::utils::{u256_to_b160_checked, u256_try_to_u64, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
 
-use system_hooks::addresses_constants::{
-    L2_ASSET_TRACKER_ADDRESS, L2_BASE_TOKEN_ADDRESS, SYSTEM_CONTEXT_ADDRESS,
-};
+use system_hooks::addresses_constants::{L2_ASSET_TRACKER_ADDRESS, L2_BASE_TOKEN_ADDRESS};
 
 use super::validation_impl::compute_calldata_tokens;
 use super::{ZkTransactionFlowOnlyEOA, ZkTxResult};
@@ -154,68 +153,48 @@ where
     // to used in the refund step only if the execution succeeded.
     // Otherwise, this value needs to be recomputed after reverting
     // state changes.
-    let (result, pubdata_info, resources_before_refund) = if !preparation_out_of_resources {
-        // Take a snapshot in case we need to revert due to out of native.
-        let rollback_handle = system.start_global_frame()?;
+    let (is_success, pubdata_info, resources_before_refund, mut memories) =
+        if !preparation_out_of_resources {
+            // Take a snapshot in case we need to revert due to out of native.
+            let rollback_handle = system.start_global_frame()?;
 
-        // Tx execution
-        let from = transaction.from.read();
-        let to = transaction.to.read();
-        match execute_l1_transaction_and_notify_result::<S, Config>(
-            system,
-            system_functions,
-            memories,
-            &transaction,
-            from,
-            to,
-            value,
-            native_per_pubdata,
-            &mut resources,
-            withheld_resources,
-            tracer,
-            validator,
-        ) {
-            Ok((r, pubdata_used, to_charge_for_pubdata, resources_before_refund)) => {
-                let pubdata_info = match r {
-                    ExecutionResult::Success { .. } => {
+            // Tx execution
+            let from = transaction.from.read();
+            let to = transaction.to.read();
+            match execute_l1_transaction_and_notify_result::<S, Config>(
+                system,
+                system_functions,
+                memories,
+                &transaction,
+                from,
+                to,
+                value,
+                native_per_pubdata,
+                &mut resources,
+                withheld_resources,
+                tracer,
+                validator,
+            ) {
+                Ok((outcome, returned_memories)) => {
+                    let pubdata_info = if outcome.is_success {
                         system.finish_global_frame(None)?;
-                        Some((pubdata_used, to_charge_for_pubdata))
-                    }
-                    ExecutionResult::Revert { .. } => {
+                        Some((outcome.pubdata_used, outcome.to_charge_for_pubdata))
+                    } else {
                         system.finish_global_frame(Some(&rollback_handle))?;
                         None
-                    }
-                };
-                (r, pubdata_info, resources_before_refund)
-            }
-            Err(e) => {
-                match e.root_cause() {
-                    // Out of native is converted to a top-level revert and
-                    // gas is exhausted.
-                    RootCause::Runtime(e @ RuntimeError::FatalRuntimeError(_)) => {
-                        system_log!(
-                            system,
-                            "L1 transaction ran out of native resources or memory {e:?}\n"
-                        );
-                        resources.exhaust_ergs();
-                        system.finish_global_frame(Some(&rollback_handle))?;
-                        (
-                            ExecutionResult::Revert { output: &[] },
-                            None,
-                            S::Resources::empty(),
-                        )
-                    }
-                    _ => return Err(e),
+                    };
+                    (
+                        outcome.is_success,
+                        pubdata_info,
+                        outcome.resources_before_refund,
+                        returned_memories,
+                    )
                 }
+                Err(e) => return Err(e),
             }
-        }
-    } else {
-        (
-            ExecutionResult::Revert { output: &[] },
-            None,
-            S::Resources::empty(),
-        )
-    };
+        } else {
+            (false, None, S::Resources::empty(), memories)
+        };
 
     // Compute gas to refund
     // TODO: consider operator refund
@@ -244,7 +223,13 @@ where
     let pay_to_operator = U256::from(gas_used)
         .checked_mul(U256::from(gas_price))
         .ok_or(internal_error!("gu*gp"))?;
+    // Use FORMAL_INFINITE for post-execution operations (coinbase transfer,
+    // asset tracker notifications, refund transfer, log emission).
+    // These cannot fail due to resource exhaustion. We measure the native
+    // consumed via the diff on inf_resources and include it in
+    // computational_native_used so that block seal criteria remain accurate.
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
+    let inf_resources_initial = inf_resources.clone();
 
     let coinbase = system.get_coinbase();
     transfer_from_treasury::<S>(
@@ -264,32 +249,40 @@ where
         _ => e,
     })?;
 
+    // Notify asset tracker about the operator fee portion of the deposit.
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories.reborrow(),
+        pay_to_operator,
+        &mut inf_resources,
+        tracer,
+        validator,
+    )?;
+
     // Refund
-    let to_refund_recipient = match result {
-        ExecutionResult::Revert { .. } => {
-            // Upgrade transactions must always succeed
-            if !is_priority_op {
-                return Err(internal_error!("Upgrade transaction must succeed").into());
-            }
-            // If the transaction reverts, then the minting of the deposit
-            // reverted too. Thus, we need to refund the entire deposit minus
-            // the fee (`pay_to_operator`).
-            total_deposited
-                .checked_sub(pay_to_operator)
-                .ok_or(internal_error!("td-pto"))
+    let to_refund_recipient = if !is_success {
+        // Upgrade transactions must always succeed
+        if !is_priority_op {
+            return Err(internal_error!("Upgrade transaction must succeed").into());
         }
-        ExecutionResult::Success { .. } => {
-            // If the transaction succeeds, then it is assumed that the
-            // mint to `from` address was transferred correctly too.
-            // In this case, we just refund the unused gas that the
-            // transaction paid for initially.
-            let prepaid_fee = gas_price
-                .checked_mul(U256::from(transaction.gas_limit.read()))
-                .ok_or(internal_error!("gp*gl"))?;
-            prepaid_fee
-                .checked_sub(pay_to_operator)
-                .ok_or(internal_error!("pf-pto"))
-        }
+        // If the transaction reverts, then the minting of the deposit
+        // reverted too. Thus, we need to refund the entire deposit minus
+        // the fee (`pay_to_operator`).
+        total_deposited
+            .checked_sub(pay_to_operator)
+            .ok_or(internal_error!("td-pto"))
+    } else {
+        // If the transaction succeeds, then it is assumed that the
+        // mint to `from` address was transferred correctly too.
+        // In this case, we just refund the unused gas that the
+        // transaction paid for initially.
+        let prepaid_fee = gas_price
+            .checked_mul(U256::from(transaction.gas_limit.read()))
+            .ok_or(internal_error!("gp*gl"))?;
+        prepaid_fee
+            .checked_sub(pay_to_operator)
+            .ok_or(internal_error!("pf-pto"))
     }?;
     if to_refund_recipient > U256::ZERO {
         let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
@@ -313,18 +306,31 @@ where
         })?;
     }
 
+    // Notify asset tracker about the refund portion of the deposit.
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories.reborrow(),
+        to_refund_recipient,
+        &mut inf_resources,
+        tracer,
+        validator,
+    )?;
+
     // Emit log
     // We don't send logs for upgrade txs by protocol convention
     if is_priority_op {
-        let success = matches!(result, ExecutionResult::Success { .. });
-        let mut inf_resources = S::Resources::FORMAL_INFINITE;
         system.io.emit_l1_l2_tx_log(
             ExecutionEnvironmentType::NoEE,
             &mut inf_resources,
             tx_hash,
-            success,
+            is_success,
         )?;
     }
+
+    // Native consumed by post-execution operations (coinbase transfer,
+    // asset tracker notifications, refund, log emission).
+    let post_execution_native_used = inf_resources.diff(inf_resources_initial).native().as_u64();
 
     // Add back the intrinsic native charged in get_resources_for_tx,
     // as initial_resources doesn't include them.
@@ -332,7 +338,21 @@ where
         .diff(initial_resources)
         .native()
         .as_u64()
-        + intrinsic_computational_native_charged;
+        + intrinsic_computational_native_charged
+        + post_execution_native_used;
+
+    // Construct the execution result. The returndata from the main tx
+    // body has been overwritten by the asset-tracker notification calls,
+    // so we use an empty slice. L1 transaction returndata is only
+    // informational (it appears in receipts) and is not consumed by
+    // any on-chain logic.
+    let result = if is_success {
+        ExecutionResult::Success {
+            output: ExecutionOutput::Call(&[]),
+        }
+    } else {
+        ExecutionResult::Revert { output: &[] }
+    };
 
     Ok(ZkTxResult {
         result,
@@ -469,7 +489,21 @@ where
     })
 }
 
-// Returns (execution_result, pubdata_used, to_charge_for_pubdata, resources_before_refund)
+/// Outcome of executing the L1 transaction body.
+///
+/// This deliberately does NOT carry `ExecutionResult<'a>` (which borrows
+/// returndata from the runner memory buffers). Keeping the buffers
+/// un-borrowed lets `process_l1_transaction` reborrow them for the
+/// post-execution asset-tracker notification calls.
+struct L1ExecutionOutcome<S: EthereumLikeTypes> {
+    is_success: bool,
+    pubdata_used: u64,
+    to_charge_for_pubdata: S::Resources,
+    resources_before_refund: S::Resources,
+}
+
+// Returns (outcome, memories) — memories is returned so the caller can
+// reborrow it for subsequent `run_single_interaction` calls.
 fn execute_l1_transaction_and_notify_result<
     'a,
     S: EthereumLikeTypes + 'a,
@@ -487,15 +521,7 @@ fn execute_l1_transaction_and_notify_result<
     withheld_resources: S::Resources,
     tracer: &mut impl Tracer<S>,
     validator: &mut impl TxValidator<S>,
-) -> Result<
-    (
-        ExecutionResult<'a, S::IOTypes>,
-        u64,
-        S::Resources,
-        S::Resources,
-    ),
-    BootloaderSubsystemError,
->
+) -> Result<(L1ExecutionOutcome<S>, RunnerMemoryBuffers<'a>), BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
     S::Metadata: ZkSpecificPricingMetadata
@@ -529,61 +555,7 @@ where
         .checked_sub(max_fee_commitment)
         .ok_or(internal_error!("mfc+tic"))?;
 
-    // Notify L2AssetTracker about the base token bridging from L1.
-    // This must happen before the treasury transfer so the asset tracker
-    // can update its accounting (e.g. deposits, totalSupply) atomically.
-    // We call handleFinalizeBaseTokenBridgingOnL2(uint256 _fromChainId, uint256 _amount)
-    // as L2_BASE_TOKEN_ADDRESS (0x800a) to pass the onlyBaseTokenHolderOrL2BaseToken modifier.
-    // This call uses infinite resources (not charged to the user) since it is
-    // a protocol-level operation that must always succeed.
-    if total_deposited > U256::ZERO {
-        // Read settlement layer chain ID from SystemContext storage slot 0
-        let sl_chain_id = {
-            let mut inf_resources = S::Resources::FORMAL_INFINITE;
-            let sl_chain_id_bytes = system
-                .io
-                .storage_read::<false>(
-                    ExecutionEnvironmentType::NoEE,
-                    &mut inf_resources,
-                    &SYSTEM_CONTEXT_ADDRESS,
-                    &Bytes32::ZERO, // slot 0 = settlement layer chain ID
-                )
-                .map_err(BootloaderSubsystemError::from)?;
-            U256::from_be_bytes(sl_chain_id_bytes.as_u8_array())
-        };
-
-        // Encode calldata: selector 0x03117c8c + abi-encoded (fromChainId, amount)
-        let mut calldata = [0u8; 68];
-        calldata[0..4].copy_from_slice(&[0x03, 0x11, 0x7c, 0x8c]);
-        calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
-        calldata[36..68].copy_from_slice(&total_deposited.to_be_bytes::<32>());
-
-        let CompletedExecution {
-            result: asset_tracker_result,
-            ..
-        } = BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
-            system,
-            system_functions,
-            memories.reborrow(),
-            &calldata,
-            &L2_BASE_TOKEN_ADDRESS,
-            &L2_ASSET_TRACKER_ADDRESS,
-            S::Resources::FORMAL_INFINITE,
-            &U256::ZERO,
-            true, // should_make_frame - isolate state changes
-            tracer,
-            validator,
-        )?;
-
-        if asset_tracker_result.failed() {
-            return Err(internal_error!(
-                "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 failed"
-            )
-            .into());
-        }
-    }
-
-    // First we transfer from treasury
+    // Transfer value from treasury to sender (the deposit minus max fee).
     // We want to ensure that the simulation of a transaction
     // never underestimates gas/pubdata compared to the actual execution
     // of said transaction.
@@ -617,6 +589,19 @@ where
             })?;
     }
 
+    // Notify L2AssetTracker about the value mint portion of the deposit.
+    // This is inside the execution frame, so it gets rolled back if the
+    // main tx body reverts — matching the treasury transfer above.
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories.reborrow(),
+        to_transfer,
+        resources,
+        tracer,
+        validator,
+    )?;
+
     let resources_for_tx = resources.clone();
 
     // transaction is in managed region, so we can recast it back
@@ -625,13 +610,10 @@ where
     // TODO: add support for deployment transactions,
     // probably unify with execution logic for EOA
 
-    let CompletedExecution {
-        resources_returned,
-        result,
-    } = BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+    let reverted = match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
         system,
         system_functions,
-        memories,
+        memories.reborrow(),
         calldata,
         &from,
         &to,
@@ -640,26 +622,34 @@ where
         false,
         tracer,
         validator,
-    )?;
-    let reverted = result.failed();
-    let return_values = result.return_values();
-
-    *resources = resources_returned;
-    system.finish_global_frame(reverted.then_some(&rollback_handle))?;
+    ) {
+        Ok(CompletedExecution {
+            resources_returned,
+            result,
+        }) => {
+            let reverted = result.failed();
+            *resources = resources_returned;
+            system.finish_global_frame(reverted.then_some(&rollback_handle))?;
+            reverted
+        }
+        // Handle out-of-native / out-of-memory as a top-level revert so that
+        // `memories` is always returned to the caller for post-execution
+        // asset-tracker notifications.
+        Err(e) => match e.root_cause() {
+            RootCause::Runtime(RuntimeError::FatalRuntimeError(re)) => {
+                system_log!(
+                    system,
+                    "L1 transaction ran out of native resources or memory {re:?}\n"
+                );
+                resources.exhaust_ergs();
+                system.finish_global_frame(Some(&rollback_handle))?;
+                true
+            }
+            _ => return Err(e),
+        },
+    };
 
     system_log!(system, "Main TX body successful = {}\n", !reverted);
-
-    let returndata_region = return_values.returndata;
-
-    let execution_result = if reverted {
-        ExecutionResult::Revert {
-            output: returndata_region,
-        }
-    } else {
-        ExecutionResult::Success {
-            output: ExecutionOutput::Call(returndata_region),
-        }
-    };
 
     // Just used for computing native used
     // Needs to use the resources before we reclaim withheld
@@ -672,18 +662,19 @@ where
 
     let (enough, to_charge_for_pubdata, pubdata_used) =
         check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
-    let execution_result = if !enough {
+    let is_success = !reverted && enough;
+    if !enough {
         system_log!(system, "Not enough gas for pubdata after execution\n");
-        execution_result.to_reverted()
-    } else {
-        execution_result
-    };
+    }
 
     Ok((
-        execution_result,
-        pubdata_used,
-        to_charge_for_pubdata,
-        resources_before_refund,
+        L1ExecutionOutcome {
+            is_success,
+            pubdata_used,
+            to_charge_for_pubdata,
+            resources_before_refund,
+        },
+        memories,
     ))
 }
 
@@ -749,5 +740,78 @@ where
             }
         })?;
 
+    Ok(())
+}
+
+/// Notify L2AssetTracker about base token bridging from L1.
+///
+/// Calls handleFinalizeBaseTokenBridgingOnL2(uint256 _fromChainId, uint256 _amount)
+/// as L2_BASE_TOKEN_ADDRESS (0x800a) to pass the onlyBaseTokenHolderOrL2BaseToken modifier.
+///
+/// This is called separately for each token movement (value mint, operator
+/// payment, refund) so that the asset tracker's accounting stays correct even
+/// if the main transaction body reverts.
+///
+/// Uses infinite EVM gas but tracks native resource consumption via the
+/// caller's resource object, so the block seal criteria remain accurate.
+///
+/// Failure is logged but does not halt block processing — L1 transactions
+/// must always be processable to avoid stalling the priority queue.
+fn notify_l2_asset_tracker<'a, S: EthereumLikeTypes + 'a>(
+    system: &mut System<S>,
+    system_functions: &mut HooksStorage<S, S::Allocator>,
+    memories: RunnerMemoryBuffers<'a>,
+    amount: U256,
+    resources: &mut S::Resources,
+    tracer: &mut impl Tracer<S>,
+    validator: &mut impl TxValidator<S>,
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+    S::Metadata: ZkSpecificPricingMetadata
+        + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
+{
+    if amount > U256::ZERO {
+        // Read settlement layer chain ID from SystemContext storage slot 0
+        let sl_chain_id = read_settlement_layer_chain_id(&mut system.io);
+
+        // Encode calldata for handleFinalizeBaseTokenBridgingOnL2(uint256,uint256):
+        // selector 0x03117c8c + abi-encoded (fromChainId, amount)
+        let mut calldata = [0u8; 68];
+        calldata[0..4].copy_from_slice(&[0x03, 0x11, 0x7c, 0x8c]);
+        calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
+        calldata[36..68].copy_from_slice(&amount.to_be_bytes::<32>());
+
+        let failed = resources.with_infinite_ergs(|inf_ergs| {
+            let CompletedExecution {
+                resources_returned,
+                result: asset_tracker_result,
+            } = BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+                system,
+                system_functions,
+                memories,
+                &calldata,
+                &L2_BASE_TOKEN_ADDRESS,
+                &L2_ASSET_TRACKER_ADDRESS,
+                inf_ergs.clone(),
+                &U256::ZERO,
+                true, // should_make_frame - isolate state changes
+                tracer,
+                validator,
+            )?;
+            // Overwrite resources inside the closure so that
+            // with_infinite_ergs correctly restores ergs afterwards,
+            // while the native consumption from the call is kept.
+            *inf_ergs = resources_returned;
+            Ok::<bool, BootloaderSubsystemError>(asset_tracker_result.failed())
+        })?;
+
+        if failed {
+            system_log!(
+                system,
+                "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 failed for amount {amount:?}\n"
+            );
+        }
+    }
     Ok(())
 }
