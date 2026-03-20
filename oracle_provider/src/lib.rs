@@ -91,10 +91,6 @@ impl<M: MemorySource> ZkEENonDeterminismSource<M> {
         self.is_connected_to_external_oracle = true;
     }
 
-    pub fn reconnect_external_oracle(&mut self) {
-        self.is_connected_to_external_oracle = true;
-    }
-
     fn process_buffered_query(&mut self, memory: &M) {
         assert!(self.current_iterator.is_none());
         assert!(self.current_query_id.is_none());
@@ -317,10 +313,6 @@ impl<M: MemorySource> ReadWitnessSource<M> {
 
     pub fn get_read_items(&self) -> Rc<RefCell<Vec<u32>>> {
         self.read_items.clone()
-    }
-
-    pub fn reconnect_external_oracle(&mut self) {
-        self.original_source.reconnect_external_oracle();
     }
 }
 

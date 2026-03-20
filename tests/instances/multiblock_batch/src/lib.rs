@@ -250,6 +250,108 @@ fn run_multiblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
     );
 }
 
+fn run_singleblock_batch_proof_run(da_commitment_scheme: DACommitmentScheme) {
+    let wallet = testing_signer(0);
+    let to = address!("0000000000000000000000000000000000010002");
+    let batch_tester = new_multiblock_batch_tester();
+    let block_context = BlockContext {
+        timestamp: 42,
+        ..Default::default()
+    };
+
+    let mint_tx = {
+        let mint_tx = TxLegacy {
+            chain_id: 37u64.into(),
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 80_000,
+            to: TxKind::Call(to),
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet)
+    };
+
+    let initial_proof_data = batch_tester.prepare_batch_initial_proof_data();
+    let batch_state = batch_tester.prepare_batch_state();
+    let block_batch_input =
+        batch_tester.prepare_batch_block_input(vec![mint_tx.clone()], Some(block_context.clone()));
+
+    let mut legacy_tester = new_multiblock_batch_tester()
+        .with_da_commitment_scheme(da_commitment_scheme)
+        .with_run_config(legacy_singleblock_run_config());
+    legacy_tester.set_block_context(Some(block_context.clone()));
+    let _ = legacy_tester.execute_block(vec![mint_tx]);
+    let block_run = legacy_tester
+        .last_executed_block_info()
+        .expect("legacy block run must record proof input");
+    let legacy_block_output = block_run.block_output.clone();
+    let legacy_proof_input = block_run.proof_input.clone();
+    let legacy_pubdata = block_run.pubdata.clone();
+
+    let legacy_batch_input = generate_legacy_batch_proof_input(
+        vec![legacy_proof_input.as_slice()],
+        da_commitment_scheme,
+        vec![legacy_pubdata.as_slice()],
+    );
+    let batch_output = generate_batch_proof_input(
+        initial_proof_data,
+        batch_state,
+        vec![block_batch_input],
+        da_commitment_scheme,
+    )
+    .expect("single-block batch prover input generation failed");
+
+    assert_eq!(
+        batch_output.prover_input, legacy_batch_input,
+        "single-block batch prover input mismatch"
+    );
+    assert_eq!(
+        batch_output.batch_output.first_block_timestamp, block_context.timestamp,
+        "single-block batch first block timestamp mismatch"
+    );
+    assert_eq!(
+        batch_output.batch_output.last_block_timestamp, block_context.timestamp,
+        "single-block batch last block timestamp mismatch"
+    );
+    assert_eq!(
+        batch_output.pubdata, legacy_pubdata,
+        "single-block batch pubdata mismatch"
+    );
+    assert_eq!(
+        batch_output.block_outputs.len(),
+        1,
+        "single-block batch prover input should return one BlockOutput"
+    );
+    assert_block_output_matches(
+        &batch_output.block_outputs[0],
+        &legacy_block_output,
+        "single-block",
+    );
+    assert_eq!(
+        batch_output.batch_public_input.batch_output,
+        batch_output.batch_output.hash().into(),
+        "single-block batch public input should commit to the batch output hash"
+    );
+
+    let multiblock_program_path = PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap())
+        .join("zksync_os")
+        .join("multiblock_batch.bin");
+    let proof_output = zksync_os_runner::run(
+        multiblock_program_path,
+        None,
+        1 << 36,
+        QuasiUARTSource::new_with_reads(batch_output.prover_input),
+    );
+
+    let proof_output_u8: [u8; 32] = unsafe { core::mem::transmute(proof_output) };
+    assert_eq!(
+        proof_output_u8,
+        batch_output.batch_public_input.hash(),
+        "single-block RISC-V batch proof output mismatch"
+    );
+}
+
 #[test]
 fn run_multiblock_batch_proof_run_calldata() {
     // The proving flow overflows the default libtest stack in this instance.
@@ -304,4 +406,15 @@ fn batch_helpers_reject_empty_batches() {
         batch_rejected.is_err(),
         "batch prover input should reject empty batches"
     );
+}
+
+#[test]
+fn run_singleblock_batch_proof_run_calldata() {
+    std::thread::Builder::new()
+        .name("singleblock_batch_calldata".to_owned())
+        .stack_size(TEST_STACK_SIZE)
+        .spawn(|| run_singleblock_batch_proof_run(DACommitmentScheme::BlobsAndPubdataKeccak256))
+        .unwrap()
+        .join()
+        .unwrap();
 }

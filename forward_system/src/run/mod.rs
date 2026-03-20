@@ -677,3 +677,55 @@ pub fn simulate_tx<S: ReadStorage, PS: PreimageSource>(
     let mut block_output: BlockOutput = result_keeper.into();
     Ok(block_output.tx_results.remove(0))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blob_advice(pubdata: &[u8]) -> Vec<u32> {
+        let mut blobs_data = Vec::with_capacity(pubdata.len() + 31);
+        blobs_data.extend_from_slice(&(pubdata.len() as u64).to_be_bytes());
+        blobs_data.extend_from_slice(&[0u8; 23]);
+        blobs_data.extend_from_slice(pubdata);
+
+        let mut blobs_advice = Vec::with_capacity(25 * blobs_data.len().div_ceil(31 * 4096));
+        for blob_data in blobs_data.chunks(31 * 4096) {
+            let advice =
+                callable_oracles::blob_kzg_commitment::blob_kzg_commitment_and_proof(blob_data);
+            blobs_advice.push(24);
+            for word in advice.iter() {
+                #[cfg(target_pointer_width = "32")]
+                blobs_advice.push(word as u32);
+                #[cfg(target_pointer_width = "64")]
+                {
+                    let low = word as u32;
+                    let high = (word >> 32) as u32;
+                    blobs_advice.push(low);
+                    blobs_advice.push(high);
+                }
+            }
+        }
+        blobs_advice
+    }
+
+    #[test]
+    fn legacy_batch_input_handles_empty_blob_pubdata() {
+        let block_witness_payload = [11, 22, 33];
+        let mut single_block_witness = block_witness_payload.to_vec();
+        single_block_witness.extend_from_slice(&[100; 25]);
+        single_block_witness.push(0);
+
+        let batch_witness = generate_legacy_batch_proof_input(
+            vec![single_block_witness.as_slice()],
+            DACommitmentScheme::BlobsZKsyncOS,
+            vec![&[]],
+        );
+
+        let mut expected = vec![1];
+        expected.extend_from_slice(&block_witness_payload);
+        expected.extend_from_slice(&blob_advice(&[]));
+        expected.push(0);
+
+        assert_eq!(batch_witness, expected);
+    }
+}

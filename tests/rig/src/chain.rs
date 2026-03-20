@@ -611,6 +611,11 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
     }
 
     /// Build the per-block inputs that remain external to the batch runner.
+    ///
+    /// This snapshots the chain metadata at the current height. It does not
+    /// advance the chain, so repeated calls on the same `Chain` will reuse the
+    /// same block number and block hashes unless the caller first mutates the
+    /// chain state (e.g. by executing a block).
     pub fn prepare_batch_block_input(
         &self,
         transactions: Vec<EncodedTx>,
