@@ -160,6 +160,13 @@ impl<O: IOOracle> SystemTypes for BatchProverInputSystemTypes<O> {
 impl<O: IOOracle> EthereumLikeTypes for BatchProverInputSystemTypes<O> {}
 
 impl<O: IOOracle> BasicSTF for BatchProverInputSystemTypes<O> {
+    // This only disables the per-block enforced-tx accumulator. In the batch
+    // prover-input path, priority/enforced tx hashes are still accumulated via
+    // the TxLoopOp's BatchDataKeeper = ZKBatchDataKeeper, which turns them into
+    // the batch-level priority_operations_hash / number_of_layer_1_txs. Block
+    // headers still get their transactions_root from ZKBasicBlockDataKeeper's
+    // separate transaction_hashes_accumulator, which is always a rolling
+    // Keccak hasher.
     type BlockDataKeeper = ZKBasicBlockDataKeeper<NopTxHashesAccumulator>;
     type BatchDataKeeper = ZKBatchDataKeeper<Self::Allocator, O>;
     type BlockHeader = basic_bootloader::bootloader::block_header::BlockHeader;
