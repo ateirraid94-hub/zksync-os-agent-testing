@@ -24,6 +24,7 @@ use alloy::signers::local::PrivateKeySigner;
 pub use alloy_rlp;
 pub use alloy_sol_types;
 pub use basic_bootloader;
+use basic_bootloader::bootloader::block_flow::public_input::BatchOutput;
 use basic_bootloader::bootloader::errors::BootloaderSubsystemError;
 pub use basic_system;
 use basic_system::system_implementation::flat_storage_model::{FlatStorageCommitment, TREE_HEIGHT};
@@ -95,7 +96,12 @@ mod colors {
 }
 
 pub struct LastExecutedBlockInfo {
+    /// Forward-run block output returned by the sequencer-style execution.
     pub block_output: BlockOutput,
+    /// Block output reconstructed from the prover-input replay of the same block.
+    pub prover_input_block_output: BlockOutput,
+    /// Public batch-level fields returned by the single-block prover-input post-op.
+    pub prover_input_batch_output: BatchOutput,
     pub block_extra_stats: BlockExtraStats,
     pub proof_input: Vec<u32>,
     pub pubdata: Vec<u8>,
@@ -205,9 +211,9 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
             .map(ZKsyncTxEnvelope::encode)
             .collect::<Vec<_>>();
 
-        let (block_output, block_extra_stats, proof_input, pubdata) =
-            if let Some(oracle_factory) = &self.oracle_factory {
-                self.chain.run_block_with_extra_stats_with_oracle_factory(
+        let executed_block = if let Some(oracle_factory) = &self.oracle_factory {
+            self.chain
+                .run_block_with_execution_artifacts_with_oracle_factory(
                     encoded_txs,
                     self.block_context.clone(),
                     self.da_commitment_scheme,
@@ -216,22 +222,30 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
                     validator,
                     oracle_factory.as_ref(),
                 )?
-            } else {
-                self.chain.run_block_with_extra_stats(
-                    encoded_txs,
-                    self.block_context.clone(),
-                    self.da_commitment_scheme,
-                    Some(run_config),
-                    tracer,
-                    validator,
-                )?
-            };
+        } else {
+            self.chain.run_block_with_execution_artifacts(
+                encoded_txs,
+                self.block_context.clone(),
+                self.da_commitment_scheme,
+                Some(run_config),
+                tracer,
+                validator,
+            )?
+        };
+
+        let crate::chain::ExecutedBlockArtifacts {
+            block_output,
+            block_extra_stats,
+            prover_input,
+        } = executed_block;
 
         self.last_executed_block_info = Some(LastExecutedBlockInfo {
             block_output: block_output.clone(),
+            prover_input_block_output: prover_input.block_output,
+            prover_input_batch_output: prover_input.batch_output,
             block_extra_stats,
-            proof_input,
-            pubdata,
+            proof_input: prover_input.proof_input,
+            pubdata: prover_input.pubdata,
         });
 
         if let (Some(pre_block_chain), Some(transactions), Some(block_context)) = (

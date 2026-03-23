@@ -4,6 +4,7 @@ use alloy::hex;
 use alloy::signers::local::PrivateKeySigner;
 use alloy_rlp::{Decodable, Encodable};
 use basic_bootloader::bootloader::block_flow::ethereum::PectraForkHeader;
+use basic_bootloader::bootloader::block_flow::public_input::BatchOutput;
 use basic_bootloader::bootloader::config::BasicBootloaderCallSimulationConfig;
 use basic_bootloader::bootloader::config::BasicBootloaderProvingExecutionConfig;
 use basic_bootloader::bootloader::constants::MAX_BLOCK_GAS_LIMIT;
@@ -33,7 +34,7 @@ use forward_system::run::test_impl::{
 };
 use forward_system::run::BatchBlockInput;
 use forward_system::system::bootloader::run_forward_no_panic;
-use forward_system::system::bootloader::run_prover_input_no_panic;
+use forward_system::system::bootloader::run_prover_input_with_batch_output_no_panic;
 use forward_system::system::system_types::ethereum::EthereumStorageSystemTypes;
 use forward_system::system::system_types::ForwardRunningSystem;
 use log::warn;
@@ -208,6 +209,19 @@ pub struct RunConfig {
     // Can be enabled via ZKSYNC_REVM_CONSISTENCY_CHECK env var.
     pub check_revm_consistency: bool,
     pub update_state_after_block_execution: bool,
+}
+
+pub(crate) struct ProverInputArtifacts {
+    pub proof_input: Vec<u32>,
+    pub pubdata: Vec<u8>,
+    pub block_output: BlockOutput,
+    pub batch_output: BatchOutput,
+}
+
+pub(crate) struct ExecutedBlockArtifacts {
+    pub block_output: BlockOutput,
+    pub block_extra_stats: BlockExtraStats,
+    pub prover_input: ProverInputArtifacts,
 }
 
 impl Default for RunConfig {
@@ -781,7 +795,29 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             &mut NopTracer::default(),
             &mut NopTxValidator,
         )
-        .map(|r| r.0)
+        .map(|r| r.block_output)
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn run_block_with_execution_artifacts(
+        &mut self,
+        transactions: Vec<EncodedTx>,
+        block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
+        run_config: Option<RunConfig>,
+        tracer: &mut impl Tracer<ForwardRunningSystem>,
+        validator: &mut impl TxValidator<ForwardRunningSystem>,
+    ) -> Result<ExecutedBlockArtifacts, BootloaderSubsystemError> {
+        let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
+        self.run_inner(
+            transactions,
+            block_context,
+            da_commitment_scheme,
+            run_config.unwrap_or_default(),
+            &factory,
+            tracer,
+            validator,
+        )
     }
 
     #[allow(clippy::result_large_err)]
@@ -794,13 +830,42 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         tracer: &mut impl Tracer<ForwardRunningSystem>,
         validator: &mut impl TxValidator<ForwardRunningSystem>,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
-        let factory = DefaultOracleFactory::<RANDOMIZED_TREE>;
+        self.run_block_with_execution_artifacts(
+            transactions,
+            block_context,
+            da_commitment_scheme,
+            run_config,
+            tracer,
+            validator,
+        )
+        .map(|result| {
+            (
+                result.block_output,
+                result.block_extra_stats,
+                result.prover_input.proof_input,
+                result.prover_input.pubdata,
+            )
+        })
+    }
+
+    #[allow(clippy::result_large_err)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn run_block_with_execution_artifacts_with_oracle_factory(
+        &mut self,
+        transactions: Vec<EncodedTx>,
+        block_context: Option<BlockContext>,
+        da_commitment_scheme: Option<DACommitmentScheme>,
+        run_config: Option<RunConfig>,
+        tracer: &mut impl Tracer<ForwardRunningSystem>,
+        validator: &mut impl TxValidator<ForwardRunningSystem>,
+        oracle_factory: &dyn TestingOracleFactory<RANDOMIZED_TREE>,
+    ) -> Result<ExecutedBlockArtifacts, BootloaderSubsystemError> {
         self.run_inner(
             transactions,
             block_context,
             da_commitment_scheme,
             run_config.unwrap_or_default(),
-            &factory,
+            oracle_factory,
             tracer,
             validator,
         )
@@ -818,15 +883,23 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         validator: &mut impl TxValidator<ForwardRunningSystem>,
         oracle_factory: &dyn TestingOracleFactory<RANDOMIZED_TREE>,
     ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
-        self.run_inner(
+        self.run_block_with_execution_artifacts_with_oracle_factory(
             transactions,
             block_context,
             da_commitment_scheme,
-            run_config.unwrap_or_default(),
-            oracle_factory,
+            run_config,
             tracer,
             validator,
+            oracle_factory,
         )
+        .map(|result| {
+            (
+                result.block_output,
+                result.block_extra_stats,
+                result.prover_input.proof_input,
+                result.prover_input.pubdata,
+            )
+        })
     }
 
     #[allow(clippy::result_large_err)]
@@ -840,7 +913,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         oracle_factory: &dyn TestingOracleFactory<RANDOMIZED_TREE>,
         tracer: &mut impl Tracer<ForwardRunningSystem>,
         validator: &mut impl TxValidator<ForwardRunningSystem>,
-    ) -> Result<(BlockOutput, BlockExtraStats, Vec<u32>, Vec<u8>), BootloaderSubsystemError> {
+    ) -> Result<ExecutedBlockArtifacts, BootloaderSubsystemError> {
         let RunConfig {
             profiler_config,
             witness_output_file,
@@ -944,11 +1017,13 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         let copy_source = ReadWitnessSource::new(prover_input_oracle);
         let mut tracer = NopTracer::default();
         let mut validator = NopTxValidator;
-        let prover_input_forward = {
+        let (prover_input_forward, prover_input_batch_output) = {
             // Avoid capturing markers from the second run, as it would duplicate them.
             #[cfg(feature = "cycle_marker")]
             let snapshot = cycle_marker::snapshot();
-            let result = run_prover_input_no_panic::<BasicBootloaderProvingExecutionConfig>(
+            let result = run_prover_input_with_batch_output_no_panic::<
+                BasicBootloaderProvingExecutionConfig,
+            >(
                 copy_source,
                 &mut result_keeper_prover_input,
                 &mut tracer,
@@ -971,7 +1046,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         }
 
         let block_output: BlockOutput = result_keeper.into();
-        let pubdata = result_keeper_prover_input.pubdata.clone();
+        let pubdata = std::mem::take(&mut result_keeper_prover_input.pubdata);
         let prover_input_block_output: BlockOutput = result_keeper_prover_input.into();
         let has_filtered_by_validator = has_validator_filtered_tx(&block_output);
         if has_filtered_by_validator {
@@ -1130,7 +1205,16 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         } else {
             prover_input_forward
         };
-        Ok((block_output, stats, proof_input, pubdata))
+        Ok(ExecutedBlockArtifacts {
+            block_output,
+            block_extra_stats: stats,
+            prover_input: ProverInputArtifacts {
+                proof_input,
+                pubdata,
+                block_output: prover_input_block_output,
+                batch_output: prover_input_batch_output,
+            },
+        })
     }
 
     pub fn make_eth_block_oracle<M: MemorySource + 'static>(
