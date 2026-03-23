@@ -13,6 +13,7 @@ categories.workspace = true
 
 [dependencies]
 ruint = { workspace = true, default-features = false }
+u256 = { path = "../supporting_crates/u256", default-features = false }
 arrayvec = { workspace = true, default-features = false }
 zk_ee = { path = "../zk_ee", default-features = false }
 crypto = { path = "../crypto", default-features = false }
