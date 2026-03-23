@@ -145,8 +145,6 @@ impl<TR: TxResultCallback>
             published_preimages,
             pubdata_used: block_pubdata_used,
             computational_native_used: block_computational_native_used,
-            // TODO: will be populated in the follow-up PR
-            pubdata_used: 0,
         }
     }
 }
