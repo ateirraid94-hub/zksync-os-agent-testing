@@ -303,7 +303,8 @@ impl<'a, S: EthereumLikeTypes, T: EvmFrameInterface<S>>
     }
 
     fn call_value(&self) -> &U256 {
-        self.inner.call_value()
+        // Safety: u256::U256 is #[repr(transparent)] over ruint::aliases::U256 (= alloy::primitives::U256)
+        unsafe { core::mem::transmute(self.inner.call_value()) }
     }
 
     fn refund_counter(&self) -> u32 {
@@ -325,7 +326,9 @@ impl<'a, S: EthereumLikeTypes, T: EvmFrameInterface<S>>
 
 impl<'a> zksync_os_interface::tracing::EvmStackInterface for EvmStackInterfaceWrapped<'a> {
     fn to_slice(&self) -> &[U256] {
-        self.inner.to_slice()
+        // Safety: u256::U256 is #[repr(transparent)] over ruint::aliases::U256 (= alloy::primitives::U256)
+        let slice = self.inner.to_slice();
+        unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
     }
 
     fn len(&self) -> usize {
@@ -335,6 +338,8 @@ impl<'a> zksync_os_interface::tracing::EvmStackInterface for EvmStackInterfaceWr
     fn peek_n(&self, index: usize) -> Result<&U256, InterfaceEvmError> {
         self.inner
             .peek_n(index)
+            // Safety: u256::U256 is #[repr(transparent)] over ruint::aliases::U256 (= alloy::primitives::U256)
+            .map(|value| unsafe { core::mem::transmute(value) })
             .map_err(|error| error.into_interface())
     }
 }
