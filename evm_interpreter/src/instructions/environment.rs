@@ -92,8 +92,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
             .spend_gas_and_native(gas_constants::BLOCKHASH, BLOCKHASH_NATIVE_COST)?;
         let block_number = self.stack.pop_1()?;
         let block_number = custom_u256_to_u64_saturated(block_number);
-        let block_hash =
-            U256::from_be_bytes(system.get_blockhash(block_number)?.as_u8_array_ref());
+        let block_hash = U256::from_be_bytes(system.get_blockhash(block_number)?.as_u8_array_ref());
         self.stack.push(&block_hash)?;
         Ok(())
     }
