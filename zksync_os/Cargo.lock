@@ -344,6 +344,14 @@ name = "cycle_marker"
 version = "0.0.0"
 
 [[package]]
+name = "delegated_u256"
+version = "0.1.0"
+dependencies = [
+ "ruint",
+ "serde",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -445,6 +453,7 @@ dependencies = [
  "paste",
  "ruint",
  "strum_macros",
+ "u256",
  "zk_ee",
 ]
 
@@ -685,6 +694,7 @@ dependencies = [
  "ruint",
  "system_hooks",
  "talc",
+ "u256",
  "zk_ee",
 ]
 
@@ -842,6 +852,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -986,6 +997,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "u256"
+version = "0.1.0"
+dependencies = [
+ "delegated_u256",
+ "ruint",
+ "serde",
+]
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,6 +1091,7 @@ dependencies = [
  "paste",
  "ruint",
  "strum_macros",
+ "u256",
 ]
 
 [[package]]
