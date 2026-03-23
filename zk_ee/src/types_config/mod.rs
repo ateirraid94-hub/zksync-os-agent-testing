@@ -35,7 +35,6 @@ pub trait SystemIOTypesConfig: Sized + 'static + Send + Sync {
     type NominalTokenValue: UsizeSerializable
         + UsizeDeserializable
         + Clone
-        + Copy
         + core::fmt::Debug
         + core::default::Default;
     type BytecodeHashValue: UsizeSerializable
