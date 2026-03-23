@@ -2924,6 +2924,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
+name = "delegated_u256"
+version = "0.1.0"
+dependencies = [
+ "ruint",
+ "serde",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3289,6 +3297,7 @@ dependencies = [
  "paste",
  "ruint",
  "strum_macros",
+ "u256",
  "zk_ee",
 ]
 
@@ -3303,6 +3312,7 @@ dependencies = [
  "paste",
  "ruint",
  "strum_macros",
+ "u256",
  "zk_ee_forward",
  "zksync_os_evm_errors 0.0.8",
 ]
@@ -3318,6 +3328,7 @@ dependencies = [
  "paste",
  "ruint",
  "strum_macros",
+ "u256",
  "zk_ee_proving",
  "zksync_os_evm_errors 0.0.8",
 ]
@@ -8498,6 +8509,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "u256"
+version = "0.1.0"
+dependencies = [
+ "delegated_u256",
+ "ruint",
+ "serde",
+]
+
+[[package]]
 name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9592,6 +9612,7 @@ dependencies = [
  "ruint",
  "serde",
  "strum_macros",
+ "u256",
 ]
 
 [[package]]
@@ -9607,6 +9628,7 @@ dependencies = [
  "ruint",
  "serde",
  "strum_macros",
+ "u256",
  "zksync_os_evm_errors 0.0.8",
 ]
 
@@ -9623,6 +9645,7 @@ dependencies = [
  "ruint",
  "serde",
  "strum_macros",
+ "u256",
  "zksync_os_evm_errors 0.0.8",
 ]
 
