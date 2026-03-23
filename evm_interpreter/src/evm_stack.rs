@@ -69,6 +69,9 @@ impl<A: Allocator> EvmStack<A> {
             src_offset - n
         };
         unsafe {
+            // SAFETY: `src_offset` and `dst_offset` are both within the initialized prefix of
+            // the stack, so both slots contain valid `U256` values. They are swapped in place
+            // without creating or dropping any extra values.
             let src = self
                 .buffer
                 .as_mut_ptr()
@@ -81,9 +84,7 @@ impl<A: Allocator> EvmStack<A> {
                 .add(dst_offset)
                 .as_mut_unchecked()
                 .assume_init_mut();
-            let t = src.clone();
-            Clone::clone_from(src, &*dst);
-            Clone::clone_from(dst, &t);
+            core::mem::swap(src, dst);
         }
 
         Ok(())
@@ -309,6 +310,10 @@ impl<A: Allocator> EvmStack<A> {
             if self.len < 3 {
                 return Err(EvmError::StackUnderflow.into());
             }
+            // SAFETY: `p0`, `p1`, and `peeked` are derived from stack slots `len - 1`,
+            // `len - 2`, and `len - 3` respectively. The `self.len < 3` guard ensures
+            // those offsets exist and are pairwise distinct, so the returned mutable
+            // references do not alias.
             let mut offset = self.len - 1;
             let p0 = self
                 .buffer
