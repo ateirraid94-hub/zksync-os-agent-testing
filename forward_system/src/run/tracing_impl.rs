@@ -1,7 +1,7 @@
 use crate::run::convert::IntoInterface;
 use crate::run::convert_alloy::IntoAlloy;
 use alloy::primitives::{Address, U256};
-use std::marker::PhantomData;
+use std::{cell::OnceCell, marker::PhantomData};
 use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::evm::{EvmError as ZkEEEvmError, EvmFrameInterface, EvmStackInterface};
 use zk_ee::system::tracer::evm_tracer::EvmTracer;
@@ -34,8 +34,8 @@ struct EvmFrameInterfaceWrapped<'a, S: EthereumLikeTypes, T: EvmFrameInterface<S
 
 /// Wrapper around internal [`EvmStackInterface`] to make it compatible with interface tracing API.
 struct EvmStackInterfaceWrapped<'a> {
-    values: Vec<U256>,
-    _inner: &'a dyn zk_ee::system::evm::EvmStackInterface,
+    cached_values: OnceCell<Vec<U256>>,
+    inner: &'a dyn EvmStackInterface,
 }
 
 impl<'a, S: EthereumLikeTypes + 'a, T: EvmFrameInterface<S>> From<&'a T>
@@ -43,17 +43,11 @@ impl<'a, S: EthereumLikeTypes + 'a, T: EvmFrameInterface<S>> From<&'a T>
 {
     fn from(value: &'a T) -> Self {
         let call_value_converted: ruint::aliases::U256 = value.call_value().clone().into();
-        let stack_values = value
-            .stack()
-            .to_slice()
-            .iter()
-            .map(|value| -> U256 { value.clone().into() })
-            .collect::<Vec<_>>();
         Self {
             inner: value,
             stack_wrapper: EvmStackInterfaceWrapped {
-                values: stack_values,
-                _inner: value.stack(),
+                cached_values: OnceCell::new(),
+                inner: value.stack(),
             },
             call_value_converted,
             _phantom: PhantomData,
@@ -338,20 +332,28 @@ impl<'a, S: EthereumLikeTypes, T: EvmFrameInterface<S>>
 
 impl<'a> zksync_os_interface::tracing::EvmStackInterface for EvmStackInterfaceWrapped<'a> {
     fn to_slice(&self) -> &[U256] {
-        &self.values
+        self.cached_values
+            .get_or_init(|| {
+                self.inner
+                    .to_slice()
+                    .iter()
+                    .map(|value| -> U256 { value.clone().into() })
+                    .collect()
+            })
+            .as_slice()
     }
 
     fn len(&self) -> usize {
-        self.values.len()
+        self.inner.len()
     }
 
     fn peek_n(&self, index: usize) -> Result<&U256, InterfaceEvmError> {
         let offset = self
-            .values
+            .inner
             .len()
             .checked_sub(index + 1)
             .ok_or(InterfaceEvmError::StackUnderflow)?;
-        self.values
+        self.to_slice()
             .get(offset)
             .ok_or(InterfaceEvmError::StackUnderflow)
     }

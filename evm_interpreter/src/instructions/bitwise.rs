@@ -1,6 +1,35 @@
 use super::*;
 use native_resource_constants::*;
 
+#[inline(always)]
+fn arithmetic_shr_in_place(value: &mut U256, shift: usize) {
+    let shift = shift.min(256);
+    let is_negative = value.bit(255);
+
+    if shift == 256 {
+        if is_negative {
+            let mut all_ones = U256::zero();
+            all_ones.not_mut();
+            *value = all_ones;
+        } else {
+            U256::write_zero(value);
+        }
+        return;
+    }
+
+    if shift == 0 {
+        return;
+    }
+
+    *value >>= shift as u32;
+    if is_negative {
+        let mut mask = U256::zero();
+        mask.not_mut();
+        mask <<= (256 - shift) as u32;
+        core::ops::BitOrAssign::bitor_assign(value, &mask);
+    }
+}
+
 impl<S: EthereumLikeTypes> Interpreter<'_, S> {
     pub fn lt(&mut self) -> InstructionResult {
         self.gas
@@ -156,31 +185,42 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
         self.gas
             .spend_gas_and_native(gas_constants::VERYLOW, SAR_NATIVE_COST)?;
         let (op1, op2) = self.stack.pop_1_and_peek_mut()?;
+        let shift = custom_u256_to_usize_saturated(op1);
+        arithmetic_shr_in_place(op2, shift);
+        Ok(())
+    }
+}
 
-        let shift = custom_u256_to_usize_saturated(op1).min(256);
-        let is_negative = op2.bit(255);
+#[cfg(test)]
+mod tests {
+    use super::arithmetic_shr_in_place;
+    use ruint::aliases::U256 as HostU256;
+    use u256::U256;
 
-        if shift == 256 {
-            if is_negative {
-                // All bits become 1 (sign-extended)
-                let mut all_ones = U256::zero();
-                all_ones.not_mut();
-                *op2 = all_ones;
-            } else {
-                U256::write_zero(op2);
-            }
-        } else if shift == 0 {
-            // no-op
-        } else {
-            *op2 >>= shift as u32;
-            if is_negative {
-                // Sign-extend: OR with a mask of 1s in the top `shift` bits
-                let mut mask = U256::zero();
-                mask.not_mut(); // all 1s
-                mask <<= (256 - shift) as u32;
-                core::ops::BitOrAssign::bitor_assign(op2, &mask);
+    fn assert_sar_matches_host(input: HostU256, shift: usize) {
+        let mut actual: U256 = input.into();
+        arithmetic_shr_in_place(&mut actual, shift);
+        let actual_host: HostU256 = actual.into();
+        assert_eq!(actual_host, input.arithmetic_shr(shift));
+    }
+
+    #[test]
+    fn sar_matches_host_reference_for_boundary_cases() {
+        let positive = HostU256::from_limbs([
+            0x0123_4567_89ab_cdef,
+            0xfedc_ba98_7654_3210,
+            0x0011_2233_4455_6677,
+            0x7f00_0000_0000_0000,
+        ]);
+        let negative = HostU256::MAX - HostU256::from(41u64);
+        let min_int = HostU256::from_limbs([0, 0, 0, 0x8000_0000_0000_0000]);
+        let minus_one = HostU256::MAX;
+        let zero = HostU256::ZERO;
+
+        for value in [positive, negative, min_int, minus_one, zero] {
+            for shift in [0usize, 1, 128, 255, 256, 257] {
+                assert_sar_matches_host(value, shift);
             }
         }
-        Ok(())
     }
 }
