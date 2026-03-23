@@ -187,7 +187,8 @@ pub const STACK_SIZE: usize = 1024;
 pub const MAX_CODE_SIZE: usize = 0x6000;
 pub const MAX_INITCODE_SIZE: usize = MAX_CODE_SIZE * 2;
 pub const ERGS_PER_GAS: u64 = 256;
-pub const ERGS_PER_GAS_U256: ruint::aliases::U256 = ruint::aliases::U256::from_limbs([ERGS_PER_GAS, 0, 0, 0]);
+pub const ERGS_PER_GAS_U256: ruint::aliases::U256 =
+    ruint::aliases::U256::from_limbs([ERGS_PER_GAS, 0, 0, 0]);
 pub const BYTECODE_ALIGNMENT: usize = core::mem::size_of::<u64>();
 
 #[derive(Debug)]

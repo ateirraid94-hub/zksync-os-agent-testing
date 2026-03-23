@@ -412,8 +412,8 @@ impl<A: Allocator> EvmStackInterface for EvmStack<A> {
 mod tests {
     use super::EvmStack;
     use crate::STACK_SIZE;
-    use u256::U256;
     use std::alloc::Global;
+    use u256::U256;
     use zk_ee::system::evm::EvmError;
 
     #[test]
