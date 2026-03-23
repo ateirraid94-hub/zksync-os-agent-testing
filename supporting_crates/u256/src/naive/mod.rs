@@ -245,6 +245,9 @@ impl U256 {
         let mut product = [0u64; 8];
         let _ = ruint::algorithms::addmul(&mut product, a.as_limbs(), b.as_limbs());
 
+        // `ruint::algorithms::div` divides `product` by the divisor in-place:
+        // it writes the quotient into `product` and the remainder into the
+        // divisor (`modulus_or_result`). The remainder is the MULMOD result.
         ruint::algorithms::div(&mut product, modulus_or_result.as_limbs_mut());
     }
 

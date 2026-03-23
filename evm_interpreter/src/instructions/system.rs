@@ -150,7 +150,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
             );
         }
 
-        Clone::clone_from(stack_top, &value);
+        *stack_top = value;
 
         Ok(())
     }

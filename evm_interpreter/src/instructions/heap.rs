@@ -26,7 +26,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
             system_log!(system, " offset: {index}, read value: 0x{value:0x}");
         }
 
-        Clone::clone_from(stack_top, &value);
+        *stack_top = value;
         Ok(())
     }
 
