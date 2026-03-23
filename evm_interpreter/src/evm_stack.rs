@@ -5,7 +5,7 @@ use crate::ExitCode;
 use crate::STACK_SIZE;
 use alloc::boxed::Box;
 use core::{alloc::Allocator, mem::MaybeUninit};
-use ruint::aliases::U256;
+use u256::U256;
 use zk_ee::logger_log;
 use zk_ee::system::evm::EvmError;
 use zk_ee::system::evm::EvmStackInterface;
@@ -69,18 +69,21 @@ impl<A: Allocator> EvmStack<A> {
             src_offset - n
         };
         unsafe {
-            core::mem::swap(
-                self.buffer
-                    .as_mut_ptr()
-                    .add(src_offset)
-                    .as_mut_unchecked()
-                    .assume_init_mut(),
-                self.buffer
-                    .as_mut_ptr()
-                    .add(dst_offset)
-                    .as_mut_unchecked()
-                    .assume_init_mut(),
-            );
+            let src = self
+                .buffer
+                .as_mut_ptr()
+                .add(src_offset)
+                .as_mut_unchecked()
+                .assume_init_mut();
+            let dst = self
+                .buffer
+                .as_mut_ptr()
+                .add(dst_offset)
+                .as_mut_unchecked()
+                .assume_init_mut();
+            let t = src.clone();
+            Clone::clone_from(src, &*dst);
+            Clone::clone_from(dst, &t);
         }
 
         Ok(())
@@ -104,7 +107,7 @@ impl<A: Allocator> EvmStack<A> {
                 .as_ref_unchecked()
                 .assume_init_ref();
             let dst_ref_mut = self.buffer.as_mut_ptr().add(self.len).as_mut_unchecked();
-            dst_ref_mut.as_mut_ptr().write(*src_ref);
+            U256::write_into_ptr(dst_ref_mut.as_mut_ptr(), src_ref);
         }
         self.len += 1;
 
@@ -295,6 +298,45 @@ impl<A: Allocator> EvmStack<A> {
         }
     }
 
+    /// Pop 2 elements as mutable and peek the next one as mutable.
+    /// Returns ((op1_mut, op2_mut), peek_mut) where op1 was on top.
+    /// After the call, the stack length is reduced by 2 (the peeked element stays).
+    #[inline(always)]
+    pub fn pop_2_mut_and_peek(
+        &'_ mut self,
+    ) -> Result<((&'_ mut U256, &'_ mut U256), &'_ mut U256), ExitCode> {
+        unsafe {
+            if self.len < 3 {
+                return Err(EvmError::StackUnderflow.into());
+            }
+            let mut offset = self.len - 1;
+            let p0 = self
+                .buffer
+                .as_mut_ptr()
+                .add(offset)
+                .as_mut_unchecked()
+                .assume_init_mut();
+            offset -= 1;
+            let p1 = self
+                .buffer
+                .as_mut_ptr()
+                .add(offset)
+                .as_mut_unchecked()
+                .assume_init_mut();
+            self.len = offset;
+
+            offset -= 1;
+            let peeked = self
+                .buffer
+                .as_mut_ptr()
+                .add(offset)
+                .as_mut_unchecked()
+                .assume_init_mut();
+
+            Ok(((p0, p1), peeked))
+        }
+    }
+
     #[inline(always)]
     pub fn push_zero(&mut self) -> Result<(), ExitCode> {
         if self.len == STACK_SIZE {
@@ -302,7 +344,7 @@ impl<A: Allocator> EvmStack<A> {
         }
         unsafe {
             let dst_ref_mut = self.buffer.as_mut_ptr().add(self.len).as_mut_unchecked();
-            dst_ref_mut.as_mut_ptr().write(U256::ZERO);
+            U256::write_zero_into_ptr(dst_ref_mut.as_mut_ptr());
             self.len += 1;
         }
 
@@ -316,7 +358,7 @@ impl<A: Allocator> EvmStack<A> {
         }
         unsafe {
             let dst_ref_mut = self.buffer.as_mut_ptr().add(self.len).as_mut_unchecked();
-            dst_ref_mut.as_mut_ptr().write(U256::ONE);
+            U256::write_one_into_ptr(dst_ref_mut.as_mut_ptr());
             self.len += 1;
         }
 
@@ -330,7 +372,7 @@ impl<A: Allocator> EvmStack<A> {
         }
         unsafe {
             let dst_ref_mut = self.buffer.as_mut_ptr().add(self.len).as_mut_unchecked();
-            dst_ref_mut.as_mut_ptr().write(*value);
+            U256::write_into_ptr(dst_ref_mut.as_mut_ptr(), value);
             self.len += 1;
         }
 
@@ -370,7 +412,7 @@ impl<A: Allocator> EvmStackInterface for EvmStack<A> {
 mod tests {
     use super::EvmStack;
     use crate::STACK_SIZE;
-    use ruint::aliases::U256;
+    use u256::U256;
     use std::alloc::Global;
     use zk_ee::system::evm::EvmError;
 
@@ -378,21 +420,23 @@ mod tests {
     fn push_then_pop_works() {
         let mut stack = EvmStack::new_in(Global);
 
-        stack.push(&U256::ONE).expect("Should push");
+        let one = U256::one();
+        stack.push(&one).expect("Should push");
         let res = stack.pop_1().expect("Should pop");
 
-        assert_eq!(*res, U256::ONE);
+        assert_eq!(*res, one);
     }
 
     #[test]
     fn push_can_not_overflow() {
         let mut stack = EvmStack::new_in(Global);
 
+        let one = U256::one();
         for _ in 0..STACK_SIZE {
-            stack.push(&U256::ONE).expect("Should push");
+            stack.push(&one).expect("Should push");
         }
 
-        assert_eq!(stack.push(&U256::ONE), Err(EvmError::StackOverflow.into()));
+        assert_eq!(stack.push(&one), Err(EvmError::StackOverflow.into()));
     }
 
     #[test]
@@ -491,8 +535,8 @@ mod tests {
 
         let (p0, p1) = stack.pop_2().expect("Should pop");
 
-        assert_eq!(*p0, U256::ONE);
-        assert_eq!(*p1, U256::ZERO);
+        assert_eq!(*p0, U256::one());
+        assert_eq!(*p1, U256::zero());
     }
 
     #[test]
@@ -506,8 +550,8 @@ mod tests {
 
         let (p0, p1) = stack.pop_2().expect("Should pop");
 
-        assert_eq!(*p0, U256::ONE);
-        assert_eq!(*p1, U256::ONE);
+        assert_eq!(*p0, U256::one());
+        assert_eq!(*p1, U256::one());
 
         stack.push_one().expect("Should push");
 
