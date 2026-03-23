@@ -165,7 +165,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
                 // All bits become 1 (sign-extended)
                 let mut all_ones = U256::zero();
                 all_ones.not_mut();
-                Clone::clone_from(op2, &all_ones);
+                *op2 = all_ones;
             } else {
                 U256::write_zero(op2);
             }

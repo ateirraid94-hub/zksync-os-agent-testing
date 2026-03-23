@@ -38,20 +38,24 @@ impl U256 {
         Self(DelegatedU256::from_limbs(limbs))
     }
 
-    pub unsafe fn write_into_ptr(&self, dst: *mut Self) {
-        delegated_u256::write_into_ptr(dst.cast(), &self.0);
+    /// # Safety
+    /// `dst` must be 32 byte aligned and point to 32 bytes of accessible memory.
+    pub unsafe fn write_into_ptr(dst: *mut Self, source: &Self) {
+        delegated_u256::write_into_ptr(dst.cast(), &source.0);
     }
 
-    pub unsafe fn write_into_ptr_unchecked(&self, dst: *mut Self) {
-        delegated_u256::write_into_ptr_unchecked(dst.cast(), &self.0);
+    /// # Safety
+    /// `dst` must be 32 byte aligned and point to 32 bytes of accessible memory.
+    pub unsafe fn write_into_ptr_unchecked(dst: *mut Self, source: &Self) {
+        delegated_u256::write_into_ptr_unchecked(dst.cast(), &source.0);
     }
 
     pub fn clone_into(&self, dst: &mut Self) {
-        unsafe { self.write_into_ptr(dst as *mut _) };
+        unsafe { Self::write_into_ptr(dst as *mut _, self) };
     }
 
     pub unsafe fn clone_into_unchecked(&self, dst: &mut Self) {
-        self.write_into_ptr_unchecked(dst as *mut _);
+        Self::write_into_ptr_unchecked(dst as *mut _, self);
     }
 
     #[inline(always)]
@@ -273,6 +277,9 @@ impl U256 {
         let (low, high) = product.split_at_mut(1);
         Self::widening_mul_assign_into(&mut low[0], &mut high[0], &*b);
         let product: &mut [u64; 8] = unsafe { core::mem::transmute(&mut product[0]) };
+        // `ruint::algorithms::div` divides `product` by the divisor in-place:
+        // it writes the quotient into `product` and the remainder into the
+        // divisor (`modulus_or_result`). The remainder is the MULMOD result.
         ruint::algorithms::div(product, modulus_or_result.as_limbs_mut());
     }
 
