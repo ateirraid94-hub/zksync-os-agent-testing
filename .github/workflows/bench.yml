@@ -58,13 +58,16 @@ jobs:
       - name: Install Python dependencies
         run: pip3 install matplotlib
 
-      - name: Compile for RISC-V
-        working-directory: ./zksync_os
+      - name: Setup RISC-V tooling
         run: |
           rustup target add riscv32i-unknown-none-elf
           cargo install cargo-binutils
           rustup component add llvm-tools-preview
           rustup component add rust-src
+
+      - name: Compile for RISC-V
+        working-directory: ./zksync_os
+        run: |
           ./dump_bin.sh --type for-tests
           ./dump_bin.sh --type evm-replay-benchmarking
 
@@ -85,10 +88,6 @@ jobs:
       - name: Recompile for RISC-V
         working-directory: ./zksync_os
         run: |
-          rustup target add riscv32i-unknown-none-elf
-          cargo install cargo-binutils
-          rustup component add llvm-tools-preview
-          rustup component add rust-src
           ./dump_bin.sh --type for-tests
           ./dump_bin.sh --type evm-replay-benchmarking
 
