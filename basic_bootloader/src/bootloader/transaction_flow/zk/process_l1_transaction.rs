@@ -227,11 +227,11 @@ where
         .ok_or(internal_error!("gu*gp"))?;
     // Use FORMAL_INFINITE for post-execution operations (coinbase transfer,
     // asset tracker notifications, refund transfer, log emission).
-    // These cannot fail due to resource exhaustion. We measure the native
-    // consumed via the diff on inf_resources and include it in
-    // computational_native_used so that block seal criteria remain accurate.
+    // These cannot fail due to resource exhaustion. Their native cost is
+    // accounted for as intrinsic and is not included in
+    // computational_native_used (native_used only reflects native for
+    // pubdata + native used for charged computation).
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
-    let inf_resources_initial = inf_resources.clone();
 
     let coinbase = system.get_coinbase();
     transfer_from_treasury::<S>(
@@ -330,18 +330,13 @@ where
         )?;
     }
 
-    // Native consumed by post-execution operations (coinbase transfer,
-    // asset tracker notifications, refund, log emission).
-    let post_execution_native_used = inf_resources.diff(inf_resources_initial).native().as_u64();
-
     // Add back the intrinsic native charged in get_resources_for_tx,
     // as initial_resources doesn't include them.
     let computational_native_used = resources_before_refund
         .diff(initial_resources)
         .native()
         .as_u64()
-        + intrinsic_computational_native_charged
-        + post_execution_native_used;
+        + intrinsic_computational_native_charged;
 
     // Restore the saved returndata into the return buffer so that the
     // ExecutionResult can borrow it with the correct lifetime.
@@ -575,29 +570,30 @@ where
     // on the value of the fee. For that reason, we always perform the
     // following transfer on simulation, and avoid compressing the pubdata
     // for the balance changes resulting from it.
+    //
+    // Use FORMAL_INFINITE: the treasury transfer and asset-tracker
+    // notification are intrinsic to L1 tx processing and their native
+    // cost is accounted for in the intrinsic native cost constant.
+    // Running with FORMAL_INFINITE also ensures these operations cannot
+    // fail due to resource exhaustion.
+    let mut inf_resources = S::Resources::FORMAL_INFINITE;
     if to_transfer > U256::ZERO || Config::SIMULATION {
-        resources
-            .with_infinite_ergs(|inf_resources| {
-                transfer_from_treasury::<S>(
-                    system,
-                    &to_transfer,
-                    &from,
-                    inf_resources,
-                    Config::SIMULATION,
-                )
-            })
-            .map_err(|e| match e.root_cause() {
-                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    system_log!(
-                        system,
-                        "Out of ergs on infinite ergs: inner error was {e:?}"
-                    );
-                    BootloaderSubsystemError::LeafDefect(internal_error!(
-                        "Out of ergs on infinite ergs"
-                    ))
-                }
-                _ => e,
-            })?;
+        transfer_from_treasury::<S>(
+            system,
+            &to_transfer,
+            &from,
+            &mut inf_resources,
+            Config::SIMULATION,
+        )
+        .map_err(|e| match e.root_cause() {
+            RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
+                internal_error!("Out of ergs on infinite ergs").into()
+            }
+            RootCause::Runtime(RuntimeError::FatalRuntimeError(_)) => {
+                internal_error!("Out of native on infinite").into()
+            }
+            _ => e,
+        })?;
     }
 
     // Notify L2AssetTracker about the value mint portion of the deposit.
@@ -608,7 +604,7 @@ where
         system_functions,
         memories.reborrow(),
         to_transfer,
-        resources,
+        &mut inf_resources,
         tracer,
         validator,
     )?;
@@ -771,8 +767,9 @@ where
 /// Uses infinite EVM gas but tracks native resource consumption via the
 /// caller's resource object, so the block seal criteria remain accurate.
 ///
-/// Failure is logged but does not halt block processing — L1 transactions
-/// must always be processable to avoid stalling the priority queue.
+/// Failure halts block processing — if the asset tracker reverts, the
+/// chain's token accounting would be inconsistent, so we treat it as
+/// fatal rather than silently continuing with incorrect bookkeeping.
 fn notify_l2_asset_tracker<'a, S: EthereumLikeTypes + 'a>(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
@@ -827,6 +824,10 @@ where
                 system,
                 "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 failed for amount {amount:?}\n"
             );
+            return Err(internal_error!(
+                "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 reverted"
+            )
+            .into());
         }
     }
     Ok(())

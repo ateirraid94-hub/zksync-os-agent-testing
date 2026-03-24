@@ -61,8 +61,23 @@ impl BytecodeBuilder {
         self
     }
 
+    pub fn sload(mut self) -> Self {
+        self.bytes.push(0x54);
+        self
+    }
+
     pub fn sstore(mut self) -> Self {
         self.bytes.push(0x55);
+        self
+    }
+
+    pub fn add(mut self) -> Self {
+        self.bytes.push(0x01);
+        self
+    }
+
+    pub fn calldataload(mut self) -> Self {
+        self.bytes.push(0x35);
         self
     }
 

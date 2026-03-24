@@ -35,39 +35,43 @@ fn system_context_address() -> rig::alloy::primitives::Address {
 }
 
 /// EVM bytecode for a mock contract that accumulates call data:
-///
-/// ```text
-/// // Increment call counter: slot[0] += 1
-/// PUSH1 0, SLOAD, PUSH1 1, ADD, PUSH1 0, SSTORE
-/// // Accumulate amount: slot[1] += CALLDATALOAD(36)
-/// PUSH1 1, SLOAD, PUSH1 36, CALLDATALOAD, ADD, PUSH1 1, SSTORE
-/// // Store chain ID: slot[2] = CALLDATALOAD(4)
-/// PUSH1 4, CALLDATALOAD, PUSH1 2, SSTORE
-/// // Store last amount: slot[3] = CALLDATALOAD(36)
-/// PUSH1 36, CALLDATALOAD, PUSH1 3, SSTORE
-/// // Return success
-/// PUSH0, PUSH0, RETURN
-/// ```
+/// - slot[0] += 1                      (call counter)
+/// - slot[1] += CALLDATALOAD(36)       (accumulated amount)
+/// - slot[2] = CALLDATALOAD(4)         (last chain ID)
+/// - slot[3] = CALLDATALOAD(36)        (last amount)
+/// - returns success
 fn mock_accumulating_contract() -> Vec<u8> {
-    vec![
+    use rig::evm_bytecode::BytecodeBuilder;
+
+    BytecodeBuilder::new()
         // slot[0] += 1
-        0x60, 0x00, 0x54, // PUSH1 0, SLOAD
-        0x60, 0x01, 0x01, // PUSH1 1, ADD
-        0x60, 0x00, 0x55, // PUSH1 0, SSTORE
+        .push0()
+        .sload()
+        .push_u8(1)
+        .add()
+        .push0()
+        .sstore()
         // slot[1] += CALLDATALOAD(36)
-        0x60, 0x01, 0x54, // PUSH1 1, SLOAD
-        0x60, 0x24, 0x35, // PUSH1 36, CALLDATALOAD
-        0x01, // ADD
-        0x60, 0x01, 0x55, // PUSH1 1, SSTORE
+        .push_u8(1)
+        .sload()
+        .push_u8(36)
+        .calldataload()
+        .add()
+        .push_u8(1)
+        .sstore()
         // slot[2] = CALLDATALOAD(4)
-        0x60, 0x04, 0x35, // PUSH1 4, CALLDATALOAD
-        0x60, 0x02, 0x55, // PUSH1 2, SSTORE
+        .push_u8(4)
+        .calldataload()
+        .push_u8(2)
+        .sstore()
         // slot[3] = CALLDATALOAD(36)
-        0x60, 0x24, 0x35, // PUSH1 36, CALLDATALOAD
-        0x60, 0x03, 0x55, // PUSH1 3, SSTORE
-        // RETURN
-        0x5f, 0x5f, 0xf3,
-    ]
+        .push_u8(36)
+        .calldataload()
+        .push_u8(3)
+        .sstore()
+        // return success
+        .return_empty()
+        .finish()
 }
 
 /// Build a TestingFramework with:
@@ -145,6 +149,13 @@ fn test_asset_tracker_called_on_deposit() {
         chain_id,
         U256::from(sl_chain_id),
         "chain ID argument should match settlement layer"
+    );
+
+    // computational_native_used must include the native cost of post-execution
+    // operations (asset tracker notifications, coinbase transfer, refund).
+    assert!(
+        tx_result.computational_native_used > 0,
+        "computational_native_used should be nonzero"
     );
 }
 
