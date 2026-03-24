@@ -195,7 +195,7 @@ where
                 Err(e) => return Err(e),
             }
         } else {
-            (false, Vec::new(), None, S::Resources::empty(), memories)
+            (false, Vec::new_in(system.get_allocator()), None, S::Resources::empty(), memories)
         };
 
     // Compute gas to refund
@@ -502,7 +502,7 @@ where
 /// into the return buffer after the asset-tracker calls complete.
 struct L1ExecutionOutcome<S: EthereumLikeTypes> {
     is_success: bool,
-    returndata: Vec<u8>,
+    returndata: Vec<u8, S::Allocator>,
     pubdata_used: u64,
     to_charge_for_pubdata: S::Resources,
     resources_before_refund: S::Resources,
@@ -637,8 +637,11 @@ where
             }) => {
                 let reverted = result.failed();
                 // Save the returndata before asset-tracker calls overwrite
-                // the runner memory buffer.
-                let returndata = result.return_values().returndata.to_vec();
+                // the runner memory buffer. Use the system allocator (not
+                // global) to avoid panics in proving mode.
+                let rd = result.return_values().returndata;
+                let mut returndata = Vec::with_capacity_in(rd.len(), system.get_allocator());
+                returndata.extend_from_slice(rd);
                 *resources = resources_returned;
                 system.finish_global_frame(reverted.then_some(&rollback_handle))?;
                 (reverted, returndata)
@@ -654,7 +657,7 @@ where
                     );
                     resources.exhaust_ergs();
                     system.finish_global_frame(Some(&rollback_handle))?;
-                    (true, Vec::new())
+                    (true, Vec::new_in(system.get_allocator()))
                 }
                 _ => return Err(e),
             },
