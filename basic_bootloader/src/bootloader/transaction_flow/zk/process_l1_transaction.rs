@@ -16,6 +16,7 @@ use crate::bootloader::transaction_flow::refund_calculation::{compute_gas_refund
 use crate::bootloader::transaction_flow::{ExecutionOutput, ExecutionResult};
 use crate::bootloader::{BasicBootloader, BootloaderSubsystemError};
 use crate::require_internal;
+use alloc::vec::Vec;
 use arrayvec::ArrayVec;
 use core::fmt::Write;
 use ruint::aliases::{B160, U256};
@@ -153,7 +154,7 @@ where
     // to used in the refund step only if the execution succeeded.
     // Otherwise, this value needs to be recomputed after reverting
     // state changes.
-    let (is_success, pubdata_info, resources_before_refund, mut memories) =
+    let (is_success, saved_returndata, pubdata_info, resources_before_refund, mut memories) =
         if !preparation_out_of_resources {
             // Take a snapshot in case we need to revert due to out of native.
             let rollback_handle = system.start_global_frame()?;
@@ -185,6 +186,7 @@ where
                     };
                     (
                         outcome.is_success,
+                        outcome.returndata,
                         pubdata_info,
                         outcome.resources_before_refund,
                         returned_memories,
@@ -193,7 +195,7 @@ where
                 Err(e) => return Err(e),
             }
         } else {
-            (false, None, S::Resources::empty(), memories)
+            (false, Vec::new(), None, S::Resources::empty(), memories)
         };
 
     // Compute gas to refund
@@ -341,17 +343,23 @@ where
         + intrinsic_computational_native_charged
         + post_execution_native_used;
 
-    // Construct the execution result. The returndata from the main tx
-    // body has been overwritten by the asset-tracker notification calls,
-    // so we use an empty slice. L1 transaction returndata is only
-    // informational (it appears in receipts) and is not consumed by
-    // any on-chain logic.
+    // Restore the saved returndata into the return buffer so that the
+    // ExecutionResult can borrow it with the correct lifetime.
+    let returndata_slice = if saved_returndata.is_empty() {
+        &[][..]
+    } else {
+        let buf = &mut memories.return_data[..saved_returndata.len()];
+        buf.write_copy_of_slice(&saved_returndata)
+    };
+
     let result = if is_success {
         ExecutionResult::Success {
-            output: ExecutionOutput::Call(&[]),
+            output: ExecutionOutput::Call(returndata_slice),
         }
     } else {
-        ExecutionResult::Revert { output: &[] }
+        ExecutionResult::Revert {
+            output: returndata_slice,
+        }
     };
 
     Ok(ZkTxResult {
@@ -494,9 +502,12 @@ where
 /// This deliberately does NOT carry `ExecutionResult<'a>` (which borrows
 /// returndata from the runner memory buffers). Keeping the buffers
 /// un-borrowed lets `process_l1_transaction` reborrow them for the
-/// post-execution asset-tracker notification calls.
+/// post-execution asset-tracker notification calls. The returndata from
+/// the main tx call is saved in `returndata` so it can be restored
+/// into the return buffer after the asset-tracker calls complete.
 struct L1ExecutionOutcome<S: EthereumLikeTypes> {
     is_success: bool,
+    returndata: Vec<u8>,
     pubdata_used: u64,
     to_charge_for_pubdata: S::Resources,
     resources_before_refund: S::Resources,
@@ -610,44 +621,48 @@ where
     // TODO: add support for deployment transactions,
     // probably unify with execution logic for EOA
 
-    let reverted = match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
-        system,
-        system_functions,
-        memories.reborrow(),
-        calldata,
-        &from,
-        &to,
-        resources_for_tx,
-        &value,
-        false,
-        tracer,
-        validator,
-    ) {
-        Ok(CompletedExecution {
-            resources_returned,
-            result,
-        }) => {
-            let reverted = result.failed();
-            *resources = resources_returned;
-            system.finish_global_frame(reverted.then_some(&rollback_handle))?;
-            reverted
-        }
-        // Handle out-of-native / out-of-memory as a top-level revert so that
-        // `memories` is always returned to the caller for post-execution
-        // asset-tracker notifications.
-        Err(e) => match e.root_cause() {
-            RootCause::Runtime(RuntimeError::FatalRuntimeError(re)) => {
-                system_log!(
-                    system,
-                    "L1 transaction ran out of native resources or memory {re:?}\n"
-                );
-                resources.exhaust_ergs();
-                system.finish_global_frame(Some(&rollback_handle))?;
-                true
+    let (reverted, returndata) =
+        match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+            system,
+            system_functions,
+            memories.reborrow(),
+            calldata,
+            &from,
+            &to,
+            resources_for_tx,
+            &value,
+            false,
+            tracer,
+            validator,
+        ) {
+            Ok(CompletedExecution {
+                resources_returned,
+                result,
+            }) => {
+                let reverted = result.failed();
+                // Save the returndata before asset-tracker calls overwrite
+                // the runner memory buffer.
+                let returndata = result.return_values().returndata.to_vec();
+                *resources = resources_returned;
+                system.finish_global_frame(reverted.then_some(&rollback_handle))?;
+                (reverted, returndata)
             }
-            _ => return Err(e),
-        },
-    };
+            // Handle out-of-native / out-of-memory as a top-level revert so that
+            // `memories` is always returned to the caller for post-execution
+            // asset-tracker notifications.
+            Err(e) => match e.root_cause() {
+                RootCause::Runtime(RuntimeError::FatalRuntimeError(re)) => {
+                    system_log!(
+                        system,
+                        "L1 transaction ran out of native resources or memory {re:?}\n"
+                    );
+                    resources.exhaust_ergs();
+                    system.finish_global_frame(Some(&rollback_handle))?;
+                    (true, Vec::new())
+                }
+                _ => return Err(e),
+            },
+        };
 
     system_log!(system, "Main TX body successful = {}\n", !reverted);
 
@@ -670,6 +685,7 @@ where
     Ok((
         L1ExecutionOutcome {
             is_success,
+            returndata,
             pubdata_used,
             to_charge_for_pubdata,
             resources_before_refund,
