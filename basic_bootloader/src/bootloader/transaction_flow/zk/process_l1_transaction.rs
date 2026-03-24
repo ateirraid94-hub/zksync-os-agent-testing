@@ -676,6 +676,8 @@ where
     let is_success = !reverted && enough;
     if !enough {
         system_log!(system, "Not enough gas for pubdata after execution\n");
+        // Burn all remaining ergs.
+        resources.exhaust_ergs();
     }
 
     Ok((
