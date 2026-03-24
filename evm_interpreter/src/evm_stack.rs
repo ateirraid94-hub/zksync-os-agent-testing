@@ -72,19 +72,9 @@ impl<A: Allocator> EvmStack<A> {
             // SAFETY: `src_offset` and `dst_offset` are both within the initialized prefix of
             // the stack, so both slots contain valid `U256` values. They are swapped in place
             // without creating or dropping any extra values.
-            let src = self
-                .buffer
-                .as_mut_ptr()
-                .add(src_offset)
-                .as_mut_unchecked()
-                .assume_init_mut();
-            let dst = self
-                .buffer
-                .as_mut_ptr()
-                .add(dst_offset)
-                .as_mut_unchecked()
-                .assume_init_mut();
-            core::mem::swap(src, dst);
+            let src = self.buffer.as_mut_ptr().add(src_offset).cast::<U256>();
+            let dst = self.buffer.as_mut_ptr().add(dst_offset).cast::<U256>();
+            U256::swap_in_place(src, dst);
         }
 
         Ok(())

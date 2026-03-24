@@ -50,6 +50,24 @@ impl U256 {
         delegated_u256::write_into_ptr_unchecked(dst.cast(), &source.0);
     }
 
+    /// # Safety
+    /// `a` and `b` must be valid, properly aligned pointers to initialized `Self` values.
+    ///
+    /// On the delegated backend this is cheaper than a generic `mem::swap`, because it stays on
+    /// the bigint memcopy path instead of forcing a raw 32-byte move sequence in RISC-V code.
+    pub unsafe fn swap_in_place(a: *mut Self, b: *mut Self) {
+        if core::ptr::eq(a, b) {
+            return;
+        }
+
+        let mut tmp = core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            Self::write_into_ptr_unchecked(tmp.as_mut_ptr(), &*a);
+            Self::write_into_ptr_unchecked(a, &*b);
+            Self::write_into_ptr_unchecked(b, tmp.assume_init_ref());
+        }
+    }
+
     pub fn clone_into(&self, dst: &mut Self) {
         unsafe { Self::write_into_ptr(dst as *mut _, self) };
     }

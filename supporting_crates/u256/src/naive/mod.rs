@@ -58,6 +58,14 @@ impl U256 {
         }
     }
 
+    /// # Safety
+    /// `a` and `b` must be valid, properly aligned pointers to initialized `Self` values.
+    pub unsafe fn swap_in_place(a: *mut Self, b: *mut Self) {
+        unsafe {
+            core::ptr::swap(a, b);
+        }
+    }
+
     #[inline(always)]
     pub fn zero() -> Self {
         Self::ZERO
