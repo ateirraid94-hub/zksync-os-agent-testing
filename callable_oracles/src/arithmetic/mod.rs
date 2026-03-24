@@ -1,14 +1,18 @@
 use basic_system::system_functions::modexp::{
     ModExpAdviceParams, ModExpAdviceParams64, MODEXP_ADVICE_QUERY_ID,
 };
-use oracle_provider::OracleQueryProcessor;
-use oracle_provider::RamPeek;
+use oracle_provider::{OracleQueryProcessor, RamPeek};
+use zk_ee::oracle::query_ids::U256_DIV_REM_ADVICE_QUERY_ID;
 
 use crate::utils::{
     evaluate::{read_memory_as_u64, read_struct},
     usize_slice_iterator::UsizeSliceIteratorOwned,
 };
 use crate::{read_host_struct, read_u64_words};
+
+// The u256 crate cannot depend on zk_ee, so it duplicates the query ID as a raw u32 literal
+// (0x4005_0030). This compile-time check ensures the two definitions stay in sync.
+const _: () = assert!(U256_DIV_REM_ADVICE_QUERY_ID == 0x4005_0030);
 
 struct ArithmeticQueryOutput {
     quotient: Vec<u64>,
@@ -54,12 +58,48 @@ impl ArithmeticQueryOutput {
     }
 }
 
+fn div_rem_output(
+    mut dividend: Vec<u64>,
+    mut divisor: Vec<u64>,
+) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
+    ruint::algorithms::div(&mut dividend, &mut divisor);
+
+    ArithmeticQueryOutput {
+        quotient: dividend,
+        remainder: divisor,
+    }
+    .into_usize_iterator()
+}
+
+/// Handle U256 div_rem oracle query.
+///
+/// Input: 1 packed usize containing two u32 pointers (dividend_ptr in low, divisor_ptr in high).
+fn process_u256_div_rem_query(
+    query: Vec<usize>,
+    memory: &dyn RamPeek,
+) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
+    let mut it = query.into_iter();
+    // Two u32 CSR writes get packed into one usize (u64) by QueryBuffer:
+    // low 32 bits = dividend_ptr, high 32 bits = divisor_ptr
+    let packed = it.next().expect("expected packed pointers");
+    assert!(it.next().is_none(), "expected exactly 1 packed usize");
+
+    let dividend_ptr = packed as u32;
+    let divisor_ptr = (packed >> 32) as u32;
+
+    // Read one U256 (4 u64 limbs = 32 bytes) from each pointer.
+    let dividend = read_memory_as_u64(memory, dividend_ptr, 4).unwrap();
+    let divisor = read_memory_as_u64(memory, divisor_ptr, 4).unwrap();
+
+    div_rem_output(dividend, divisor)
+}
+
 #[derive(Default)]
 pub struct ArithmeticQuery;
 
 impl OracleQueryProcessor for ArithmeticQuery {
     fn supported_query_ids(&self) -> Vec<u32> {
-        vec![MODEXP_ADVICE_QUERY_ID]
+        vec![MODEXP_ADVICE_QUERY_ID, U256_DIV_REM_ADVICE_QUERY_ID]
     }
 
     fn process_buffered_query(
@@ -69,6 +109,10 @@ impl OracleQueryProcessor for ArithmeticQuery {
         memory: &dyn RamPeek,
     ) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
         debug_assert!(self.supports_query_id(query_id));
+
+        if query_id == U256_DIV_REM_ADVICE_QUERY_ID {
+            return process_u256_div_rem_query(query, memory);
+        }
 
         let mut it = query.into_iter();
 
@@ -88,20 +132,14 @@ impl OracleQueryProcessor for ArithmeticQuery {
         const { assert!(8 == core::mem::size_of::<usize>()) };
         assert!(arg.a_ptr > 0);
         assert!(arg.a_len > 0);
-        let mut n = read_memory_as_u64(memory, arg.a_ptr, arg.a_len * 4).unwrap();
+        let n = read_memory_as_u64(memory, arg.a_ptr, arg.a_len * 4).unwrap();
         assert_eq!(arg.b_ptr, 0);
         assert_eq!(arg.b_len, 0);
         assert!(arg.modulus_ptr > 0);
         assert!(arg.modulus_len > 0);
-        let mut d = read_memory_as_u64(memory, arg.modulus_ptr, arg.modulus_len * 4).unwrap();
+        let d = read_memory_as_u64(memory, arg.modulus_ptr, arg.modulus_len * 4).unwrap();
 
-        ruint::algorithms::div(&mut n, &mut d);
-
-        ArithmeticQueryOutput {
-            quotient: n,
-            remainder: d,
-        }
-        .into_usize_iterator()
+        div_rem_output(n, d)
     }
 }
 
@@ -146,16 +184,10 @@ impl OracleQueryProcessor for NativeArithmeticQuery {
             .checked_mul(4)
             .expect("modulus_len overflow");
 
-        let mut n: Vec<u64> = read_u64_words(arg.a_ptr, a_len_u64_words);
-        let mut d: Vec<u64> = read_u64_words(arg.modulus_ptr, modulus_len_u64_words);
+        let n: Vec<u64> = read_u64_words(arg.a_ptr, a_len_u64_words);
+        let d: Vec<u64> = read_u64_words(arg.modulus_ptr, modulus_len_u64_words);
 
-        ruint::algorithms::div(&mut n, &mut d);
-
-        ArithmeticQueryOutput {
-            quotient: n,
-            remainder: d,
-        }
-        .into_usize_iterator()
+        div_rem_output(n, d)
     }
 }
 
@@ -260,6 +292,23 @@ mod tests {
         assert_eq!((packed_lens >> 32) as u32, 2);
         assert_eq!(output[1], 3);
         assert_eq!(output[2], 1);
+    }
+
+    #[test]
+    fn arithmetic_query_processes_u256_div_rem_query() {
+        const GUEST_DIVIDEND_ADDR: u32 = 0x1000;
+        const GUEST_DIVISOR_ADDR: u32 = 0x1100;
+
+        let mut memory = TestMemorySource::default();
+        memory.insert_u64_words(GUEST_DIVIDEND_ADDR, &[10, 0, 0, 0]);
+        memory.insert_u64_words(GUEST_DIVISOR_ADDR, &[3, 0, 0, 0]);
+
+        let packed_ptrs = GUEST_DIVIDEND_ADDR as usize | ((GUEST_DIVISOR_ADDR as usize) << 32);
+        let output: Vec<usize> = ArithmeticQuery
+            .process_buffered_query(U256_DIV_REM_ADVICE_QUERY_ID, vec![packed_ptrs], &memory)
+            .collect();
+
+        assert_eq!(output, vec![3, 0, 0, 0, 1, 0, 0, 0]);
     }
 
     #[test]
