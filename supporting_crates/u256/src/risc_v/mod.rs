@@ -3,6 +3,126 @@ use core::ops::{
 };
 use delegated_u256::*;
 
+// ---------------------------------------------------------------------------
+// Oracle CSR helpers for non-deterministic division hints (RISC-V only)
+// ---------------------------------------------------------------------------
+
+/// Oracle query ID for U256 division hints.
+/// Must match `zk_ee::oracle::query_ids::U256_DIV_REM_ADVICE_QUERY_ID`.
+#[cfg(target_arch = "riscv32")]
+const U256_DIV_REM_ADVICE_QUERY_ID: u32 = 0x4005_0030;
+
+/// Write a word to the oracle CSR (address 0x7c0).
+/// Mirrors `riscv_common::csr_write_word`.
+#[cfg(target_arch = "riscv32")]
+#[inline(always)]
+fn oracle_csr_write(value: usize) {
+    unsafe {
+        core::arch::asm!(
+            "csrrw x0, 0x7c0, {rd}",
+            rd = in(reg) value,
+            options(nomem, nostack, preserves_flags)
+        )
+    }
+}
+
+/// Read a word from the oracle CSR (address 0x7c0).
+/// Mirrors `riscv_common::csr_read_word`.
+#[cfg(target_arch = "riscv32")]
+#[inline(always)]
+fn oracle_csr_read() -> u32 {
+    let output;
+    unsafe {
+        core::arch::asm!(
+            "csrrw {rd}, 0x7c0, x0",
+            rd = out(reg) output,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    output
+}
+
+/// Query the oracle for `(quotient, remainder)` and verify the hint using delegated arithmetic.
+///
+/// The oracle response is untrusted. Verification ensures:
+/// - `q * d + r == n` (widening mul + add + equality)
+/// - No 256-bit overflow (`hi == 0`, no carry)
+/// - `r < d` (remainder is fully reduced)
+///
+/// Together these uniquely determine `q` and `r` for given `(n, d)`.
+#[cfg(target_arch = "riscv32")]
+fn oracle_div_rem(dividend: &mut U256, divisor: &mut U256) {
+    // ---- Send oracle query ----
+    // Protocol: write query_id, write input_len, write input words,
+    //           read response_len, read response words.
+    // Two u32 pointer writes get packed into 1 usize by QueryBuffer.
+    oracle_csr_write(U256_DIV_REM_ADVICE_QUERY_ID as usize);
+    oracle_csr_write(2); // 2 u32 words to follow
+    oracle_csr_write((dividend as *const U256).addr());
+    oracle_csr_write((divisor as *const U256).addr());
+
+    // Response: 8 usize values (4 q limbs + 4 r limbs), delivered as 16 u32 reads.
+    // Must be a full assert (not debug_assert): a wrong length would leave stale words
+    // in the CSR stream and corrupt framing for all subsequent oracle queries.
+    let response_len = oracle_csr_read();
+    assert_eq!(response_len, 16);
+
+    // ---- Read quotient hint ----
+    #[allow(invalid_value, clippy::uninit_assumed_init)]
+    let quotient: U256 = unsafe {
+        let mut q: U256 = core::mem::MaybeUninit::uninit().assume_init();
+        let limbs = q.as_limbs_mut();
+        for limb in limbs.iter_mut() {
+            let lo = oracle_csr_read() as u64;
+            let hi = oracle_csr_read() as u64;
+            *limb = lo | (hi << 32);
+        }
+        q
+    };
+
+    // ---- Read remainder hint ----
+    #[allow(invalid_value, clippy::uninit_assumed_init)]
+    let remainder: U256 = unsafe {
+        let mut r: U256 = core::mem::MaybeUninit::uninit().assume_init();
+        let limbs = r.as_limbs_mut();
+        for limb in limbs.iter_mut() {
+            let lo = oracle_csr_read() as u64;
+            let hi = oracle_csr_read() as u64;
+            *limb = lo | (hi << 32);
+        }
+        r
+    };
+
+    // ---- Verify hint ----
+    // Check: q * d + r == n (original dividend), with no 256-bit overflow.
+
+    // widening_mul_assign_into(low, high, rhs) computes: low = low_256(low * rhs),
+    // high = high_256(high * rhs). Both `low` and `high` must start as the same value
+    // (the original multiplicand) because MUL_LOW overwrites `low` first.
+    let mut check_lo = quotient.clone();
+    let mut check_hi = quotient.clone();
+    check_lo
+        .0
+        .widening_mul_assign_into(&mut check_hi.0, &divisor.0);
+
+    // check_lo += r
+    let carry = check_lo.0.overflowing_add_assign(&remainder.0);
+
+    // No overflow: high part must be zero and no carry from addition
+    assert!(!carry && check_hi.0.is_zero_mut());
+
+    // q * d + r must equal the original dividend
+    assert!(check_lo == *dividend);
+
+    // Remainder must be strictly less than divisor (fully reduced).
+    // Ord::cmp on DelegatedU256 uses a scratch copy, so it is non-destructive.
+    assert!(remainder < *divisor);
+
+    // ---- Write results ----
+    *dividend = quotient;
+    *divisor = remainder;
+}
+
 // Even though we derive, internally we use delegation circuit for equality, ordering and cloning
 // See DelegatedU256 implementations for details
 #[derive(Clone, Hash, PartialEq, Eq, Ord, PartialOrd, Debug)]
@@ -190,14 +310,21 @@ impl U256 {
     #[inline(always)]
     /// Panics if divisor is 0
     pub fn div_rem(dividend_or_quotient: &mut Self, divisor_or_remainder: &mut Self) {
-        // Eventually it'll be solved via non-determinism and comparison that a = q * divisor + r,
-        // but for now it's just a naive one
         let is_zero = divisor_or_remainder.0.is_zero_mut();
         assert!(is_zero == false);
-        ruint::algorithms::div(
-            dividend_or_quotient.as_limbs_mut(),
-            divisor_or_remainder.as_limbs_mut(),
-        );
+
+        #[cfg(target_arch = "riscv32")]
+        {
+            oracle_div_rem(dividend_or_quotient, divisor_or_remainder);
+        }
+
+        #[cfg(not(target_arch = "riscv32"))]
+        {
+            ruint::algorithms::div(
+                dividend_or_quotient.as_limbs_mut(),
+                divisor_or_remainder.as_limbs_mut(),
+            );
+        }
     }
 
     #[inline(always)]
