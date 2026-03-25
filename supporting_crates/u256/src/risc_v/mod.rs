@@ -231,6 +231,11 @@ impl U256 {
     }
 
     #[inline(always)]
+    pub unsafe fn write_u64_into_ptr(into: *mut Self, value: u64) {
+        delegated_u256::write_u64_into_ptr(into.cast(), value);
+    }
+
+    #[inline(always)]
     pub const fn as_limbs(&self) -> &[u64; 4] {
         self.0.as_limbs()
     }

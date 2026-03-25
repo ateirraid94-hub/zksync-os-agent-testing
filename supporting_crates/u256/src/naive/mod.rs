@@ -229,6 +229,15 @@ impl U256 {
         }
     }
 
+    #[inline(always)]
+    /// # Safety
+    /// `into` must be 32 byte aligned and point to 32 bytes of accessible memory
+    pub unsafe fn write_u64_into_ptr(into: *mut Self, value: u64) {
+        unsafe {
+            into.write(Self(ruint::aliases::U256::from(value)));
+        }
+    }
+
     pub fn byte(&self, byte_idx: usize) -> u8 {
         self.0.byte(byte_idx)
     }

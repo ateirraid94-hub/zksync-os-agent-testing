@@ -360,6 +360,43 @@ impl<A: Allocator> EvmStack<A> {
         Ok(())
     }
 
+    /// Push a u64 value as U256 directly into the next stack slot.
+    /// Uses a single delegation (zero + limb write) instead of the
+    /// two-delegation path of U256::from(u64) + push.
+    #[inline(always)]
+    pub fn push_u64(&mut self, value: u64) -> Result<(), ExitCode> {
+        if self.len == STACK_SIZE {
+            return Err(EvmError::StackOverflow.into());
+        }
+        unsafe {
+            let dst = self.buffer.as_mut_ptr().add(self.len).as_mut_unchecked();
+            U256::write_u64_into_ptr(dst.as_mut_ptr(), value);
+            self.len += 1;
+        }
+
+        Ok(())
+    }
+
+    /// Push a B160 address as U256 directly into the next stack slot.
+    /// Zeros the slot via delegation, then copies the 3 address limbs.
+    #[inline(always)]
+    pub fn push_b160(&mut self, addr: ruint::aliases::B160) -> Result<(), ExitCode> {
+        if self.len == STACK_SIZE {
+            return Err(EvmError::StackOverflow.into());
+        }
+        unsafe {
+            let dst = self.buffer.as_mut_ptr().add(self.len).as_mut_unchecked();
+            U256::write_zero_into_ptr(dst.as_mut_ptr());
+            let slot = &mut *dst.as_mut_ptr().cast::<U256>();
+            slot.as_limbs_mut()[0] = addr.as_limbs()[0];
+            slot.as_limbs_mut()[1] = addr.as_limbs()[1];
+            slot.as_limbs_mut()[2] = addr.as_limbs()[2];
+            self.len += 1;
+        }
+
+        Ok(())
+    }
+
     #[inline(always)]
     pub fn push(&mut self, value: &U256) -> Result<(), ExitCode> {
         if self.len == STACK_SIZE {
@@ -555,5 +592,35 @@ mod tests {
         }
 
         assert_eq!(stack.dup(1), Err(EvmError::StackOverflow.into()));
+    }
+
+    #[test]
+    fn push_u64_works() {
+        let mut stack = EvmStack::new_in(Global);
+
+        stack.push_u64(42).expect("Should push");
+        let res = stack.pop_1().expect("Should pop");
+
+        assert_eq!(*res, U256::from_limbs([42, 0, 0, 0]));
+    }
+
+    #[test]
+    fn push_u64_overflow() {
+        let mut stack = EvmStack::new_in(Global);
+
+        for _ in 0..STACK_SIZE {
+            stack.push_u64(1).expect("Should push");
+        }
+        assert_eq!(stack.push_u64(1), Err(EvmError::StackOverflow.into()));
+    }
+
+    #[test]
+    fn push_u64_max() {
+        let mut stack = EvmStack::new_in(Global);
+
+        stack.push_u64(u64::MAX).expect("Should push");
+        let res = stack.pop_1().expect("Should pop");
+
+        assert_eq!(*res, U256::from_limbs([u64::MAX, 0, 0, 0]));
     }
 }
