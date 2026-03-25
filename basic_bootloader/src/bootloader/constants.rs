@@ -31,15 +31,21 @@ pub const MAX_BLOCK_GAS_LIMIT: u64 = u64::MAX / ERGS_PER_GAS;
 // Just for EVM compatibility.
 pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 
-// Covers intrinsic L1 tx work not charged as tx-body computation:
+// Covers intrinsic L1 tx work not charged as tx-body computation.
+//
+// Baseline 130k covers:
 //  - storing and hashing the L1 tx log
 //  - hashing tx hash into the rolling hash and linear hasher
-//  - post-execution coinbase transfer and refund transfer
-//  - post-execution L2AssetTracker notifications for operator payment and refund
+//  - coinbase transfer from the older accounting model
 //
-// The sender-side transfer/accounting is charged separately. For the refund path
-// we assume the recipient is, in most cases, a cold existing account.
-pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 300_000;
+// The current L1 path adds post-execution intrinsic work:
+//  - operator-fee L2AssetTracker notification: warm path, 25k
+//  - refund transfer: treasury warm write 5k + refund recipient cold new write ~205k
+//  - refund L2AssetTracker notification: warm path, 25k
+//
+// This gives a worst-case incremental cost of ~260k, so we set:
+//   130k + 260k = 390k
+pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 390_000;
 
 // Pubdata needed for the diff in balance as a result of
 // the fee payment to the coinbase.
