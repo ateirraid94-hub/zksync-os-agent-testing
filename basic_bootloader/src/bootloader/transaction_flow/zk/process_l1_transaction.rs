@@ -192,7 +192,10 @@ where
                         returned_memories,
                     )
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    system.finish_global_frame(Some(&rollback_handle))?;
+                    return Err(e);
+                }
             }
         } else {
             (
@@ -541,170 +544,183 @@ where
 {
     system_log!(system, "Executing L1 transaction\n");
 
-    let gas_price = U256::from(transaction.max_fee_per_gas.read());
-    system.set_tx_context(TxLevelMetadata {
-        tx_gas_price: gas_price,
-        tx_origin: from,
-        blobs: ArrayVec::new(),
-    });
-
-    // Start a frame, to revert minting of value if execution fails
     let rollback_handle = system.start_global_frame()?;
+    let mut frame_finished = false;
+    let result = (|| {
+        let gas_price = U256::from(transaction.max_fee_per_gas.read());
+        system.set_tx_context(TxLevelMetadata {
+            tx_gas_price: gas_price,
+            tx_origin: from,
+            blobs: ArrayVec::new(),
+        });
 
-    // Fee payment is done in two steps.
-    // The first step is here, where the max fee (gas limit * gas price)
-    // is committed to.
-    // This fee is deducted from the deposit to be minted (transferred from
-    // the treasury).
-    // After the execution of the transaction, the actual fee
-    // (gas used * gas price) is paid to the operator, while the
-    // rest of the max fee is refunded.
-    let max_fee_commitment = gas_price
-        .checked_mul(U256::from(transaction.gas_limit.read()))
-        .ok_or(internal_error!("gp*gl"))?;
-    let total_deposited = transaction.reserved[0].read();
-    let to_transfer = total_deposited
-        .checked_sub(max_fee_commitment)
-        .ok_or(internal_error!("mfc+tic"))?;
+        // Fee payment is done in two steps.
+        // The first step is here, where the max fee (gas limit * gas price)
+        // is committed to.
+        // This fee is deducted from the deposit to be minted (transferred from
+        // the treasury).
+        // After the execution of the transaction, the actual fee
+        // (gas used * gas price) is paid to the operator, while the
+        // rest of the max fee is refunded.
+        let max_fee_commitment = gas_price
+            .checked_mul(U256::from(transaction.gas_limit.read()))
+            .ok_or(internal_error!("gp*gl"))?;
+        let total_deposited = transaction.reserved[0].read();
+        let to_transfer = total_deposited
+            .checked_sub(max_fee_commitment)
+            .ok_or(internal_error!("mfc+tic"))?;
 
-    // Transfer value from treasury to sender (the deposit minus max fee).
-    // We want to ensure that the simulation of a transaction
-    // never underestimates gas/pubdata compared to the actual execution
-    // of said transaction.
-    // During simulation the gas price is typically set to 0. So we need
-    // to be conservative about operations that incur in gas/pubdata depending
-    // on the value of the fee. For that reason, we always perform the
-    // following transfer on simulation, and avoid compressing the pubdata
-    // for the balance changes resulting from it.
-    //
-    // Use FORMAL_INFINITE: the treasury transfer and asset-tracker
-    // notification are intrinsic to L1 tx processing and their native
-    // cost is accounted for in the intrinsic native cost constant.
-    // Running with FORMAL_INFINITE also ensures these operations cannot
-    // fail due to resource exhaustion.
-    //
-    // IMPORTANT: the out-of-native error handler (FatalRuntimeError)
-    // only covers `run_single_interaction` for the main tx body below.
-    // All operations before it MUST use FORMAL_INFINITE so they cannot
-    // trigger a FatalRuntimeError that would propagate uncaught and
-    // halt the chain instead of gracefully reverting the tx.
-    let mut inf_resources = S::Resources::FORMAL_INFINITE;
-    if to_transfer > U256::ZERO || Config::SIMULATION {
-        transfer_from_treasury::<S>(
-            system,
-            &to_transfer,
-            &from,
-            &mut inf_resources,
-            Config::SIMULATION,
-        )
-        .map_err(|e| match e.root_cause() {
-            RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                internal_error!("Out of ergs on infinite ergs").into()
-            }
-            RootCause::Runtime(RuntimeError::FatalRuntimeError(_)) => {
-                internal_error!("Out of native on infinite").into()
-            }
-            _ => e,
-        })?;
-    }
+        // Transfer value from treasury to sender (the deposit minus max fee).
+        // We want to ensure that the simulation of a transaction
+        // never underestimates gas/pubdata compared to the actual execution
+        // of said transaction.
+        // During simulation the gas price is typically set to 0. So we need
+        // to be conservative about operations that incur in gas/pubdata depending
+        // on the value of the fee. For that reason, we always perform the
+        // following transfer on simulation, and avoid compressing the pubdata
+        // for the balance changes resulting from it.
+        //
+        // Use FORMAL_INFINITE: the treasury transfer and asset-tracker
+        // notification are intrinsic to L1 tx processing and their native
+        // cost is accounted for in the intrinsic native cost constant.
+        // Running with FORMAL_INFINITE also ensures these operations cannot
+        // fail due to resource exhaustion.
+        //
+        // IMPORTANT: the out-of-native error handler (FatalRuntimeError)
+        // only covers `run_single_interaction` for the main tx body below.
+        // All operations before it MUST use FORMAL_INFINITE so they cannot
+        // trigger a FatalRuntimeError that would propagate uncaught and
+        // halt the chain instead of gracefully reverting the tx.
+        let mut inf_resources = S::Resources::FORMAL_INFINITE;
+        if to_transfer > U256::ZERO || Config::SIMULATION {
+            transfer_from_treasury::<S>(
+                system,
+                &to_transfer,
+                &from,
+                &mut inf_resources,
+                Config::SIMULATION,
+            )
+            .map_err(|e| match e.root_cause() {
+                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
+                    internal_error!("Out of ergs on infinite ergs").into()
+                }
+                RootCause::Runtime(RuntimeError::FatalRuntimeError(_)) => {
+                    internal_error!("Out of native on infinite").into()
+                }
+                _ => e,
+            })?;
+        }
 
-    // Notify L2AssetTracker about the value mint portion of the deposit.
-    // This is inside the execution frame, so it gets rolled back if the
-    // main tx body reverts — matching the treasury transfer above.
-    notify_l2_asset_tracker::<S>(
-        system,
-        system_functions,
-        memories.reborrow(),
-        to_transfer,
-        &mut inf_resources,
-        tracer,
-        validator,
-    )?;
-
-    let resources_for_tx = resources.clone();
-
-    // transaction is in managed region, so we can recast it back
-    let calldata = transaction.calldata();
-
-    // TODO: add support for deployment transactions,
-    // probably unify with execution logic for EOA
-
-    let (reverted, returndata) =
-        match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+        // Notify L2AssetTracker about the value mint portion of the deposit.
+        // This is inside the execution frame, so it gets rolled back if the
+        // main tx body reverts — matching the treasury transfer above.
+        notify_l2_asset_tracker::<S>(
             system,
             system_functions,
             memories.reborrow(),
-            calldata,
-            &from,
-            &to,
-            resources_for_tx,
-            &value,
-            false,
+            to_transfer,
+            &mut inf_resources,
             tracer,
             validator,
-        ) {
-            Ok(CompletedExecution {
-                resources_returned,
-                result,
-            }) => {
-                let reverted = result.failed();
-                // Save the returndata before asset-tracker calls overwrite
-                // the runner memory buffer. Use the system allocator (not
-                // global) to avoid panics in proving mode.
-                let rd = result.return_values().returndata;
-                let mut returndata = Vec::with_capacity_in(rd.len(), system.get_allocator());
-                returndata.extend_from_slice(rd);
-                *resources = resources_returned;
-                system.finish_global_frame(reverted.then_some(&rollback_handle))?;
-                (reverted, returndata)
-            }
-            // Handle out-of-native / out-of-memory as a top-level revert so that
-            // `memories` is always returned to the caller for post-execution
-            // asset-tracker notifications.
-            Err(e) => match e.root_cause() {
-                RootCause::Runtime(RuntimeError::FatalRuntimeError(re)) => {
-                    system_log!(
-                        system,
-                        "L1 transaction ran out of native resources or memory {re:?}\n"
-                    );
-                    resources.exhaust_ergs();
-                    system.finish_global_frame(Some(&rollback_handle))?;
-                    (true, Vec::new_in(system.get_allocator()))
+        )?;
+
+        let resources_for_tx = resources.clone();
+
+        // transaction is in managed region, so we can recast it back
+        let calldata = transaction.calldata();
+
+        // TODO: add support for deployment transactions,
+        // probably unify with execution logic for EOA
+
+        let (reverted, returndata) =
+            match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+                system,
+                system_functions,
+                memories.reborrow(),
+                calldata,
+                &from,
+                &to,
+                resources_for_tx,
+                &value,
+                false,
+                tracer,
+                validator,
+            ) {
+                Ok(CompletedExecution {
+                    resources_returned,
+                    result,
+                }) => {
+                    let reverted = result.failed();
+                    // Save the returndata before asset-tracker calls overwrite
+                    // the runner memory buffer. Use the system allocator (not
+                    // global) to avoid panics in proving mode.
+                    let rd = result.return_values().returndata;
+                    let mut returndata = Vec::with_capacity_in(rd.len(), system.get_allocator());
+                    returndata.extend_from_slice(rd);
+                    *resources = resources_returned;
+                    system.finish_global_frame(reverted.then_some(&rollback_handle))?;
+                    frame_finished = true;
+                    (reverted, returndata)
                 }
-                _ => return Err(e),
+                // Handle out-of-native / out-of-memory as a top-level revert so that
+                // `memories` is always returned to the caller for post-execution
+                // asset-tracker notifications.
+                Err(e) => match e.root_cause() {
+                    RootCause::Runtime(RuntimeError::FatalRuntimeError(re)) => {
+                        system_log!(
+                            system,
+                            "L1 transaction ran out of native resources or memory {re:?}\n"
+                        );
+                        resources.exhaust_ergs();
+                        system.finish_global_frame(Some(&rollback_handle))?;
+                        frame_finished = true;
+                        (true, Vec::new_in(system.get_allocator()))
+                    }
+                    _ => return Err(e),
+                },
+            };
+
+        system_log!(system, "Main TX body successful = {}\n", !reverted);
+
+        // Just used for computing native used
+        // Needs to use the resources before we reclaim withheld
+        let resources_before_refund = resources.clone();
+
+        // After the transaction is executed, we reclaim the withheld resources.
+        // This is needed to ensure correct "gas_used" calculation, also these
+        // resources could be spent for pubdata.
+        resources.reclaim_withheld(withheld_resources);
+
+        let (enough, to_charge_for_pubdata, pubdata_used) =
+            check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
+        let is_success = !reverted && enough;
+        if !enough {
+            system_log!(system, "Not enough gas for pubdata after execution\n");
+            // Burn all remaining ergs.
+            resources.exhaust_ergs();
+        }
+
+        Ok((
+            L1ExecutionOutcome {
+                is_success,
+                returndata,
+                pubdata_used,
+                to_charge_for_pubdata,
+                resources_before_refund,
             },
-        };
+            memories,
+        ))
+    })();
 
-    system_log!(system, "Main TX body successful = {}\n", !reverted);
-
-    // Just used for computing native used
-    // Needs to use the resources before we reclaim withheld
-    let resources_before_refund = resources.clone();
-
-    // After the transaction is executed, we reclaim the withheld resources.
-    // This is needed to ensure correct "gas_used" calculation, also these
-    // resources could be spent for pubdata.
-    resources.reclaim_withheld(withheld_resources);
-
-    let (enough, to_charge_for_pubdata, pubdata_used) =
-        check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
-    let is_success = !reverted && enough;
-    if !enough {
-        system_log!(system, "Not enough gas for pubdata after execution\n");
-        // Burn all remaining ergs.
-        resources.exhaust_ergs();
+    match result {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            if !frame_finished {
+                system.finish_global_frame(Some(&rollback_handle))?;
+            }
+            Err(e)
+        }
     }
-
-    Ok((
-        L1ExecutionOutcome {
-            is_success,
-            returndata,
-            pubdata_used,
-            to_charge_for_pubdata,
-            resources_before_refund,
-        },
-        memories,
-    ))
 }
 
 /// Transfers [value] from the treasury account to address [to].
@@ -781,8 +797,9 @@ where
 /// payment, refund) so that the asset tracker's accounting stays correct even
 /// if the main transaction body reverts.
 ///
-/// Uses infinite EVM gas but tracks native resource consumption via the
-/// caller's resource object, so the block seal criteria remain accurate.
+/// Uses FORMAL_INFINITE because this bookkeeping is intrinsic to L1 tx
+/// processing. Its native cost is prepaid via L1_TX_INTRINSIC_NATIVE_COST
+/// and is not included in computational_native_used.
 ///
 /// Failure halts block processing — if the asset tracker reverts, the
 /// chain's token accounting would be inconsistent, so we treat it as
@@ -830,8 +847,7 @@ where
                 validator,
             )?;
             // Overwrite resources inside the closure so that
-            // with_infinite_ergs correctly restores ergs afterwards,
-            // while the native consumption from the call is kept.
+            // with_infinite_ergs correctly restores ergs afterwards.
             *inf_ergs = resources_returned;
             Ok::<bool, BootloaderSubsystemError>(asset_tracker_result.failed())
         })?;
