@@ -1,11 +1,15 @@
 //! Rollback semantics for storage, transient storage, and selfdestruct side effects.
 
 use crate::test_support::{call_tx, new_tester};
+use rig::alloy::consensus::TxEip2930;
 use rig::alloy::primitives::address;
+use rig::alloy::primitives::TxKind;
+use rig::alloy::rpc::types::{AccessList, AccessListItem};
 use rig::alloy::signers::local::PrivateKeySigner;
 use rig::constants::{CALL_GAS_LIMIT, DEFAULT_BALANCE};
 use rig::evm_bytecode::{self, BytecodeBuilder};
 use rig::ruint::aliases::U256;
+use rig::zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 use rig::{assert_tx_reverted, assert_tx_success};
 
 #[test]
@@ -123,5 +127,50 @@ fn selfdestruct_in_reverting_frame_no_effect() {
         beneficiary_balance,
         U256::ZERO,
         "SELFDESTRUCT in reverting frame must not transfer ETH to beneficiary"
+    );
+}
+
+#[test]
+fn touched_materialized_written_slot_is_rolled_back_on_revert() {
+    let contract = address!("0000000000000000000000000000000000000e03");
+    let bytecode = hex::decode("6000545060016000555f5ffd").unwrap();
+
+    let signer = PrivateKeySigner::random();
+    let sender = signer.address();
+
+    let mut tester = new_tester()
+        .with_balance(sender, U256::from(DEFAULT_BALANCE))
+        .with_evm_contract(contract, &bytecode)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+
+    let tx = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 80_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: AccessList::from(vec![AccessListItem {
+                address: contract,
+                storage_keys: vec![rig::alloy::primitives::b256!(
+                    "0x0000000000000000000000000000000000000000000000000000000000000000"
+                )],
+            }]),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, signer)
+    };
+
+    let output = tester.execute_block(vec![tx]);
+    assert_tx_reverted!(output, 0);
+
+    assert_eq!(
+        tester.get_storage_slot(&contract, U256::ZERO).unwrap(),
+        rig::zk_ee::utils::Bytes32::from_u256_be(&U256::from(1u64))
     );
 }

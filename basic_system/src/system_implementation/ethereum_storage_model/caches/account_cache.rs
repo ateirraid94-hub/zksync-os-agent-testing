@@ -923,6 +923,9 @@ mod tests {
     use crate::system_implementation::ethereum_storage_model::caches::account_properties::{
         EthereumAccountProperties, ETHEREUM_ACCOUNT_INITIAL_STATE_QUERY_ID,
     };
+    use crate::system_implementation::ethereum_storage_model::cost_constants::{
+        ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS, ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST,
+    };
     use std::alloc::Global;
     use std::collections::HashMap;
     use zk_ee::execution_environment_type::ExecutionEnvironmentType;
@@ -931,7 +934,7 @@ mod tests {
     use zk_ee::oracle::IOOracle;
     use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
     use zk_ee::system::errors::internal::InternalError;
-    use zk_ee::system::Resource;
+    use zk_ee::system::{Computational, Resource, Resources};
     use zk_ee::utils::Bytes32;
 
     type TestResources = BaseResources<DecreasingNative>;
@@ -997,6 +1000,7 @@ mod tests {
         let mut cache = TestAccountCache::new_from_parts(Global);
         let address = ruint::aliases::B160::from_limbs([11, 0, 0]);
         let mut resources = TestResources::FORMAL_INFINITE;
+        let initial_resources = resources.clone();
 
         cache
             .touch_account::<false>(ExecutionEnvironmentType::NoEE, &mut resources, &address)
@@ -1010,6 +1014,13 @@ mod tests {
             .current()
             .metadata()
             .considered_warm(cache.current_tx_number));
+
+        let spent = initial_resources.diff(resources);
+        assert_eq!(spent.ergs().0, ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS.0);
+        assert_eq!(
+            spent.native().as_u64(),
+            ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST
+        );
     }
 
     #[test]
@@ -1042,5 +1053,21 @@ mod tests {
         assert_eq!(item.initial().value(), Some(&expected));
         assert!(item.key_properties().is_value_observed());
         assert!(!item.key_properties().is_new_element());
+    }
+
+    #[test]
+    fn precompile_touch_works_with_formal_infinite_resources() {
+        let mut cache = TestAccountCache::new_from_parts(Global);
+        let precompile = ruint::aliases::B160::from_limbs([1, 0, 0]);
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        cache
+            .touch_account::<false>(ExecutionEnvironmentType::EVM, &mut resources, &precompile)
+            .unwrap();
+
+        let cache_key = precompile.into();
+        let item = cache.cache.get(&cache_key).unwrap();
+        assert!(item.current().value().is_none());
+        assert!(!item.key_properties().is_value_observed());
     }
 }

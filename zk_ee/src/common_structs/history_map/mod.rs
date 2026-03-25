@@ -414,6 +414,8 @@ where
 mod tests {
     use std::alloc::Global;
 
+    use crate::common_structs::cache_record::CacheRecord;
+
     use super::HistoryMap;
 
     #[test]
@@ -703,5 +705,122 @@ mod tests {
 
         assert_eq!(*restored.initial(), 3);
         assert_eq!(*restored.current(), 3);
+    }
+
+    #[test]
+    fn mutate_current_in_place_keeps_single_record_and_no_pending_history() {
+        let mut map = HistoryMap::<usize, CacheRecord<usize, usize>, Global>::new(Global);
+
+        {
+            let mut item = map
+                .get_or_insert::<()>(&1, || Ok((CacheRecord::new_empty_with_metadata(1), ())))
+                .unwrap();
+            item.mutate_current_in_place(|record| {
+                record.materialize(3);
+                record.update_metadata_infallible(|metadata| *metadata = 2);
+            });
+
+            assert_eq!(item.current().value(), Some(&3));
+            assert_eq!(item.initial().value(), Some(&3));
+            assert_eq!(item.committed().value(), Some(&3));
+            assert_eq!(item.current().metadata(), &2);
+            assert!(item.get_initial_and_last_values().is_none());
+        }
+
+        assert_eq!(map.iter_altered_since_commit().count(), 0);
+        map.apply_to_all_updated_elements::<_, ()>(|_, _, _| {
+            panic!("in-place materialization must not create logical history")
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn mutate_current_in_place_keeps_materialized_placeholder_as_initial_value() {
+        let mut map = HistoryMap::<usize, CacheRecord<usize, usize>, Global>::new(Global);
+
+        {
+            let mut item = map
+                .get_or_insert::<()>(&1, || Ok((CacheRecord::new_empty_with_metadata(5), ())))
+                .unwrap();
+            item.mutate_current_in_place(|record| {
+                record.materialize(7);
+                record.update_metadata_infallible(|metadata| *metadata = 6);
+            });
+
+            assert_eq!(item.current().value(), Some(&7));
+            assert_eq!(item.initial().value(), Some(&7));
+            assert_eq!(item.committed().value(), Some(&7));
+            assert_eq!(item.current().metadata(), &6);
+            assert!(item.get_initial_and_last_values().is_none());
+        }
+
+        let snapshot = map.snapshot();
+
+        {
+            let mut item = map
+                .get_or_insert::<()>(&1, || Ok((CacheRecord::new(9), ())))
+                .unwrap();
+            item.update::<_, ()>(|record| {
+                record
+                    .update_materialized(|value, _metadata| {
+                        *value = 8;
+                        Ok(())
+                    })
+                    .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        }
+
+        map.rollback(snapshot).unwrap();
+
+        let item = map.get(&1).unwrap();
+        assert_eq!(item.current().value(), Some(&7));
+        assert_eq!(item.initial().value(), Some(&7));
+        assert_eq!(item.committed().value(), Some(&7));
+    }
+
+    #[test]
+    fn update_after_in_place_materialization_keeps_materialized_value_as_committed() {
+        let mut map = HistoryMap::<usize, CacheRecord<usize, usize>, Global>::new(Global);
+
+        {
+            let mut item = map
+                .get_or_insert::<()>(&1, || Ok((CacheRecord::new_empty(), ())))
+                .unwrap();
+            item.mutate_current_in_place(|record| record.materialize(5));
+        }
+
+        map.commit();
+
+        {
+            let mut item = map
+                .get_or_insert::<()>(&1, || Ok((CacheRecord::new(99), ())))
+                .unwrap();
+            item.update::<_, ()>(|record| {
+                record
+                    .update_materialized(|value, _metadata| {
+                        *value = 8;
+                        Ok(())
+                    })
+                    .unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+            assert_eq!(item.committed().value(), Some(&5));
+            assert_eq!(item.initial().value(), Some(&5));
+            assert_eq!(item.current().value(), Some(&8));
+            let (initial, current) = item
+                .get_initial_and_last_values()
+                .expect("logical update must create history");
+            assert_eq!(initial.value(), Some(&5));
+            assert_eq!(current.value(), Some(&8));
+        }
+
+        let item = map.get(&1).unwrap();
+        assert_eq!(item.committed().value(), Some(&5));
+        assert_eq!(item.initial().value(), Some(&5));
+        assert_eq!(item.current().value(), Some(&8));
     }
 }

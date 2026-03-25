@@ -7,26 +7,27 @@
 //! must be Bytes32::ZERO, preventing bugs where invalid initial values might be provided.
 //!
 
+use rig::TestingFramework;
 use rig::alloy::consensus::TxEip2930;
-use rig::alloy::primitives::{address, TxKind, U256};
+use rig::alloy::primitives::{TxKind, U256, address};
 use rig::basic_system::system_implementation::flat_storage_model::{
-    FlatStorageCommitment, TREE_HEIGHT,
+    ExactIndexQuery, ExistingReadProof, FlatStorageCommitment, PROOF_FOR_INDEX_QUERY_ID,
+    PreviousIndexQuery, TREE_HEIGHT, ValueAtIndexProof,
 };
 use rig::chain::TestingOracleFactory;
+use rig::forward_system::run::ReadStorageTree;
 use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::run::query_processors::{
     BlockMetadataResponder, DACommitmentSchemeResponder, GenericPreimageResponder, TxDataResponder,
     ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
-use rig::forward_system::run::ReadStorage;
-use rig::oracle_provider::{
-    DummyMemorySource, MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource,
-};
+use rig::oracle_provider::DummyMemorySource;
+use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
 use rig::risc_v_simulator::abstractions::memory::VectorMemoryImpl;
 use rig::ruint::aliases::B160;
 use rig::zk_ee::common_structs::{
-    da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key, ProofData,
+    ProofData, da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key,
 };
 use rig::zk_ee::oracle::basic_queries::InitialStorageSlotQuery;
 use rig::zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
@@ -37,26 +38,29 @@ use rig::zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
 use rig::zk_ee::types_config::EthereumIOTypesConfig;
 use rig::zk_ee::utils::Bytes32;
 use rig::zksync_os_interface::traits::TxListSource;
-use rig::TestingFramework;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 /// Malicious storage responder that returns non-zero initial values for new storage slots
 #[derive(Clone, Debug)]
-struct MaliciousStorageResponder<S: ReadStorage> {
+struct MaliciousStorageResponder<S: ReadStorageTree> {
     storage: S,
     targets: Vec<(B160, Bytes32)>, // (address, slot)
 }
 
-impl<S: ReadStorage> MaliciousStorageResponder<S> {
+impl<S: ReadStorageTree> MaliciousStorageResponder<S> {
     fn new(storage: S, targets: Vec<(B160, Bytes32)>) -> Self {
         Self { storage, targets }
     }
 
-    const SUPPORTED_QUERY_IDS: &[u32] =
-        &[InitialStorageSlotQuery::<EthereumIOTypesConfig>::QUERY_ID];
+    const SUPPORTED_QUERY_IDS: &[u32] = &[
+        InitialStorageSlotQuery::<EthereumIOTypesConfig>::QUERY_ID,
+        PreviousIndexQuery::QUERY_ID,
+        ExactIndexQuery::QUERY_ID,
+        PROOF_FOR_INDEX_QUERY_ID,
+    ];
 }
 
-impl<S: ReadStorage, M: MemorySource> OracleQueryProcessor<M> for MaliciousStorageResponder<S> {
+impl<S: ReadStorageTree, M: MemorySource> OracleQueryProcessor<M> for MaliciousStorageResponder<S> {
     fn supported_query_ids(&self) -> Vec<u32> {
         Self::SUPPORTED_QUERY_IDS.to_vec()
     }
@@ -111,6 +115,36 @@ impl<S: ReadStorage, M: MemorySource> OracleQueryProcessor<M> for MaliciousStora
                     };
                 DynUsizeIterator::from_constructor(slot_data, UsizeSerializable::iter)
             }
+            PreviousIndexQuery::QUERY_ID => {
+                let key = <PreviousIndexQuery as SimpleOracleQuery>::Input::from_iter(
+                    &mut query.into_iter(),
+                )
+                .expect("must deserialize key");
+                let prev_index = self.storage.prev_tree_index(key);
+
+                DynUsizeIterator::from_constructor(prev_index, UsizeSerializable::iter)
+            }
+            ExactIndexQuery::QUERY_ID => {
+                let key = <ExactIndexQuery as SimpleOracleQuery>::Input::from_iter(
+                    &mut query.into_iter(),
+                )
+                .expect("must deserialize key");
+                let existing = self
+                    .storage
+                    .tree_index(key)
+                    .expect("Reading index for key that is not in the tree");
+
+                DynUsizeIterator::from_constructor(existing, UsizeSerializable::iter)
+            }
+            PROOF_FOR_INDEX_QUERY_ID => {
+                let index = u64::from_iter(&mut query.into_iter()).expect("must deserialize index");
+                let existing = self.storage.merkle_proof(index);
+                let proof = ValueAtIndexProof {
+                    proof: ExistingReadProof { existing },
+                };
+
+                DynUsizeIterator::from_constructor(proof, UsizeSerializable::iter)
+            }
             _ => unreachable!(),
         }
     }
@@ -135,6 +169,7 @@ impl InvalidInitialValueOracleFactory {
         tx_source: TxListSource,
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,
+        use_native_callable_oracles: bool,
     ) -> ZkEENonDeterminismSource<M> {
         // Create a malicious oracle manually instead of using the default factory
         let block_metadata_responder = BlockMetadataResponder { block_metadata };
@@ -163,6 +198,28 @@ impl InvalidInitialValueOracleFactory {
         oracle.add_external_processor(malicious_storage_responder);
         oracle.add_external_processor(zk_proof_data_responder);
         oracle.add_external_processor(da_commitment_scheme_responder);
+        // Keep custom test oracles aligned with the default rig oracle setup in proof mode.
+        if use_native_callable_oracles {
+            oracle.add_external_processor(
+                rig::callable_oracles::arithmetic::NativeArithmeticQuery::default(),
+            );
+            oracle.add_external_processor(
+                rig::callable_oracles::blob_kzg_commitment::NativeBlobCommitmentAndProofQuery::default(),
+            );
+            oracle.add_external_processor(
+                rig::callable_oracles::field_hints::NativeFieldOpsQuery::default(),
+            );
+        } else {
+            oracle.add_external_processor(
+                rig::callable_oracles::arithmetic::ArithmeticQuery::default(),
+            );
+            oracle.add_external_processor(
+                rig::callable_oracles::blob_kzg_commitment::BlobCommitmentAndProofQuery::default(),
+            );
+            oracle.add_external_processor(
+                rig::callable_oracles::field_hints::FieldOpsQuery::default(),
+            );
+        }
 
         oracle
     }
@@ -178,7 +235,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,
         _add_uart: bool,
-        _use_native_callable_oracles: bool,
+        use_native_callable_oracles: bool,
     ) -> ZkEENonDeterminismSource<DummyMemorySource> {
         self.build_oracle(
             block_metadata,
@@ -187,6 +244,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
             tx_source,
             proof_data,
             da_commitment_scheme,
+            use_native_callable_oracles,
         )
     }
 
@@ -199,7 +257,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
         proof_data: Option<ProofData<FlatStorageCommitment<{ TREE_HEIGHT }>>>,
         da_commitment_scheme: Option<DACommitmentScheme>,
         _add_uart: bool,
-        _use_native_callable_oracles: bool,
+        use_native_callable_oracles: bool,
     ) -> ZkEENonDeterminismSource<VectorMemoryImpl> {
         self.build_oracle(
             block_metadata,
@@ -208,6 +266,7 @@ impl TestingOracleFactory<false> for InvalidInitialValueOracleFactory {
             tx_source,
             proof_data,
             da_commitment_scheme,
+            use_native_callable_oracles,
         )
     }
 }

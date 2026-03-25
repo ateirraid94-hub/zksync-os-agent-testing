@@ -26,6 +26,9 @@ mod native_charging;
 // Pre-execution transaction validation and bootloader rejection paths.
 mod validation_failures;
 
+const ACCESS_LIST_ADDRESS_COST: u64 = 2_400;
+const ACCESS_LIST_STORAGE_KEY_COST: u64 = 1_900;
+
 #[test]
 fn run_base_system() {
     // FIXME: this address looks very similar to bridgehub/shared bridge on gateway.
@@ -320,6 +323,229 @@ fn test_tx_with_access_list() {
     let output = tester.execute_block(transactions);
 
     tester.assert_all_txs_succeeded(&output);
+}
+
+fn make_storage_access_list(address: alloy::primitives::Address) -> AccessList {
+    AccessList::from(vec![AccessListItem {
+        address,
+        storage_keys: vec![b256!(
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+        )],
+    }])
+}
+
+#[test]
+fn test_access_list_read_uses_warm_slot_cost() {
+    let wallet = testing_signer(0);
+    let contract = address!("1000000000000000000000000000000000000101");
+    let read_slot_zero = hex::decode("60005460005260206000f3").unwrap();
+
+    let tx_with_access_list = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 40_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: make_storage_access_list(contract),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+
+    let tx_without_access_list = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 40_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: Default::default(),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+
+    let mut warmed = TestingFramework::new()
+        .with_prefunded_account(wallet.address())
+        .with_evm_contract(contract, &read_slot_zero)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+    let warmed_output = warmed.execute_block(vec![tx_with_access_list]);
+    warmed.assert_all_txs_succeeded(&warmed_output);
+
+    let mut cold = TestingFramework::new()
+        .with_prefunded_account(wallet.address())
+        .with_evm_contract(contract, &read_slot_zero)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+    let cold_output = cold.execute_block(vec![tx_without_access_list]);
+    cold.assert_all_txs_succeeded(&cold_output);
+
+    let warmed_gas = warmed_output.tx_results[0].as_ref().unwrap().gas_used;
+    let cold_gas = cold_output.tx_results[0].as_ref().unwrap().gas_used;
+    assert_eq!(
+        warmed_gas - cold_gas,
+        ACCESS_LIST_ADDRESS_COST + ACCESS_LIST_STORAGE_KEY_COST - 2_000
+    );
+}
+
+#[test]
+fn test_access_list_write_preserves_sstore_accounting() {
+    let wallet = testing_signer(0);
+    let contract = address!("1000000000000000000000000000000000000102");
+    let zero_slot_zero = hex::decode("5f6000555f5ff3").unwrap();
+
+    let tx_with_access_list = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 60_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: make_storage_access_list(contract),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+
+    let tx_without_access_list = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 60_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: Default::default(),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+
+    let mut warmed = TestingFramework::new()
+        .with_prefunded_account(wallet.address())
+        .with_evm_contract(contract, &zero_slot_zero)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+    let warmed_output = warmed.execute_block(vec![tx_with_access_list]);
+    warmed.assert_all_txs_succeeded(&warmed_output);
+
+    let mut cold = TestingFramework::new()
+        .with_prefunded_account(wallet.address())
+        .with_evm_contract(contract, &zero_slot_zero)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+    let cold_output = cold.execute_block(vec![tx_without_access_list]);
+    cold.assert_all_txs_succeeded(&cold_output);
+
+    let warmed_gas = warmed_output.tx_results[0].as_ref().unwrap().gas_used;
+    let cold_gas = cold_output.tx_results[0].as_ref().unwrap().gas_used;
+    assert_eq!(
+        warmed_gas - cold_gas,
+        ACCESS_LIST_ADDRESS_COST + ACCESS_LIST_STORAGE_KEY_COST - 2_100
+    );
+    assert!(warmed
+        .get_storage_slot(&contract, U256::ZERO)
+        .unwrap()
+        .is_zero());
+    assert!(cold
+        .get_storage_slot(&contract, U256::ZERO)
+        .unwrap()
+        .is_zero());
+}
+
+#[test]
+fn test_access_list_touch_does_not_keep_slot_warm_in_next_tx() {
+    let wallet = testing_signer(0);
+    let contract = address!("1000000000000000000000000000000000000103");
+    let no_op = hex::decode("5f5ff3").unwrap();
+    let read_slot_zero = hex::decode("60005460005260206000f3").unwrap();
+
+    let touch_tx = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 30_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: make_storage_access_list(contract),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+    let read_tx_after_touch = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 1,
+            gas_price: 1000,
+            gas_limit: 40_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: Default::default(),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+    let baseline_read_tx = {
+        let tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 40_000,
+            to: TxKind::Call(contract),
+            value: Default::default(),
+            input: Default::default(),
+            access_list: Default::default(),
+        };
+        ZKsyncTxEnvelope::from_eth_tx(tx, wallet.clone())
+    };
+
+    let mut touched_then_read = TestingFramework::new()
+        .with_prefunded_account(wallet.address())
+        .with_evm_contract(contract, &no_op)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+    let touch_output = touched_then_read.execute_block(vec![touch_tx]);
+    touched_then_read.assert_all_txs_succeeded(&touch_output);
+    touched_then_read.set_evm_contract(contract, &read_slot_zero);
+    let read_output = touched_then_read.execute_block(vec![read_tx_after_touch]);
+    touched_then_read.assert_all_txs_succeeded(&read_output);
+
+    let mut baseline = TestingFramework::new()
+        .with_prefunded_account(wallet.address())
+        .with_evm_contract(contract, &read_slot_zero)
+        .with_storage_slot(
+            contract,
+            U256::ZERO,
+            rig::ruint::aliases::B256::from_limbs([1, 0, 0, 0]),
+        );
+    let baseline_output = baseline.execute_block(vec![baseline_read_tx]);
+    baseline.assert_all_txs_succeeded(&baseline_output);
+
+    assert_eq!(
+        read_output.tx_results[0].as_ref().unwrap().gas_used,
+        baseline_output.tx_results[0].as_ref().unwrap().gas_used
+    );
 }
 
 #[test]

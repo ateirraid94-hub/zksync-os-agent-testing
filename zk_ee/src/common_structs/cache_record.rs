@@ -93,3 +93,80 @@ impl<V, M> CacheRecord<V, M> {
         f(&mut self.metadata)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CacheRecord;
+
+    #[test]
+    fn constructors_and_value_access_match_materialization_state() {
+        let empty = CacheRecord::<u32, u32>::new_empty();
+        assert!(empty.value().is_none());
+
+        let present = CacheRecord::<u32, u32>::new(11);
+        assert_eq!(present.value(), Some(&11));
+        assert_eq!(present.materialized_value().unwrap(), &11);
+    }
+
+    #[test]
+    fn update_helpers_work_for_empty_and_materialized_records() {
+        let mut empty = CacheRecord::<u32, u32>::new_empty_with_metadata(3);
+
+        empty
+            .update(|value, metadata| {
+                assert!(value.is_none());
+                *value = Some(7);
+                *metadata = 5;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(empty.value(), Some(&7));
+        assert_eq!(empty.metadata(), &5);
+
+        empty
+            .update_metadata(|metadata| {
+                *metadata = 9;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(empty.metadata(), &9);
+
+        let mut present = CacheRecord::<u32, u32>::new(13);
+        present
+            .update(|value, metadata| {
+                let value = value.as_mut().unwrap();
+                *value = 17;
+                *metadata = 19;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(present.value(), Some(&17));
+        assert_eq!(present.metadata(), &19);
+    }
+
+    #[test]
+    fn empty_record_materializes_in_place() {
+        let mut record = CacheRecord::<u32, u32>::new_empty_with_metadata(7);
+
+        assert!(record.value().is_none());
+        assert!(record.materialized_value().is_err());
+        assert!(record
+            .update_materialized(|_, _| Ok::<_, crate::system::errors::internal::InternalError>(()))
+            .is_err());
+
+        record.materialize(11);
+
+        assert_eq!(record.materialized_value().unwrap(), &11);
+
+        record
+            .update_materialized(|value, metadata| {
+                *value = 13;
+                *metadata = 17;
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(record.value(), Some(&13));
+        assert_eq!(record.metadata(), &17);
+    }
+}

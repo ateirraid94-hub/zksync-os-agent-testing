@@ -320,7 +320,12 @@ impl<
 mod tests {
     use super::{NewStorageWithAccountPropertiesUnderHash, ACCOUNT_PROPERTIES_STORAGE_ADDRESS};
     use crate::system_implementation::caches::generic_pubdata_aware_plain_storage::GenericPubdataAwarePlainStorage;
+    use crate::system_implementation::flat_storage_model::cost_constants::{
+        COLD_EXISTING_STORAGE_READ_NATIVE_COST, WARM_STORAGE_READ_NATIVE_COST,
+    };
     use crate::system_implementation::system::EthereumLikeStorageAccessCostModel;
+    use evm_interpreter::gas_constants::COLD_SLOAD_COST;
+    use evm_interpreter::ERGS_PER_GAS;
     use std::alloc::Global;
     use zk_ee::common_structs::WarmStorageKey;
     use zk_ee::execution_environment_type::ExecutionEnvironmentType;
@@ -331,7 +336,7 @@ mod tests {
     use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
     use zk_ee::storage_types::InitialStorageSlotData;
     use zk_ee::system::errors::internal::InternalError;
-    use zk_ee::system::Resource;
+    use zk_ee::system::{Computational, Resource, Resources};
     use zk_ee::types_config::EthereumIOTypesConfig;
     use zk_ee::utils::Bytes32;
 
@@ -476,6 +481,36 @@ mod tests {
         assert_eq!(accesses[0].1.initial_value, expected_value);
         assert!(accesses[0].1.initial_value_used);
         assert!(!accesses[0].1.is_new_storage_slot);
+    }
+
+    #[test]
+    fn untouched_slot_read_charges_cold_read_extra() {
+        let mut storage = test_storage();
+        let key = test_key();
+        let expected_value = Bytes32::from([9u8; 32]);
+        let mut resources = TestResources::FORMAL_INFINITE;
+        let initial_resources = resources.clone();
+
+        let mut oracle = TestOracle::with_slot(key, expected_value, false);
+        let value = storage
+            .0
+            .apply_read_impl(
+                ExecutionEnvironmentType::EVM,
+                &key,
+                &mut resources,
+                &mut oracle,
+            )
+            .unwrap();
+
+        assert_eq!(oracle.slot_queries, 1);
+        assert_eq!(value, expected_value);
+
+        let spent_resources = initial_resources.diff(resources);
+        assert_eq!(spent_resources.ergs().0, COLD_SLOAD_COST * ERGS_PER_GAS);
+        assert_eq!(
+            spent_resources.native().as_u64(),
+            WARM_STORAGE_READ_NATIVE_COST + COLD_EXISTING_STORAGE_READ_NATIVE_COST
+        );
     }
 
     #[test]

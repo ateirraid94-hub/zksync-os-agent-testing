@@ -1328,3 +1328,303 @@ define_subsystem!(AccountCache,
                       EvmSubsystem(EvmSubsystemError),
                   }
 );
+
+#[cfg(test)]
+mod tests {
+    use super::super::{
+        address_into_special_storage_key, ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
+        FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID,
+    };
+    use super::{
+        AccountProperties, BytecodeAndAccountDataPreimagesStorage, NewModelAccountCache,
+        NewStorageWithAccountPropertiesUnderHash, PreimageRequest,
+    };
+    use crate::system_implementation::flat_storage_model::cost_constants::{
+        blake2s_native_cost, ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS,
+        ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST, COLD_EXISTING_STORAGE_READ_NATIVE_COST,
+        COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS, PREIMAGE_CACHE_GET_NATIVE_COST,
+        WARM_ACCOUNT_CACHE_ACCESS_NATIVE_COST, WARM_PROPERTIES_ACCESS_COST_ERGS,
+        WARM_STORAGE_READ_NATIVE_COST,
+    };
+    use crate::system_implementation::system::EthereumLikeStorageAccessCostModel;
+    use std::alloc::Global;
+    use std::collections::HashMap;
+    use storage_models::common_structs::PreimageCacheModel;
+    use zk_ee::common_structs::PreimageType;
+    use zk_ee::execution_environment_type::ExecutionEnvironmentType;
+    use zk_ee::memory::stack_implementations::vec_stack::VecStackFactory;
+    use zk_ee::oracle::query_ids::INITIAL_STORAGE_SLOT_VALUE_QUERY_ID;
+    use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
+    use zk_ee::oracle::IOOracle;
+    use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
+    use zk_ee::storage_types::{InitialStorageSlotData, StorageAddress};
+    use zk_ee::system::errors::internal::InternalError;
+    use zk_ee::system::{Computational, Resource, Resources};
+    use zk_ee::types_config::EthereumIOTypesConfig;
+    use zk_ee::utils::{num_usize_words_for_u8_capacity, Bytes32, USIZE_SIZE};
+
+    type TestResources = BaseResources<DecreasingNative>;
+    type TestStorage = NewStorageWithAccountPropertiesUnderHash<
+        Global,
+        VecStackFactory,
+        8,
+        TestResources,
+        EthereumLikeStorageAccessCostModel,
+    >;
+    type TestAccountCache = NewModelAccountCache<
+        Global,
+        TestResources,
+        EthereumLikeStorageAccessCostModel,
+        VecStackFactory,
+        8,
+    >;
+
+    #[derive(Default)]
+    struct TestOracle {
+        slot_values:
+            HashMap<(ruint::aliases::B160, Bytes32), InitialStorageSlotData<EthereumIOTypesConfig>>,
+        preimages: HashMap<Bytes32, Vec<usize>>,
+        slot_queries: usize,
+        preimage_queries: usize,
+    }
+
+    impl TestOracle {
+        fn with_account(address: ruint::aliases::B160, account: AccountProperties) -> Self {
+            let special_key = address_into_special_storage_key(&address);
+            let hash = account.compute_hash();
+            let mut slot_values = HashMap::new();
+            slot_values.insert(
+                (ACCOUNT_PROPERTIES_STORAGE_ADDRESS, special_key),
+                InitialStorageSlotData {
+                    is_new_storage_slot: false,
+                    initial_value: hash,
+                },
+            );
+
+            let mut preimages = HashMap::new();
+            preimages.insert(hash, pack_bytes_to_usizes(&account.encoding()));
+
+            Self {
+                slot_values,
+                preimages,
+                slot_queries: 0,
+                preimage_queries: 0,
+            }
+        }
+    }
+
+    fn pack_bytes_to_usizes(bytes: &[u8]) -> Vec<usize> {
+        let num_words = num_usize_words_for_u8_capacity(bytes.len());
+        let mut padded = vec![0u8; num_words * USIZE_SIZE];
+        padded[..bytes.len()].copy_from_slice(bytes);
+
+        padded
+            .chunks_exact(USIZE_SIZE)
+            .map(|chunk| usize::from_ne_bytes(chunk.try_into().unwrap()))
+            .collect()
+    }
+
+    impl IOOracle for TestOracle {
+        type RawIterator<'a> = std::vec::IntoIter<usize>;
+
+        fn raw_query<'a, I: UsizeSerializable + UsizeDeserializable>(
+            &'a mut self,
+            query_type: u32,
+            input: &I,
+        ) -> Result<Self::RawIterator<'a>, InternalError> {
+            match query_type {
+                INITIAL_STORAGE_SLOT_VALUE_QUERY_ID => {
+                    self.slot_queries += 1;
+                    let mut input_iter = input.iter();
+                    let key = StorageAddress::<EthereumIOTypesConfig>::from_iter(&mut input_iter)?;
+                    assert!(input_iter.next().is_none());
+
+                    Ok(self
+                        .slot_values
+                        .get(&(key.address, key.key))
+                        .copied()
+                        .unwrap_or_default()
+                        .iter()
+                        .collect::<Vec<_>>()
+                        .into_iter())
+                }
+                FLAT_STORAGE_GENERIC_PREIMAGE_QUERY_ID => {
+                    self.preimage_queries += 1;
+                    let mut input_iter = input.iter();
+                    let hash = Bytes32::from_iter(&mut input_iter)?;
+                    assert!(input_iter.next().is_none());
+
+                    Ok(self
+                        .preimages
+                        .get(&hash)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter())
+                }
+                _ => panic!("unexpected query id {query_type}"),
+            }
+        }
+    }
+
+    fn test_storage() -> TestStorage {
+        NewStorageWithAccountPropertiesUnderHash(
+            crate::system_implementation::caches::generic_pubdata_aware_plain_storage::GenericPubdataAwarePlainStorage::new_from_parts(
+                Global,
+                EthereumLikeStorageAccessCostModel,
+            ),
+        )
+    }
+
+    fn test_account() -> AccountProperties {
+        let mut account = AccountProperties::TRIVIAL_VALUE;
+        account.nonce = 5;
+        account.balance = ruint::aliases::U256::from(42u64);
+        account
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct ChargeSummary {
+        ergs: u64,
+        native: u64,
+        slot_queries: usize,
+        preimage_queries: usize,
+    }
+
+    fn measure_materialize_account_charge(
+        touch_first: bool,
+        prewarm_preimage: bool,
+    ) -> ChargeSummary {
+        let address = ruint::aliases::B160::from_limbs([17, 0, 0]);
+        let account = test_account();
+        let hash = account.compute_hash();
+        let encoding = account.encoding();
+
+        let mut storage = test_storage();
+        let mut cache = TestAccountCache::new_from_parts(Global);
+        let mut preimages_cache =
+            BytecodeAndAccountDataPreimagesStorage::<TestResources, Global>::new_from_parts(Global);
+        let mut oracle = TestOracle::with_account(address, account);
+
+        if prewarm_preimage {
+            let mut resources = TestResources::FORMAL_INFINITE;
+            preimages_cache
+                .record_preimage::<false>(
+                    ExecutionEnvironmentType::NoEE,
+                    &PreimageRequest {
+                        hash,
+                        expected_preimage_len_in_bytes: AccountProperties::ENCODED_SIZE as u32,
+                        preimage_type: PreimageType::AccountData,
+                    },
+                    &mut resources,
+                    &[&encoding],
+                )
+                .unwrap();
+        }
+
+        if touch_first {
+            let mut resources = TestResources::FORMAL_INFINITE;
+            cache
+                .touch_account::<false>(ExecutionEnvironmentType::EVM, &mut resources, &address)
+                .unwrap();
+        }
+
+        let mut resources = TestResources::FORMAL_INFINITE;
+        let initial_resources = resources.clone();
+        let item = cache
+            .materialize_element::<false>(
+                ExecutionEnvironmentType::EVM,
+                &mut resources,
+                &address,
+                &mut storage,
+                &mut preimages_cache,
+                &mut oracle,
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(item.current().value(), Some(&account));
+        assert!(item.element_properties().is_value_observed());
+
+        let spent = initial_resources.diff(resources);
+        ChargeSummary {
+            ergs: spent.ergs().0,
+            native: spent.native().as_u64(),
+            slot_queries: oracle.slot_queries,
+            preimage_queries: oracle.preimage_queries,
+        }
+    }
+
+    #[test]
+    fn touch_account_charges_only_access_list_cost_and_keeps_placeholder_unobserved() {
+        let mut cache = TestAccountCache::new_from_parts(Global);
+        let address = ruint::aliases::B160::from_limbs([11, 0, 0]);
+        let mut resources = TestResources::FORMAL_INFINITE;
+        let initial_resources = resources.clone();
+
+        cache
+            .touch_account::<false>(ExecutionEnvironmentType::EVM, &mut resources, &address)
+            .unwrap();
+
+        let cache_key = address.into();
+        let item = cache.cache.get(&cache_key).unwrap();
+        assert!(item.current().value().is_none());
+        assert!(!item.key_properties().is_value_observed());
+
+        let spent = initial_resources.diff(resources);
+        assert_eq!(spent.ergs().0, ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS.0);
+        assert_eq!(
+            spent.native().as_u64(),
+            ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST
+        );
+    }
+
+    #[test]
+    fn precompile_touch_works_with_formal_infinite_resources() {
+        let mut cache = TestAccountCache::new_from_parts(Global);
+        let precompile = ruint::aliases::B160::from_limbs([1, 0, 0]);
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        cache
+            .touch_account::<false>(ExecutionEnvironmentType::EVM, &mut resources, &precompile)
+            .unwrap();
+
+        let cache_key = precompile.into();
+        let item = cache.cache.get(&cache_key).unwrap();
+        assert!(item.current().value().is_none());
+        assert!(!item.key_properties().is_value_observed());
+    }
+
+    #[test]
+    fn cold_account_native_cost_is_independent_of_touch_and_preimage_cache_state() {
+        let untouched = measure_materialize_account_charge(false, false);
+        let touched = measure_materialize_account_charge(true, false);
+        let prewarmed_preimage = measure_materialize_account_charge(false, true);
+
+        let expected_native = WARM_ACCOUNT_CACHE_ACCESS_NATIVE_COST
+            + WARM_STORAGE_READ_NATIVE_COST
+            + COLD_EXISTING_STORAGE_READ_NATIVE_COST
+            + PREIMAGE_CACHE_GET_NATIVE_COST
+            + blake2s_native_cost(AccountProperties::ENCODED_SIZE);
+
+        assert_eq!(untouched.native, expected_native);
+        assert_eq!(touched.native, expected_native);
+        assert_eq!(prewarmed_preimage.native, expected_native);
+
+        assert_eq!(
+            untouched.ergs,
+            WARM_PROPERTIES_ACCESS_COST_ERGS.0 + COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS.0
+        );
+        assert_eq!(touched.ergs, WARM_PROPERTIES_ACCESS_COST_ERGS.0);
+        assert_eq!(
+            prewarmed_preimage.ergs,
+            WARM_PROPERTIES_ACCESS_COST_ERGS.0 + COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS.0
+        );
+
+        assert_eq!(untouched.slot_queries, 1);
+        assert_eq!(touched.slot_queries, 1);
+        assert_eq!(prewarmed_preimage.slot_queries, 1);
+        assert_eq!(untouched.preimage_queries, 1);
+        assert_eq!(touched.preimage_queries, 1);
+        assert_eq!(prewarmed_preimage.preimage_queries, 0);
+    }
+}
