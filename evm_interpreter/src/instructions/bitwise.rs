@@ -139,7 +139,8 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
 
         if let Some(offset) = custom_u256_try_to_usize_capped::<32>(offset) {
             let ret = src.byte(31 - offset);
-            *src = U256::from(ret as u64);
+            U256::write_zero(src);
+            src.as_limbs_mut()[0] = ret as u64;
         } else {
             U256::write_zero(src);
         }
