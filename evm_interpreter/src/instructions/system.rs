@@ -61,21 +61,20 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
     pub fn address(&mut self) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, ADDRESS_NATIVE_COST)?;
-        self.stack.push(&custom_b160_to_u256(self.address))
+        self.stack.push_b160(self.address)
     }
 
     pub fn caller(&mut self) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, CALLER_NATIVE_COST)?;
-        self.stack.push(&custom_b160_to_u256(self.caller))
+        self.stack.push_b160(self.caller)
     }
 
     pub fn codesize(&mut self) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, CODESIZE_NATIVE_COST)?;
-        self.stack.push(&U256::from(
-            self.bytecode_preprocessing.original_bytecode_len as u64,
-        ))
+        self.stack
+            .push_u64(self.bytecode_preprocessing.original_bytecode_len as u64)
     }
 
     pub fn codecopy(&mut self, system: &mut System<S>) -> InstructionResult {
@@ -159,7 +158,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, CALLDATASIZE_NATIVE_COST)?;
         let calldata_len = self.calldata().len();
-        self.stack.push(&U256::from(calldata_len as u64))
+        self.stack.push_u64(calldata_len as u64)
     }
 
     pub fn callvalue(&mut self) -> InstructionResult {
@@ -203,7 +202,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, RETURNDATASIZE_NATIVE_COST)?;
         let returndata_len = self.returndata.len();
-        self.stack.push(&U256::from(returndata_len as u64))
+        self.stack.push_u64(returndata_len as u64)
     }
 
     pub fn returndatacopy(&mut self) -> InstructionResult {
@@ -239,6 +238,6 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
     pub fn gas(&mut self) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, GAS_NATIVE_COST)?;
-        self.stack.push(&U256::from(self.gas.gas_left()))
+        self.stack.push_u64(self.gas.gas_left())
     }
 }

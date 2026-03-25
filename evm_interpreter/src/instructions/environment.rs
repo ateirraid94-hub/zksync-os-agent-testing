@@ -5,32 +5,28 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
     pub fn chainid(&mut self, system: &mut System<S>) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, CHAINID_NATIVE_COST)?;
-        let result = U256::from(system.get_chain_id());
-        self.stack.push(&result)?;
+        self.stack.push_u64(system.get_chain_id())?;
         Ok(())
     }
 
     pub fn coinbase(&mut self, system: &mut System<S>) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, COINBASE_NATIVE_COST)?;
-        self.stack
-            .push(&custom_b160_to_u256(system.get_coinbase()))?;
+        self.stack.push_b160(system.get_coinbase())?;
         Ok(())
     }
 
     pub fn timestamp(&mut self, system: &mut System<S>) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, TIMESTAMP_NATIVE_COST)?;
-        let result = U256::from(system.get_timestamp());
-        self.stack.push(&result)?;
+        self.stack.push_u64(system.get_timestamp())?;
         Ok(())
     }
 
     pub fn number(&mut self, system: &mut System<S>) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, NUMBER_NATIVE_COST)?;
-        let result = U256::from(system.get_block_number());
-        self.stack.push(&result)?;
+        self.stack.push_u64(system.get_block_number())?;
         Ok(())
     }
 
@@ -47,8 +43,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
     pub fn gaslimit(&mut self, system: &mut System<S>) -> InstructionResult {
         self.gas
             .spend_gas_and_native(gas_constants::BASE, GAS_NATIVE_COST)?;
-        let result = U256::from(system.get_gas_limit());
-        self.stack.push(&result)?;
+        self.stack.push_u64(system.get_gas_limit())?;
         Ok(())
     }
 
@@ -81,8 +76,7 @@ impl<S: EthereumLikeTypes> Interpreter<'_, S> {
         {
             self.gas
                 .spend_gas_and_native(gas_constants::BASE, ORIGIN_NATIVE_COST)?;
-            self.stack
-                .push(&custom_b160_to_u256(system.get_tx_origin()))?;
+            self.stack.push_b160(system.get_tx_origin())?;
             Ok(())
         }
     }
