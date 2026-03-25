@@ -196,7 +196,7 @@ impl<'ee, S: EthereumLikeTypes> Interpreter<'ee, S> {
                     opcodes::MSIZE => self.msize(),
                     opcodes::JUMPDEST => self.jumpdest(),
                     opcodes::PUSH0 => self.push0(),
-                    opcodes::PUSH1 => self.push::<1>(),
+                    opcodes::PUSH1 => self.push1(),
                     opcodes::PUSH2 => self.push::<2>(),
                     opcodes::PUSH3 => self.push::<3>(),
                     opcodes::PUSH4 => self.push::<4>(),
