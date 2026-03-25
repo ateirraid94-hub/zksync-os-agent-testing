@@ -151,8 +151,11 @@ fn test_asset_tracker_called_on_deposit() {
         "chain ID argument should match settlement layer"
     );
 
-    // computational_native_used must include the native cost of post-execution
-    // operations (asset tracker notifications, coinbase transfer, refund).
+    // computational_native_used reflects the main tx body computation
+    // plus intrinsic native. Post-execution operations (asset tracker
+    // notifications, coinbase transfer, refund) run on FORMAL_INFINITE
+    // and their cost is covered by L1_TX_INTRINSIC_NATIVE_COST, not
+    // measured at runtime.
     assert!(
         tx_result.computational_native_used > 0,
         "computational_native_used should be nonzero"

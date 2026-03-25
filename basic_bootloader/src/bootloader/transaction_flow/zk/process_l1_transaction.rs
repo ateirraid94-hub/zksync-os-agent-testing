@@ -35,7 +35,7 @@ use zk_ee::system::System;
 use zk_ee::system::{CompletedExecution, Computational};
 use zk_ee::system::{EthereumLikeTypes, Resources};
 #[allow(unused_imports)]
-use zk_ee::system::{IOSubsystem, IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
+use zk_ee::system::{IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
 use zk_ee::system_log;
 use zk_ee::utils::{u256_to_b160_checked, u256_try_to_u64, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
@@ -576,6 +576,12 @@ where
     // cost is accounted for in the intrinsic native cost constant.
     // Running with FORMAL_INFINITE also ensures these operations cannot
     // fail due to resource exhaustion.
+    //
+    // IMPORTANT: the out-of-native error handler (FatalRuntimeError)
+    // only covers `run_single_interaction` for the main tx body below.
+    // All operations before it MUST use FORMAL_INFINITE so they cannot
+    // trigger a FatalRuntimeError that would propagate uncaught and
+    // halt the chain instead of gracefully reverting the tx.
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
     if to_transfer > U256::ZERO || Config::SIMULATION {
         transfer_from_treasury::<S>(
