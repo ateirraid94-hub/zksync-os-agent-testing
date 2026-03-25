@@ -85,10 +85,7 @@ impl<
         P: StorageAccessPolicy<R, V>,
     > GenericPubdataAwarePlainStorage<K, V, A, SF, M, R, P>
 {
-    fn query_initial_value(
-        key: &K,
-        oracle: &mut impl IOOracle,
-    ) -> Result<(V, bool), SystemError>
+    fn query_initial_value(key: &K, oracle: &mut impl IOOracle) -> Result<(V, bool), SystemError>
     where
         StorageAddress<EthereumIOTypesConfig>: From<K>,
     {
@@ -167,7 +164,11 @@ impl<
             ))
         })?;
 
-        if !item.current().metadata().considered_warm(self.current_tx_id) {
+        if !item
+            .current()
+            .metadata()
+            .considered_warm(self.current_tx_id)
+        {
             if item.element_properties().is_value_observed() {
                 item.update(|cache_record| {
                     cache_record.update_metadata(|metadata| {

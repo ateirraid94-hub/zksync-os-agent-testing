@@ -76,12 +76,6 @@ pub const TOTAL_COST_FLOOR_PER_TOKEN: u64 = 10;
 /// Computational cost of 7702 auth
 pub const PER_AUTH_NATIVE_COST: u64 = 2000;
 
-/// Computational cost of 2930 access list per address
-pub const PER_ADDRESS_ACCESS_LIST_NATIVE_COST: u64 = 2000;
-
-/// Computational cost of 2930 access list per slot
-pub const PER_SLOT_ACCESS_LIST_NATIVE_COST: u64 = 2000;
-
 /// EVM tester requires a high native_per_gas, but it hard-codes
 /// low gas prices. We need to bypass the usual way to compute this
 /// value. The value is so high because of modexp tests.

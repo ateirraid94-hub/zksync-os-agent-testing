@@ -551,8 +551,7 @@ impl<
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
     ) -> Result<(), SystemError> {
-        self.storage
-            .touch_account(ee_type, resources, address, &mut self.oracle)
+        self.storage.touch_account(ee_type, resources, address)
     }
 
     fn read_account_properties<

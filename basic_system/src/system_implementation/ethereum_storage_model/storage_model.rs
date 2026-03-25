@@ -199,10 +199,9 @@ impl<
         ee_type: ExecutionEnvironmentType,
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
-        oracle: &mut impl IOOracle,
     ) -> Result<(), SystemError> {
         self.account_cache
-            .touch_account::<PROOF_ENV>(ee_type, resources, address, oracle, false)
+            .touch_account::<PROOF_ENV>(ee_type, resources, address)
     }
 
     fn get_selfbalance(

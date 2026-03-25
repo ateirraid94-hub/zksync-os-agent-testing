@@ -315,3 +315,180 @@ impl<
         pubdata_used
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{NewStorageWithAccountPropertiesUnderHash, ACCOUNT_PROPERTIES_STORAGE_ADDRESS};
+    use crate::system_implementation::caches::generic_pubdata_aware_plain_storage::GenericPubdataAwarePlainStorage;
+    use crate::system_implementation::system::EthereumLikeStorageAccessCostModel;
+    use std::alloc::Global;
+    use zk_ee::common_structs::WarmStorageKey;
+    use zk_ee::execution_environment_type::ExecutionEnvironmentType;
+    use zk_ee::memory::stack_implementations::vec_stack::VecStackFactory;
+    use zk_ee::oracle::query_ids::INITIAL_STORAGE_SLOT_VALUE_QUERY_ID;
+    use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
+    use zk_ee::oracle::IOOracle;
+    use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
+    use zk_ee::storage_types::InitialStorageSlotData;
+    use zk_ee::system::errors::internal::InternalError;
+    use zk_ee::system::Resource;
+    use zk_ee::types_config::EthereumIOTypesConfig;
+    use zk_ee::utils::Bytes32;
+
+    type TestResources = BaseResources<DecreasingNative>;
+    type TestStorage = NewStorageWithAccountPropertiesUnderHash<
+        Global,
+        VecStackFactory,
+        8,
+        TestResources,
+        EthereumLikeStorageAccessCostModel,
+    >;
+
+    #[derive(Default)]
+    struct TestOracle {
+        slot_values: Vec<(
+            (ruint::aliases::B160, Bytes32),
+            InitialStorageSlotData<EthereumIOTypesConfig>,
+        )>,
+        slot_queries: usize,
+    }
+
+    struct AddressArg(ruint::aliases::B160);
+
+    impl AsRef<ruint::aliases::B160> for AddressArg {
+        fn as_ref(&self) -> &ruint::aliases::B160 {
+            &self.0
+        }
+    }
+
+    impl TestOracle {
+        fn with_slot(key: WarmStorageKey, value: Bytes32, is_new_storage_slot: bool) -> Self {
+            let slot_values = vec![(
+                (key.address, key.key),
+                InitialStorageSlotData {
+                    is_new_storage_slot,
+                    initial_value: value,
+                },
+            )];
+            Self {
+                slot_values,
+                slot_queries: 0,
+            }
+        }
+    }
+
+    impl IOOracle for TestOracle {
+        type RawIterator<'a> = std::vec::IntoIter<usize>;
+
+        fn raw_query<'a, I: UsizeSerializable + UsizeDeserializable>(
+            &'a mut self,
+            query_type: u32,
+            input: &I,
+        ) -> Result<Self::RawIterator<'a>, InternalError> {
+            match query_type {
+                INITIAL_STORAGE_SLOT_VALUE_QUERY_ID => {
+                    self.slot_queries += 1;
+                    let mut input_iter = input.iter();
+                    let key =
+                        zk_ee::storage_types::StorageAddress::<EthereumIOTypesConfig>::from_iter(
+                            &mut input_iter,
+                        )?;
+                    assert!(input_iter.next().is_none());
+                    let value = self
+                        .slot_values
+                        .iter()
+                        .find_map(|((address, storage_key), value)| {
+                            (*address == key.address && *storage_key == key.key).then_some(*value)
+                        })
+                        .unwrap_or_default();
+                    Ok(value.iter().collect::<Vec<_>>().into_iter())
+                }
+                _ => panic!("unexpected query id {query_type}"),
+            }
+        }
+    }
+
+    fn test_storage() -> TestStorage {
+        NewStorageWithAccountPropertiesUnderHash(GenericPubdataAwarePlainStorage::new_from_parts(
+            Global,
+            EthereumLikeStorageAccessCostModel,
+        ))
+    }
+
+    fn test_key() -> WarmStorageKey {
+        WarmStorageKey {
+            address: ruint::aliases::B160::from_limbs([7, 0, 0]),
+            key: Bytes32::from([3u8; 32]),
+        }
+    }
+
+    #[test]
+    fn touched_only_slots_are_hidden_from_iterators_and_deconstruction_clear() {
+        let mut storage = test_storage();
+        let key = test_key();
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        storage.0.touch_impl(&key, &mut resources).unwrap();
+
+        let item = storage.0.cache.get(&key).unwrap();
+        assert!(item.current().value().is_none());
+        assert!(!item.key_properties().is_value_observed());
+        assert_eq!(storage.iter_as_storage_types().count(), 0);
+
+        storage.0.clear_state_impl(AddressArg(key.address)).unwrap();
+
+        let item = storage.0.cache.get(&key).unwrap();
+        assert!(item.current().value().is_none());
+        assert_eq!(storage.iter_as_storage_types().count(), 0);
+    }
+
+    #[test]
+    fn touched_slot_materializes_on_read_and_becomes_iterable() {
+        let mut storage = test_storage();
+        let key = test_key();
+        let expected_value = Bytes32::from([9u8; 32]);
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        storage.0.touch_impl(&key, &mut resources).unwrap();
+
+        let mut oracle = TestOracle::with_slot(key, expected_value, false);
+        let value = storage
+            .0
+            .apply_read_impl(
+                ExecutionEnvironmentType::NoEE,
+                &key,
+                &mut resources,
+                &mut oracle,
+            )
+            .unwrap();
+
+        assert_eq!(oracle.slot_queries, 1);
+        assert_eq!(value, expected_value);
+
+        let item = storage.0.cache.get(&key).unwrap();
+        assert_eq!(item.current().value(), Some(&expected_value));
+        assert!(item.key_properties().is_value_observed());
+
+        let accesses = storage.iter_as_storage_types().collect::<Vec<_>>();
+        assert_eq!(accesses.len(), 1);
+        assert_eq!(accesses[0].0, key);
+        assert_eq!(accesses[0].1.current_value, expected_value);
+        assert_eq!(accesses[0].1.initial_value, expected_value);
+        assert!(accesses[0].1.initial_value_used);
+        assert!(!accesses[0].1.is_new_storage_slot);
+    }
+
+    #[test]
+    fn account_property_subspace_is_not_special_cased_by_storage_iterator() {
+        let mut storage = test_storage();
+        let key = WarmStorageKey {
+            address: ACCOUNT_PROPERTIES_STORAGE_ADDRESS,
+            key: Bytes32::from([1u8; 32]),
+        };
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        storage.0.touch_impl(&key, &mut resources).unwrap();
+
+        assert_eq!(storage.iter_as_storage_types().count(), 0);
+    }
+}

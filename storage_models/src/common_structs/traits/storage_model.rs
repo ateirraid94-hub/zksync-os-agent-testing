@@ -110,7 +110,6 @@ pub trait StorageModel: Sized + SnapshottableIo {
         ee_type: ExecutionEnvironmentType,
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
-        oracle: &mut impl IOOracle,
     ) -> Result<(), SystemError>;
 
     /// Increments the nonce for the given address. Returns the old nonce value.

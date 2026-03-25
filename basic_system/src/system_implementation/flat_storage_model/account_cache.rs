@@ -101,6 +101,13 @@ impl<
         const M: usize,
     > NewModelAccountCache<A, R, P, SF, M>
 {
+    fn charge_access_list_account_touch(resources: &mut R) -> Result<(), SystemError> {
+        resources.charge(&R::from_ergs_and_native(
+            ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS,
+            R::Native::from_computational(ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST),
+        ))
+    }
+
     pub fn new_from_parts(allocator: A) -> Self {
         Self {
             cache: HistoryMap::new(allocator.clone()),
@@ -168,6 +175,63 @@ impl<
         Ok(())
     }
 
+    fn load_account_properties<const PROOF_ENV: bool>(
+        ee_type: ExecutionEnvironmentType,
+        resources: &mut R,
+        address: &B160,
+        storage: &mut NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>,
+        preimages_cache: &mut impl PreimageCacheModel<Resources = R, PreimageRequest = PreimageRequest>,
+        oracle: &mut impl IOOracle,
+        is_selfdestruct: bool,
+        charge_cold_ergs: bool,
+    ) -> Result<(AccountProperties, bool), SystemError> {
+        if charge_cold_ergs {
+            Self::charge_ergs_for_cold_access(ee_type, resources, address, is_selfdestruct)?;
+        }
+
+        // We use infinite resources to perform IO. These costs are charged explicitly
+        // by the cold-access path so native charging does not depend on cache state.
+        let mut inf_resources = R::FORMAL_INFINITE;
+
+        let hash = storage.read_special_account_property::<AccountAggregateDataHash>(
+            ExecutionEnvironmentType::NoEE,
+            &mut inf_resources,
+            address,
+            oracle,
+        )?;
+
+        let empty_account = hash == Bytes32::ZERO;
+        Self::charge_native_for_cold_access(
+            ee_type,
+            resources,
+            empty_account,
+            &storage.0.resources_policy,
+        )?;
+
+        let acc_data = match empty_account {
+            true => AccountProperties::default(),
+            false => {
+                let preimage = preimages_cache.get_preimage::<PROOF_ENV>(
+                    ee_type,
+                    &PreimageRequest {
+                        hash,
+                        expected_preimage_len_in_bytes: AccountProperties::ENCODED_SIZE as u32,
+                        preimage_type: PreimageType::AccountData,
+                    },
+                    &mut inf_resources,
+                    oracle,
+                )?;
+                assert_eq!(preimage.len(), AccountProperties::ENCODED_SIZE);
+
+                AccountProperties::decode(preimage.try_into().map_err(|_| {
+                    internal_error!("Unexpected preimage length for AccountProperties")
+                })?)
+            }
+        };
+
+        Ok((acc_data, empty_account))
+    }
+
     /// Read element and initialize it if needed
     fn materialize_element<const PROOF_ENV: bool>(
         &mut self,
@@ -178,7 +242,6 @@ impl<
         preimages_cache: &mut impl PreimageCacheModel<Resources = R, PreimageRequest = PreimageRequest>,
         oracle: &mut impl IOOracle,
         is_selfdestruct: bool,
-        observe: bool,
     ) -> Result<AddressItem<'_, A>, SystemError> {
         let ergs = match ee_type {
             ExecutionEnvironmentType::NoEE => Ergs::empty(),
@@ -201,59 +264,22 @@ impl<
             .get_or_insert(address.into(), || {
                 // Element doesn't exist in cache yet, initialize it
                 initialized_element = true;
-
-                // - first get a hash of properties from storage
-                Self::charge_ergs_for_cold_access(ee_type, resources, address, is_selfdestruct)?;
-
-                // We use infinite resources to perform IO. This costs are charged
-                // every time we charge for "cold" access, to avoid native charging
-                // depending on the state of caches.
-                let mut inf_resources = R::FORMAL_INFINITE;
-
-                // to avoid divergence we read as-if infinite ergs
-                let hash = storage.read_special_account_property::<AccountAggregateDataHash>(
-                    ExecutionEnvironmentType::NoEE,
-                    &mut inf_resources,
-                    address,
-                    oracle,
-                )?;
-
-                let empty_account = hash == Bytes32::ZERO;
-                Self::charge_native_for_cold_access(
+                let (acc_data, empty_account) = Self::load_account_properties::<PROOF_ENV>(
                     ee_type,
                     resources,
-                    empty_account,
-                    &storage.0.resources_policy,
+                    address,
+                    storage,
+                    preimages_cache,
+                    oracle,
+                    is_selfdestruct,
+                    true,
                 )?;
-
-                let acc_data = match empty_account {
-                    true => AccountProperties::default(),
-                    false => {
-                        let preimage = preimages_cache.get_preimage::<PROOF_ENV>(
-                            ee_type,
-                            &PreimageRequest {
-                                hash,
-                                expected_preimage_len_in_bytes: AccountProperties::ENCODED_SIZE
-                                    as u32,
-                                preimage_type: PreimageType::AccountData,
-                            },
-                            &mut inf_resources,
-                            oracle,
-                        )?;
-                        // it's redundant as preimages cache should just check it, but why not
-                        assert_eq!(preimage.len(), AccountProperties::ENCODED_SIZE);
-
-                        AccountProperties::decode(preimage.try_into().map_err(|_| {
-                            internal_error!("Unexpected preimage length for AccountProperties")
-                        })?)
-                    }
-                };
 
                 // Note: we initialize it as cold, should be warmed up separately
                 // Since in case of revert it should become cold again and initial record can't be rolled back
                 Ok((
                     CacheRecord::new(acc_data),
-                    CacheElementProperties::new(empty_account, observe),
+                    CacheElementProperties::new(empty_account, true),
                 ))
             })
             .and_then(|mut x| {
@@ -263,11 +289,27 @@ impl<
                     .metadata()
                     .basic
                     .considered_warm(self.current_tx_id);
-                if observe {
+
+                let mut cold_access_charged_during_materialization = initialized_element;
+
+                if !x.element_properties().is_value_observed() {
+                    let (acc_data, empty_account) = Self::load_account_properties::<PROOF_ENV>(
+                        ee_type,
+                        resources,
+                        address,
+                        storage,
+                        preimages_cache,
+                        oracle,
+                        is_selfdestruct,
+                        !is_warm,
+                    )?;
+                    cold_access_charged_during_materialization = !is_warm;
+                    x.mutate_current_in_place(|cache_record| cache_record.materialize(acc_data));
+                    x.element_properties_mut().set_is_new(empty_account);
                     x.element_properties_mut().mark_value_as_observed();
                 }
                 if is_warm == false {
-                    if initialized_element == false {
+                    if !cold_access_charged_during_materialization {
                         // Element exists in cache, but wasn't touched in current tx yet
                         Self::charge_ergs_for_cold_access(
                             ee_type,
@@ -315,7 +357,6 @@ impl<
             preimages_cache,
             oracle,
             is_selfdestruct,
-            true,
         )?;
 
         resources.charge(&R::from_native(R::Native::from_computational(
@@ -522,23 +563,47 @@ impl<
 
     pub fn touch_account<const PROOF_ENV: bool>(
         &mut self,
-        ee_type: ExecutionEnvironmentType,
+        _ee_type: ExecutionEnvironmentType,
         resources: &mut R,
         address: &B160,
-        storage: &mut NewStorageWithAccountPropertiesUnderHash<A, SF, M, R, P>,
-        preimages_cache: &mut BytecodeAndAccountDataPreimagesStorage<R, A>,
-        oracle: &mut impl IOOracle,
     ) -> Result<(), SystemError> {
-        self.materialize_element::<PROOF_ENV>(
-            ee_type,
-            resources,
-            address,
-            storage,
-            preimages_cache,
-            oracle,
-            false,
-            false,
-        )?;
+        Self::charge_access_list_account_touch(resources)?;
+
+        let mut item = self.cache.get_or_insert(address.into(), || {
+            Ok::<_, SystemError>((
+                CacheRecord::new_empty_with_metadata(AccountPropertiesMetadata {
+                    basic: BasicAccountPropertiesMetadata {
+                        last_touched_in_tx: Some(self.current_tx_id),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+                CacheElementProperties::new(false, false),
+            ))
+        })?;
+
+        if !item
+            .current()
+            .metadata()
+            .basic
+            .considered_warm(self.current_tx_id)
+        {
+            if item.element_properties().is_value_observed() {
+                item.update(|cache_record| {
+                    cache_record.update_metadata(|metadata| {
+                        metadata.basic.last_touched_in_tx = Some(self.current_tx_id);
+                        Ok(())
+                    })
+                })?;
+            } else {
+                item.mutate_current_in_place(|cache_record| {
+                    cache_record.update_metadata_infallible(|metadata| {
+                        metadata.basic.last_touched_in_tx = Some(self.current_tx_id);
+                    });
+                });
+            }
+        }
+
         Ok(())
     }
 
@@ -602,7 +667,6 @@ impl<
             preimages_cache,
             oracle,
             false,
-            true,
         )?;
 
         let full_data = account_data.current().materialized_value()?;
@@ -685,7 +749,6 @@ impl<
             preimages_cache,
             oracle,
             false,
-            true,
         )?;
 
         resources.charge(&R::from_native(R::Native::from_computational(
@@ -819,7 +882,6 @@ impl<
                 preimages_cache,
                 oracle,
                 false,
-                true,
             )
         })?;
 
@@ -935,7 +997,6 @@ impl<
             preimages_cache,
             oracle,
             false,
-            true,
         )?;
 
         let request = PreimageRequest {
@@ -1030,7 +1091,6 @@ impl<
                 preimages_cache,
                 oracle,
                 false,
-                true,
             )
         })?;
 
@@ -1149,7 +1209,6 @@ impl<
             preimages_cache,
             oracle,
             true,
-            false,
         )?;
         resources.charge(&R::from_native(R::Native::from_computational(
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,

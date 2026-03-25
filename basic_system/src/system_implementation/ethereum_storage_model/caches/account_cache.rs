@@ -79,6 +79,55 @@ pub struct EthereumAccountCache<
 impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
     EthereumAccountCache<A, R, SF, N>
 {
+    fn charge_access_list_account_touch(resources: &mut R) -> Result<(), SystemError> {
+        resources.charge(&R::from_ergs_and_native(
+            ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS,
+            R::Native::from_computational(ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST),
+        ))
+    }
+
+    fn charge_cold_access_ergs(
+        ee_type: ExecutionEnvironmentType,
+        resources: &mut R,
+        address: &B160,
+        is_selfdestruct: bool,
+    ) -> Result<(), SystemError> {
+        match ee_type {
+            ExecutionEnvironmentType::NoEE => {}
+            ExecutionEnvironmentType::EVM => {
+                let mut cost: R = if evm_interpreter::utils::is_precompile(&address) {
+                    R::empty()
+                } else {
+                    R::from_ergs(COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS)
+                };
+                if is_selfdestruct {
+                    cost.add_ergs(WARM_PROPERTIES_ACCESS_COST_ERGS)
+                };
+                resources.charge(&cost)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn load_account_properties(
+        ee_type: ExecutionEnvironmentType,
+        resources: &mut R,
+        address: &B160,
+        oracle: &mut impl IOOracle,
+        is_selfdestruct: bool,
+        charge_cold_access: bool,
+    ) -> Result<(EthereumAccountProperties, bool), SystemError> {
+        if charge_cold_access {
+            Self::charge_cold_access_ergs(ee_type, resources, address, is_selfdestruct)?;
+        }
+
+        let acc_data = EthereumAccountPropertiesQuery::get(oracle, address)?;
+        let empty_account = acc_data.is_empty();
+
+        Ok((acc_data, empty_account))
+    }
+
     pub fn new_from_parts(allocator: A) -> Self {
         Self {
             cache: HistoryMap::new(allocator.clone()),
@@ -96,7 +145,6 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         address: &B160,
         oracle: &mut impl IOOracle,
         is_selfdestruct: bool,
-        observe: bool,
     ) -> Result<AddressItem<'_, A>, SystemError> {
         let ergs = match ee_type {
             ExecutionEnvironmentType::NoEE => Ergs::empty(),
@@ -119,62 +167,58 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             .get_or_insert(address.into(), || {
                 // Element doesn't exist in cache yet, initialize it
                 initialized_element = true;
-
-                // - first get a hash of properties from storage
-                match ee_type {
-                    ExecutionEnvironmentType::NoEE => {}
-                    ExecutionEnvironmentType::EVM => {
-                        let mut cost: R = if evm_interpreter::utils::is_precompile(&address) {
-                            R::empty() // We've charged the access already.
-                        } else {
-                            R::from_ergs(COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS)
-                        };
-                        if is_selfdestruct {
-                            // Selfdestruct doesn't charge for warm, but it
-                            // includes the warm cost for cold access
-                            cost.add_ergs(WARM_PROPERTIES_ACCESS_COST_ERGS)
-                        };
-                        resources.charge(&cost)?;
-                    }
-                }
-
-                // we just ask the oracle for properties
-                let acc_data = EthereumAccountPropertiesQuery::get(oracle, address)?;
-                let empty_account = acc_data.is_empty();
+                let (acc_data, empty_account) = Self::load_account_properties(
+                    ee_type,
+                    resources,
+                    address,
+                    oracle,
+                    is_selfdestruct,
+                    true,
+                )?;
 
                 // Note: we initialize it as cold, should be warmed up separately
                 // Since in case of revert it should become cold again and initial record can't be rolled back
                 Ok((
                     CacheRecord::new(acc_data),
-                    CacheElementProperties::new(empty_account, observe),
+                    CacheElementProperties::new(empty_account, true),
                 ))
             })
             .and_then(|mut x| {
+                let mut cold_charge_already_applied = initialized_element;
+
+                if !x.element_properties().is_value_observed() {
+                    let is_warm_before_materialization = x
+                        .current()
+                        .metadata()
+                        .considered_warm(self.current_tx_number);
+                    let (acc_data, empty_account) = Self::load_account_properties(
+                        ee_type,
+                        resources,
+                        address,
+                        oracle,
+                        is_selfdestruct,
+                        !is_warm_before_materialization,
+                    )?;
+                    cold_charge_already_applied = !is_warm_before_materialization;
+                    x.mutate_current_in_place(|cache_record| cache_record.materialize(acc_data));
+                    x.element_properties_mut().set_is_new(empty_account);
+                    x.element_properties_mut().mark_value_as_observed();
+                }
+
                 // Warm up element according to EVM rules if needed
                 let is_warm = x
                     .current()
                     .metadata()
                     .considered_warm(self.current_tx_number);
                 if is_warm == false {
-                    if initialized_element == false {
+                    if !cold_charge_already_applied {
                         // Element exists in cache, but wasn't touched in current tx yet
-                        match ee_type {
-                            ExecutionEnvironmentType::NoEE => {}
-                            ExecutionEnvironmentType::EVM => {
-                                let mut cost: R = if evm_interpreter::utils::is_precompile(&address)
-                                {
-                                    R::empty() // We've charged the access already.
-                                } else {
-                                    R::from_ergs(COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS)
-                                };
-                                if is_selfdestruct {
-                                    // Selfdestruct doesn't charge for warm, but it
-                                    // includes the warm cost for cold access
-                                    cost.add_ergs(WARM_PROPERTIES_ACCESS_COST_ERGS)
-                                };
-                                resources.charge(&cost)?;
-                            }
-                        }
+                        Self::charge_cold_access_ergs(
+                            ee_type,
+                            resources,
+                            address,
+                            is_selfdestruct,
+                        )?;
                     }
                     // mark as warm
                     x.update(|cache_record| {
@@ -187,11 +231,6 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
                         })
                     })?;
                 }
-                // appearance mark
-                if observe {
-                    x.element_properties_mut().mark_value_as_observed();
-                }
-
                 Ok(x)
             })
     }
@@ -211,7 +250,6 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             address,
             oracle,
             is_selfdestruct,
-            false,
         )?;
 
         resources.charge(&R::from_native(R::Native::from_computational(
@@ -327,13 +365,43 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
 
     pub fn touch_account<const PROOF_ENV: bool>(
         &mut self,
-        ee_type: ExecutionEnvironmentType,
+        _ee_type: ExecutionEnvironmentType,
         resources: &mut R,
         address: &B160,
-        oracle: &mut impl IOOracle,
-        observe: bool,
     ) -> Result<(), SystemError> {
-        self.materialize_element::<PROOF_ENV>(ee_type, resources, address, oracle, false, observe)?;
+        Self::charge_access_list_account_touch(resources)?;
+
+        let mut item = self.cache.get_or_insert(address.into(), || {
+            Ok::<_, SystemError>((
+                CacheRecord::new_empty_with_metadata(BasicAccountPropertiesMetadata {
+                    last_touched_in_tx: Some(self.current_tx_number),
+                    ..Default::default()
+                }),
+                CacheElementProperties::new(false, false),
+            ))
+        })?;
+
+        if !item
+            .current()
+            .metadata()
+            .considered_warm(self.current_tx_number)
+        {
+            if item.element_properties().is_value_observed() {
+                item.update(|cache_record| {
+                    cache_record.update_metadata(|metadata| {
+                        metadata.last_touched_in_tx = Some(self.current_tx_number);
+                        Ok(())
+                    })
+                })?;
+            } else {
+                item.mutate_current_in_place(|cache_record| {
+                    cache_record.update_metadata_infallible(|metadata| {
+                        metadata.last_touched_in_tx = Some(self.current_tx_number);
+                    });
+                });
+            }
+        }
+
         Ok(())
     }
 
@@ -388,12 +456,8 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         >,
         SystemError,
     > {
-        let mut account_data = self
-            .materialize_element::<PROOF_ENV>(ee_type, resources, address, oracle, false, true)?;
-        // we are actually going to use account properties, so we should mark it so
-        account_data
-            .element_properties_mut()
-            .mark_value_as_observed();
+        let account_data =
+            self.materialize_element::<PROOF_ENV>(ee_type, resources, address, oracle, false)?;
         let element_properties = account_data.element_properties();
         let full_data = account_data.current().materialized_value()?;
 
@@ -471,8 +535,8 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         increment_by: u64,
         oracle: &mut impl IOOracle,
     ) -> Result<u64, NonceSubsystemError> {
-        let mut account_data = self
-            .materialize_element::<PROOF_ENV>(ee_type, resources, address, oracle, false, false)?;
+        let mut account_data =
+            self.materialize_element::<PROOF_ENV>(ee_type, resources, address, oracle, false)?;
 
         resources.charge(&R::from_native(R::Native::from_computational(
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
@@ -573,14 +637,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         let cur_tx = self.current_tx_number;
 
         let mut account_data = resources.with_infinite_ergs(|inf_resources| {
-            self.materialize_element::<PROOF_ENV>(
-                from_ee,
-                inf_resources,
-                at_address,
-                oracle,
-                false,
-                false,
-            )
+            self.materialize_element::<PROOF_ENV>(from_ee, inf_resources, at_address, oracle, false)
         })?;
 
         let (deployed_code, bytecode_hash) = match from_ee {
@@ -636,9 +693,8 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         in_constructor: bool,
     ) -> Result<U256, DeconstructionSubsystemError> {
         let cur_tx = self.current_tx_number;
-        let mut account_data = self.materialize_element::<PROOF_ENV>(
-            from_ee, resources, at_address, oracle, true, false,
-        )?;
+        let mut account_data =
+            self.materialize_element::<PROOF_ENV>(from_ee, resources, at_address, oracle, true)?;
         resources.charge(&R::from_native(R::Native::from_computational(
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
         )))?;
@@ -730,7 +786,6 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
                 inf_resources,
                 at_address,
                 oracle,
-                false,
                 false,
             )
         })?;
@@ -840,20 +895,18 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
     pub fn net_diffs_iter(
         &self,
     ) -> impl Iterator<Item = (B160, (u64, U256, Bytes32))> + use<'_, A, SF, N, R> {
-        self.cache
-            .iter()
-            .filter_map(|v| {
-                let initial = v.initial().value()?;
-                let current = v.current().value()?;
-                if initial == current {
-                    return None;
-                }
-                let address = v.key().0;
-                Some((
-                    address,
-                    (current.nonce, current.balance, current.bytecode_hash),
-                ))
-            })
+        self.cache.iter().filter_map(|v| {
+            let initial = v.initial().value()?;
+            let current = v.current().value()?;
+            if initial == current {
+                return None;
+            }
+            let address = v.key().0;
+            Some((
+                address,
+                (current.nonce, current.balance, current.bytecode_hash),
+            ))
+        })
     }
 }
 
@@ -863,3 +916,131 @@ define_subsystem!(AccountCache,
                       EvmSubsystem(EvmSubsystemError),
                   }
 );
+
+#[cfg(test)]
+mod tests {
+    use super::EthereumAccountCache;
+    use crate::system_implementation::ethereum_storage_model::caches::account_properties::{
+        EthereumAccountProperties, ETHEREUM_ACCOUNT_INITIAL_STATE_QUERY_ID,
+    };
+    use std::alloc::Global;
+    use std::collections::HashMap;
+    use zk_ee::execution_environment_type::ExecutionEnvironmentType;
+    use zk_ee::memory::stack_implementations::vec_stack::VecStackFactory;
+    use zk_ee::oracle::usize_serialization::{UsizeDeserializable, UsizeSerializable};
+    use zk_ee::oracle::IOOracle;
+    use zk_ee::reference_implementations::{BaseResources, DecreasingNative};
+    use zk_ee::system::errors::internal::InternalError;
+    use zk_ee::system::Resource;
+    use zk_ee::utils::Bytes32;
+
+    type TestResources = BaseResources<DecreasingNative>;
+    type TestAccountCache = EthereumAccountCache<Global, TestResources, VecStackFactory, 8>;
+
+    #[derive(Default)]
+    struct TestOracle {
+        account_values: HashMap<ruint::aliases::B160, EthereumAccountProperties>,
+        account_queries: usize,
+    }
+
+    impl TestOracle {
+        fn with_account(
+            address: ruint::aliases::B160,
+            properties: EthereumAccountProperties,
+        ) -> Self {
+            let mut account_values = HashMap::new();
+            account_values.insert(address, properties);
+            Self {
+                account_values,
+                account_queries: 0,
+            }
+        }
+    }
+
+    impl IOOracle for TestOracle {
+        type RawIterator<'a> = std::vec::IntoIter<usize>;
+
+        fn raw_query<'a, I: UsizeSerializable + UsizeDeserializable>(
+            &'a mut self,
+            query_type: u32,
+            input: &I,
+        ) -> Result<Self::RawIterator<'a>, InternalError> {
+            match query_type {
+                ETHEREUM_ACCOUNT_INITIAL_STATE_QUERY_ID => {
+                    self.account_queries += 1;
+                    let mut input_iter = input.iter();
+                    let address = ruint::aliases::B160::from_iter(&mut input_iter)?;
+                    assert!(input_iter.next().is_none());
+                    let value = self
+                        .account_values
+                        .get(&address)
+                        .copied()
+                        .unwrap_or_default();
+                    Ok(value.iter().collect::<Vec<_>>().into_iter())
+                }
+                _ => panic!("unexpected query id {query_type}"),
+            }
+        }
+    }
+
+    fn test_account() -> EthereumAccountProperties {
+        EthereumAccountProperties {
+            nonce: 5,
+            balance: ruint::aliases::U256::from(42u64),
+            storage_root: Bytes32::from([4u8; 32]),
+            bytecode_hash: Bytes32::from([8u8; 32]),
+        }
+    }
+
+    #[test]
+    fn touch_account_keeps_placeholder_unobserved() {
+        let mut cache = TestAccountCache::new_from_parts(Global);
+        let address = ruint::aliases::B160::from_limbs([11, 0, 0]);
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        cache
+            .touch_account::<false>(ExecutionEnvironmentType::NoEE, &mut resources, &address)
+            .unwrap();
+
+        let cache_key = address.into();
+        let item = cache.cache.get(&cache_key).unwrap();
+        assert!(item.current().value().is_none());
+        assert!(!item.key_properties().is_value_observed());
+        assert!(item
+            .current()
+            .metadata()
+            .considered_warm(cache.current_tx_number));
+    }
+
+    #[test]
+    fn touched_account_materializes_when_read_path_needs_it() {
+        let mut cache = TestAccountCache::new_from_parts(Global);
+        let address = ruint::aliases::B160::from_limbs([17, 0, 0]);
+        let expected = test_account();
+        let mut resources = TestResources::FORMAL_INFINITE;
+
+        cache
+            .touch_account::<false>(ExecutionEnvironmentType::NoEE, &mut resources, &address)
+            .unwrap();
+
+        let mut oracle = TestOracle::with_account(address, expected);
+        cache
+            .materialize_element::<false>(
+                ExecutionEnvironmentType::NoEE,
+                &mut resources,
+                &address,
+                &mut oracle,
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(oracle.account_queries, 1);
+
+        let cache_key = address.into();
+        let item = cache.cache.get(&cache_key).unwrap();
+        assert_eq!(item.current().value(), Some(&expected));
+        assert_eq!(item.initial().value(), Some(&expected));
+        assert!(item.key_properties().is_value_observed());
+        assert!(!item.key_properties().is_new_element());
+    }
+}
