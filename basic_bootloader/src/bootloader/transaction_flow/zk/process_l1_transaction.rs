@@ -195,7 +195,13 @@ where
                 Err(e) => return Err(e),
             }
         } else {
-            (false, Vec::new_in(system.get_allocator()), None, S::Resources::empty(), memories)
+            (
+                false,
+                Vec::new_in(system.get_allocator()),
+                None,
+                S::Resources::empty(),
+                memories,
+            )
         };
 
     // Compute gas to refund
