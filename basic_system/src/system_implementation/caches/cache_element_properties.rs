@@ -49,6 +49,14 @@ impl CacheElementProperties {
         self.persistent_storage_status == CacheElementPersistenceStatus::NonExisting
     }
 
+    pub fn set_is_new(&mut self, is_new_element: bool) {
+        self.persistent_storage_status = if is_new_element {
+            CacheElementPersistenceStatus::NonExisting
+        } else {
+            CacheElementPersistenceStatus::Existing
+        };
+    }
+
     /// Returns true if the initial value from storage was accessed/used.
     /// This excludes records that were only touched but never observed, updated, or deleted.
     pub fn is_value_observed(&self) -> bool {

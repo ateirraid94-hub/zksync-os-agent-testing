@@ -61,7 +61,10 @@ impl<R: Resources, A: Allocator + Clone> BytecodeAndAccountDataPreimagesStorage<
             (
                 x.key(),
                 preimage.as_slice(),
-                x.current().value().preimage_type,
+                x.current()
+                    .materialized_value()
+                    .expect("preimage publication entries must be materialized")
+                    .preimage_type,
             )
         }));
 

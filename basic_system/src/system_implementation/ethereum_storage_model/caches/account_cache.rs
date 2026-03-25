@@ -218,13 +218,13 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
         )))?;
 
-        let cur = account_data.current().value().balance;
+        let cur = account_data.current().materialized_value()?.balance;
         let new = update_fn(&cur)?;
         account_data
             .element_properties_mut()
             .mark_value_as_observed();
         account_data.update(|cache_record| {
-            cache_record.update(|v, _| {
+            cache_record.update_materialized(|v, _| {
                 v.balance = new;
                 Ok(())
             })
@@ -320,7 +320,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         }
 
         match self.cache.get(address.into()) {
-            Some(cache_item) => Ok(cache_item.current().value().balance),
+            Some(cache_item) => Ok(cache_item.current().materialized_value()?.balance),
             None => Err(internal_error!("Balance assumed warm but not in cache").into()),
         }
     }
@@ -395,7 +395,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             .element_properties_mut()
             .mark_value_as_observed();
         let element_properties = account_data.element_properties();
-        let full_data = account_data.current().value();
+        let full_data = account_data.current().materialized_value()?;
 
         // we already charged for "cold" case, and now can charge more precisely
 
@@ -478,13 +478,13 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
         )))?;
 
-        let nonce = account_data.current().value().nonce;
+        let nonce = account_data.current().materialized_value()?.nonce;
         if let Some(new_nonce) = nonce.checked_add(increment_by) {
             account_data
                 .element_properties_mut()
                 .mark_value_as_observed();
             account_data.update(|cache_record| {
-                cache_record.update(|x, _| {
+                cache_record.update_materialized(|x, _| {
                     if x.bytecode_hash.is_zero() {
                         x.bytecode_hash = EMPTY_STRING_KECCAK_HASH;
                     }
@@ -614,7 +614,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             .element_properties_mut()
             .mark_value_as_observed();
         account_data.update(|cache_record| {
-            cache_record.update(|v, m| {
+            cache_record.update_materialized(|v, m| {
                 v.bytecode_hash = bytecode_hash;
 
                 m.deployed_in_tx = Some(cur_tx);
@@ -644,7 +644,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
         )))?;
 
         let same_address = at_address == nominal_token_beneficiary;
-        let transfer_amount = account_data.current().value().balance;
+        let transfer_amount = account_data.current().materialized_value()?.balance;
 
         // We consider two cases: either deconstruction happens within the same
         // tx as the address was deployed or it happens in constructor code.
@@ -682,7 +682,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             .map_err(wrap_error!())?;
         } else if should_be_deconstructed {
             account_data.update(|cache_record| {
-                cache_record.update(|v, _| {
+                cache_record.update_materialized(|v, _| {
                     v.balance = U256::ZERO;
                     Ok(())
                 })
@@ -698,7 +698,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
                         Some(entry) => Ok(entry),
                         None => Err(internal_error!("Account assumed warm but not in cache")),
                     }?;
-                    let beneficiary_properties = entry.current().value();
+                    let beneficiary_properties = entry.current().materialized_value()?;
 
                     let beneficiary_is_empty = beneficiary_properties.is_empty_modulo_balance()
                         // We need to check with the transferred amount,
@@ -770,7 +770,7 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
             .element_properties_mut()
             .mark_value_as_observed();
         account_data.update(|cache_record| {
-            cache_record.update(|v, _m| {
+            cache_record.update_materialized(|v, _m| {
                 v.bytecode_hash = bytecode_hash;
 
                 Ok(())
@@ -794,11 +794,11 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
                     // NOTE: Balance will be zeroed out if deconstruction happens here
                     let initially_empty = cache_appearance.is_new_element();
                     assert!(cache_appearance.is_value_observed());
-                    current.value.update(|x, metadata| {
+                    current.value.update_materialized(|x, metadata| {
                         metadata.is_marked_for_deconstruction = false;
                         if initially_empty {
                             debug_assert_eq!(
-                                initial.value.value(),
+                                initial.value.materialized_value()?,
                                 &EthereumAccountProperties::EMPTY_ACCOUNT
                             );
                             x.balance = U256::ZERO;
@@ -806,12 +806,15 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
                             x.nonce = 0u64;
                         } else {
                             //
-                            debug_assert_eq!(initial.value.value().nonce, 0);
+                            debug_assert_eq!(initial.value.materialized_value()?.nonce, 0);
                             debug_assert_eq!(
-                                initial.value.value().bytecode_hash,
+                                initial.value.materialized_value()?.bytecode_hash,
                                 EMPTY_STRING_KECCAK_HASH
                             );
-                            debug_assert_eq!(initial.value.value().storage_root, EMPTY_ROOT_HASH);
+                            debug_assert_eq!(
+                                initial.value.materialized_value()?.storage_root,
+                                EMPTY_ROOT_HASH
+                            );
                             x.balance = U256::ZERO;
                             x.bytecode_hash = EMPTY_STRING_KECCAK_HASH;
                             x.nonce = 0u64;
@@ -839,14 +842,17 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
     ) -> impl Iterator<Item = (B160, (u64, U256, Bytes32))> + use<'_, A, SF, N, R> {
         self.cache
             .iter()
-            .filter(|v| v.initial().value() != v.current().value())
-            .map(|v| {
+            .filter_map(|v| {
+                let initial = v.initial().value()?;
+                let current = v.current().value()?;
+                if initial == current {
+                    return None;
+                }
                 let address = v.key().0;
-                let current = v.current().value();
-                (
+                Some((
                     address,
                     (current.nonce, current.balance, current.bytecode_hash),
-                )
+                ))
             })
     }
 }

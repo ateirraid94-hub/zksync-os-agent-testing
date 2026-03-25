@@ -94,7 +94,7 @@ impl<A: Allocator + Clone> NewPreimagesPublicationStorage<A> {
         })?;
 
         item.update(|x| {
-            x.update(|elem, _| {
+            x.update_materialized(|elem, _| {
                 if elem.value.num_uses > 1 {
                     assert_eq!(
                         elem.value.publication_net_bytes,
@@ -124,7 +124,7 @@ mod tests {
         storage
             .cache
             .apply_to_all_updated_elements::<_, ()>(|_, r, _| {
-                pubdata_used += r.value().value.publication_net_bytes;
+                pubdata_used += r.materialized_value().unwrap().value.publication_net_bytes;
                 Ok(())
             })
             .expect("We're returning ok.");

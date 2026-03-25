@@ -85,6 +85,29 @@ impl<
         P: StorageAccessPolicy<R, V>,
     > GenericPubdataAwarePlainStorage<K, V, A, SF, M, R, P>
 {
+    fn query_initial_value(
+        key: &K,
+        oracle: &mut impl IOOracle,
+    ) -> Result<(V, bool), SystemError>
+    where
+        StorageAddress<EthereumIOTypesConfig>: From<K>,
+    {
+        let query_input = (*key).into();
+        let data_from_oracle = InitialStorageSlotQuery::get(oracle, &query_input)
+            .map_err(|_| internal_error!("Must get initial slot value from oracle"))?;
+        let value = data_from_oracle.initial_value.into();
+
+        if data_from_oracle.is_new_storage_slot {
+            assert_eq!(
+                V::default(),
+                value,
+                "Initial value of empty slot must be trivial"
+            );
+        }
+
+        Ok((value, data_from_oracle.is_new_storage_slot))
+    }
+
     pub fn new_from_parts(allocator: A, resources_policy: P) -> Self {
         Self {
             cache: HistoryMap::new(allocator.clone()),
@@ -131,6 +154,39 @@ impl<
         }
     }
 
+    pub fn touch_impl(&mut self, key: &K, resources: &mut R) -> Result<(), SystemError> {
+        self.resources_policy
+            .charge_access_list_storage_touch(resources)?;
+
+        let mut item = self.cache.get_or_insert(key, || {
+            Ok::<_, SystemError>((
+                CacheRecord::new_empty_with_metadata(StorageElementMetadata {
+                    last_touched_in_tx: Some(self.current_tx_id),
+                }),
+                CacheElementProperties::new(false, false),
+            ))
+        })?;
+
+        if !item.current().metadata().considered_warm(self.current_tx_id) {
+            if item.element_properties().is_value_observed() {
+                item.update(|cache_record| {
+                    cache_record.update_metadata(|metadata| {
+                        metadata.last_touched_in_tx = Some(self.current_tx_id);
+                        Ok(())
+                    })
+                })?;
+            } else {
+                item.mutate_current_in_place(|cache_record| {
+                    cache_record.update_metadata_infallible(|metadata| {
+                        metadata.last_touched_in_tx = Some(self.current_tx_id);
+                    });
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     /// Read element and initialize it if needed
     fn materialize_element<'a>(
         cache: &'a mut HistoryMap<
@@ -157,34 +213,28 @@ impl<
             .get_or_insert(key, || {
                 // Element doesn't exist in cache yet, initialize it
                 initialized_element = true;
-
-                let query_input = (*key).into();
-                let data_from_oracle = InitialStorageSlotQuery::get(oracle, &query_input)
-                    .map_err(|_| internal_error!("Must get initial slot value from oracle"))?;
-
+                let (value, is_new_storage_slot) = Self::query_initial_value(key, oracle)?;
                 resources_policy.charge_cold_storage_read_extra(
                     ee_type,
                     resources,
-                    data_from_oracle.is_new_storage_slot,
+                    is_new_storage_slot,
                 )?;
-
-                // We need to check that the initial value is default
-                if data_from_oracle.is_new_storage_slot {
-                    assert_eq!(
-                        V::default(),
-                        data_from_oracle.initial_value.into(),
-                        "Initial value of empty slot must be trivial"
-                    );
-                }
 
                 // Note: we initialize it as cold, should be warmed up separately
                 // Since in case of revert it should become cold again and initial record can't be rolled back
                 Ok((
-                    CacheRecord::new(data_from_oracle.initial_value.into()),
-                    CacheElementProperties::new(data_from_oracle.is_new_storage_slot, true),
+                    CacheRecord::new(value),
+                    CacheElementProperties::new(is_new_storage_slot, true),
                 ))
             })
             .and_then(|mut x| {
+                if !x.element_properties().is_value_observed() {
+                    let (value, is_new_storage_slot) = Self::query_initial_value(key, oracle)?;
+                    x.mutate_current_in_place(|cache_record| cache_record.materialize(value));
+                    x.element_properties_mut().set_is_new(is_new_storage_slot);
+                    x.element_properties_mut().mark_value_as_observed();
+                }
+
                 // Warm up element according to EVM rules if needed
                 let is_warm_read = x.current().metadata().considered_warm(current_tx_id);
                 if is_warm_read == false {
@@ -230,7 +280,7 @@ impl<
             oracle,
         )?;
 
-        Ok(addr_data.current().value().clone())
+        Ok(addr_data.current().materialized_value()?.clone())
     }
 
     pub fn apply_write_impl(
@@ -254,10 +304,10 @@ impl<
             oracle,
         )?;
 
-        let val_current = addr_data.current().value();
+        let val_current = addr_data.current().materialized_value()?;
 
         // Try to get initial value at the beginning of the tx.
-        let val_at_tx_start = addr_data.committed().value().clone();
+        let val_at_tx_start = addr_data.committed().materialized_value()?.clone();
 
         let is_new_slot = addr_data.element_properties().is_new_element();
         self.resources_policy.charge_storage_write_extra(
@@ -270,9 +320,9 @@ impl<
             is_new_slot,
         )?;
 
-        let old_value = addr_data.current().value().clone();
+        let old_value = addr_data.current().materialized_value()?.clone();
         addr_data.update(|cache_record| {
-            cache_record.update(|x, _| {
+            cache_record.update_materialized(|x, _| {
                 *x = new_value.clone();
                 Ok(())
             })
@@ -303,12 +353,16 @@ impl<
         let upper_bound = K::upper_bound(TyEq::rwi(*address.as_ref()));
         self.cache
             .for_each_range((Included(&lower_bound), Included(&upper_bound)), |mut x| {
-                x.update(|cache_record| {
-                    cache_record.update(|v, _| {
-                        *v = V::default();
-                        Ok(())
+                if x.element_properties().is_value_observed() {
+                    x.update(|cache_record| {
+                        cache_record.update_materialized(|v, _| {
+                            *v = V::default();
+                            Ok(())
+                        })
                     })
-                })
+                } else {
+                    Ok(())
+                }
             })?;
 
         Ok(())

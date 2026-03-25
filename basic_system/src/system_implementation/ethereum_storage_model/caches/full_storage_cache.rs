@@ -59,23 +59,17 @@ impl<
 
     fn touch(
         &mut self,
-        ee_type: ExecutionEnvironmentType,
+        _ee_type: ExecutionEnvironmentType,
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
         key: &<Self::IOTypes as SystemIOTypesConfig>::StorageKey,
-        oracle: &mut impl IOOracle,
     ) -> Result<(), SystemError> {
-        // TODO(EVM-1076): use a different low-level function to avoid creating pubdata
-        // and merkle proof obligations until we actually read the value
-
         let key = WarmStorageKey {
             address: *address,
             key: *key,
         };
 
-        self.slot_values
-            .apply_read_impl(ee_type, &key, resources, oracle)?;
-        Ok(())
+        self.slot_values.touch_impl(&key, resources)
     }
 
     fn write(
@@ -164,23 +158,29 @@ impl<
         &self,
     ) -> impl Iterator<Item = (WarmStorageKey, WarmStorageValue)> + Clone + use<'_, A, SF, N, R, P>
     {
-        self.slot_values.cache.iter().map(|item| {
+        self.slot_values.cache.iter().filter_map(|item| {
+            if !item.key_properties().is_value_observed() {
+                return None;
+            }
+
             let current_record = item.current();
             let initial_record = item.initial();
             let is_new_storage_slot = item.key_properties().is_new_element();
             let initial_value_used = item.key_properties().is_value_observed();
-            (
+            let current_value = current_record.value()?;
+            let initial_value = initial_record.value()?;
+            Some((
                 *item.key(),
                 // Using the WarmStorageValue temporarily till it's outed from the codebase. We're
                 // not actually 'using' it.
                 WarmStorageValue {
-                    current_value: *current_record.value(),
+                    current_value: *current_value,
                     is_new_storage_slot,
-                    initial_value: *initial_record.value(),
+                    initial_value: *initial_value,
                     initial_value_used,
                     ..Default::default()
                 },
-            )
+            ))
         })
     }
     ///

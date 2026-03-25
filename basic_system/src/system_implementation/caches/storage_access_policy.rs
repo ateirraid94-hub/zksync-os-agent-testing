@@ -4,6 +4,9 @@ use zk_ee::system::{errors::system::SystemError, Resources};
 
 /// EE-specific IO charging.
 pub trait StorageAccessPolicy<R: Resources, V>: 'static + Sized {
+    /// Charge for touching a storage key via the access list.
+    fn charge_access_list_storage_touch(&self, resources: &mut R) -> Result<(), SystemError>;
+
     /// Charge for a warm read (already in cache).
     fn charge_warm_storage_read(
         &self,

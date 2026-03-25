@@ -322,10 +322,10 @@ impl<
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
         )))?;
 
-        let cur = account_data.current().value().balance;
+        let cur = account_data.current().materialized_value()?.balance;
         let new = update_fn(&cur)?;
         account_data.update(|cache_record| {
-            cache_record.update(|v, m| {
+            cache_record.update_materialized(|v, m| {
                 v.balance = new;
                 // Once an account's balance has been affected by fee
                 // payment, we keep this flag set.
@@ -400,8 +400,9 @@ impl<
                 return Ok(());
             }
             // We don't care of the left side, since we're storing the entire snapshot.
-            let encoding = r.value().encoding();
-            let properties_hash = r.value().compute_hash();
+            let value = r.materialized_value()?;
+            let encoding = value.encoding();
+            let properties_hash = value.compute_hash();
 
             // Not part of a transaction, should be included in other costs.
             let mut inf_resources = R::FORMAL_INFINITE;
@@ -456,11 +457,18 @@ impl<
                 continue;
             }
 
-            if current.value() != at_tx_start.value() || current.metadata().not_compress_balance {
+            let Some(current_value) = current.value() else {
+                continue;
+            };
+            let Some(at_tx_start_value) = at_tx_start.value() else {
+                continue;
+            };
+
+            if current_value != at_tx_start_value || current.metadata().not_compress_balance {
                 pubdata_used += 32; // key
                 pubdata_used += AccountProperties::diff_compression_length(
-                    at_tx_start.value(),
-                    current.value(),
+                    at_tx_start_value,
+                    current_value,
                     current.metadata().not_publish_bytecode,
                     current.metadata().not_compress_balance,
                 )
@@ -507,7 +515,7 @@ impl<
         }
 
         match self.cache.get(address.into()) {
-            Some(cache_item) => Ok(cache_item.current().value().balance),
+            Some(cache_item) => Ok(cache_item.current().materialized_value()?.balance),
             None => Err(internal_error!("Balance assumed warm but not in cache").into()),
         }
     }
@@ -597,7 +605,7 @@ impl<
             true,
         )?;
 
-        let full_data = account_data.current().value();
+        let full_data = account_data.current().materialized_value()?;
 
         // we already charged for "cold" case, and now can charge more precisely
 
@@ -684,10 +692,10 @@ impl<
             WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
         )))?;
 
-        let nonce = account_data.current().value().nonce;
+        let nonce = account_data.current().materialized_value()?.nonce;
         if let Some(new_nonce) = nonce.checked_add(increment_by) {
             account_data.update(|cache_record| {
-                cache_record.update(|x, _| {
+                cache_record.update_materialized(|x, _| {
                     x.nonce = new_nonce;
                     Ok(())
                 })
@@ -875,7 +883,7 @@ impl<
         )))?;
 
         account_data.update(|cache_record| {
-            cache_record.update(|v, m| {
+            cache_record.update_materialized(|v, m| {
                 v.observable_bytecode_hash = observable_bytecode_hash;
                 v.observable_bytecode_len = observable_bytecode_len;
                 v.bytecode_hash = bytecode_hash;
@@ -984,7 +992,7 @@ impl<
         )))?;
 
         account_data.update(|cache_record| {
-            cache_record.update(|v, m| {
+            cache_record.update_materialized(|v, m| {
                 v.observable_bytecode_hash = observable_bytecode_hash;
                 v.observable_bytecode_len = observable_bytecode_len;
                 v.bytecode_hash = bytecode_hash;
@@ -1088,7 +1096,7 @@ impl<
         )))?;
 
         account_data.update(|cache_record| {
-            cache_record.update(|v, m| {
+            cache_record.update_materialized(|v, m| {
                 v.observable_bytecode_hash = observable_bytecode_hash;
                 v.observable_bytecode_len = observable_bytecode_len;
                 v.bytecode_hash = bytecode_hash;
@@ -1148,7 +1156,7 @@ impl<
         )))?;
 
         let same_address = at_address == nominal_token_beneficiary;
-        let transfer_amount = account_data.current().value().balance;
+        let transfer_amount = account_data.current().materialized_value()?.balance;
 
         // We consider two cases: either deconstruction happens within the same
         // tx as the address was deployed or it happens in constructor code.
@@ -1189,7 +1197,7 @@ impl<
             .map_err(wrap_error!())?;
         } else if should_be_deconstructed {
             account_data.update(|cache_record| {
-                cache_record.update(|v, _| {
+                cache_record.update_materialized(|v, _| {
                     v.balance = U256::ZERO;
                     Ok(())
                 })
@@ -1205,7 +1213,7 @@ impl<
                         Some(entry) => Ok(entry),
                         None => Err(internal_error!("Account assumed warm but not in cache")),
                     }?;
-                    let beneficiary_properties = entry.current().value();
+                    let beneficiary_properties = entry.current().materialized_value()?;
 
                     let beneficiary_is_empty = beneficiary_properties.nonce == 0
                         && beneficiary_properties.unpadded_code_len == 0
@@ -1239,7 +1247,7 @@ impl<
                     assert!(cache_appearance.is_value_observed());
                     current.value.update(|x, metadata| {
                         metadata.basic.is_marked_for_deconstruction = false;
-                        *x = AccountProperties::TRIVIAL_VALUE;
+                        *x = Some(AccountProperties::TRIVIAL_VALUE);
                         Ok(())
                     })?;
                     storage

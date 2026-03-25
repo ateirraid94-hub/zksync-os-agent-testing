@@ -397,6 +397,17 @@ where
             Ok(())
         }
     }
+
+    /// Mutates the current record in place without creating a new history entry.
+    ///
+    /// Caller must ensure that the current record is also the initial and committed one.
+    pub fn mutate_current_in_place(&mut self, f: impl FnOnce(&mut V)) {
+        debug_assert_eq!(self.history.head, self.history.initial);
+        debug_assert_eq!(self.history.head, self.history.committed);
+
+        let record = unsafe { self.history.head.as_mut() };
+        f(&mut record.value);
+    }
 }
 
 #[cfg(test)]

@@ -116,11 +116,9 @@ impl<
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
         key: &<Self::IOTypes as SystemIOTypesConfig>::StorageKey,
-        oracle: &mut impl IOOracle,
         // TODO: maybe recover is_access_list?
     ) -> Result<(), SystemError> {
-        self.storage_cache
-            .touch(ee_type, resources, address, key, oracle)
+        self.storage_cache.touch(ee_type, resources, address, key)
     }
 
     fn storage_write(
@@ -390,8 +388,8 @@ impl<
             let initial_record = item.initial();
 
             StorageDiff {
-                initial_value: *initial_record.value(),
-                current_value: *current_record.value(),
+                initial_value: initial_record.value().copied().unwrap_or_default(),
+                current_value: current_record.value().copied().unwrap_or_default(),
                 is_new_storage_slot,
                 initial_value_used,
             }
@@ -411,8 +409,8 @@ impl<
                 item.key(),
                 // TODO: so far we copy, but can try to remove it eventually
                 StorageDiff {
-                    initial_value: *initial_record.value(),
-                    current_value: *current_record.value(),
+                    initial_value: initial_record.value().copied().unwrap_or_default(),
+                    current_value: current_record.value().copied().unwrap_or_default(),
                     is_new_storage_slot,
                     initial_value_used,
                 },

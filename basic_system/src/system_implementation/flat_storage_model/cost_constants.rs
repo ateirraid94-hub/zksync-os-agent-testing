@@ -1,5 +1,8 @@
 use evm_interpreter::gas_constants::SELFBALANCE;
-use evm_interpreter::gas_constants::{ADDRESS_ACCESS_COST_COLD, ADDRESS_ACCESS_COST_WARM};
+use evm_interpreter::gas_constants::{
+    ACCESS_LIST_ADDRESS, ACCESS_LIST_STORAGE_KEY, ADDRESS_ACCESS_COST_COLD,
+    ADDRESS_ACCESS_COST_WARM,
+};
 use evm_interpreter::ERGS_PER_GAS;
 use zk_ee::native_with_delegations;
 use zk_ee::system::Ergs;
@@ -30,6 +33,9 @@ pub const COLD_NEW_STORAGE_WRITE_EXTRA_NATIVE_COST: u64 =
 pub const COLD_PROPERTIES_ACCESS_EXTRA_COST_ERGS: Ergs =
     Ergs((ADDRESS_ACCESS_COST_COLD - ADDRESS_ACCESS_COST_WARM) * ERGS_PER_GAS);
 pub const WARM_PROPERTIES_ACCESS_COST_ERGS: Ergs = Ergs(ADDRESS_ACCESS_COST_WARM * ERGS_PER_GAS);
+pub const ACCESS_LIST_ACCOUNT_TOUCH_COST_ERGS: Ergs = Ergs(ACCESS_LIST_ADDRESS * ERGS_PER_GAS);
+pub const ACCESS_LIST_STORAGE_TOUCH_COST_ERGS: Ergs =
+    Ergs(ACCESS_LIST_STORAGE_KEY * ERGS_PER_GAS);
 // Taken from EVM's SELFBALANCE
 pub const KNOWN_TO_BE_WARM_PROPERTIES_ACCESS_COST_ERGS: Ergs = Ergs(SELFBALANCE * ERGS_PER_GAS);
 
@@ -37,6 +43,8 @@ pub const KNOWN_TO_BE_WARM_PROPERTIES_ACCESS_COST_ERGS: Ergs = Ergs(SELFBALANCE 
 pub const WARM_ACCOUNT_CACHE_ACCESS_NATIVE_COST: u64 = 4000;
 // Avg is ~10x smaller, maybe we can reduce it, but it depends on cache state.
 pub const WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST: u64 = 1000;
+pub const ACCESS_LIST_ACCOUNT_TOUCH_NATIVE_COST: u64 = 2000;
+pub const ACCESS_LIST_STORAGE_TOUCH_NATIVE_COST: u64 = 2000;
 
 // Avg is ~10x smaller, maybe we can reduce it, but it depends on cache state.
 pub const WARM_TSTORAGE_READ_NATIVE_COST: u64 = 4000;

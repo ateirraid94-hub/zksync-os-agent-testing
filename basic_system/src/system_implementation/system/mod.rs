@@ -29,6 +29,16 @@ pub use self::io_subsystem::*;
 pub struct EthereumLikeStorageAccessCostModel;
 
 impl<R: Resources> StorageAccessPolicy<R, Bytes32> for EthereumLikeStorageAccessCostModel {
+    fn charge_access_list_storage_touch(&self, resources: &mut R) -> Result<(), SystemError> {
+        let native = R::Native::from_computational(
+            crate::system_implementation::flat_storage_model::cost_constants::ACCESS_LIST_STORAGE_TOUCH_NATIVE_COST,
+        );
+        resources.charge(&R::from_ergs_and_native(
+            crate::system_implementation::flat_storage_model::cost_constants::ACCESS_LIST_STORAGE_TOUCH_COST_ERGS,
+            native,
+        ))
+    }
+
     fn charge_warm_storage_read(
         &self,
         ee_type: ExecutionEnvironmentType,

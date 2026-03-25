@@ -138,10 +138,8 @@ impl<
         resources: &mut Self::Resources,
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
         key: &<Self::IOTypes as SystemIOTypesConfig>::StorageKey,
-        oracle: &mut impl IOOracle,
     ) -> Result<(), SystemError> {
-        self.storage_cache
-            .touch(ee_type, resources, address, key, oracle)
+        self.storage_cache.touch(ee_type, resources, address, key)
     }
 
     fn storage_write(
@@ -455,8 +453,8 @@ impl<
 
             // TODO: so far we copy, but can try to remove it eventually
             StorageDiff {
-                initial_value: *initial_record.value(),
-                current_value: *current_record.value(),
+                initial_value: initial_record.value().copied().unwrap_or_default(),
+                current_value: current_record.value().copied().unwrap_or_default(),
                 is_new_storage_slot,
                 initial_value_used,
             }
@@ -475,8 +473,8 @@ impl<
                 item.key(),
                 // TODO: so far we copy, but can try to remove it eventually
                 StorageDiff {
-                    initial_value: *initial_record.value(),
-                    current_value: *current_record.value(),
+                    initial_value: initial_record.value().copied().unwrap_or_default(),
+                    current_value: current_record.value().copied().unwrap_or_default(),
                     is_new_storage_slot,
                     initial_value_used,
                 },
@@ -583,6 +581,8 @@ impl<
                 if l.value() == r.value() {
                     return Ok(());
                 }
+                let l_value = l.materialized_value().map_err(|_| ())?;
+                let r_value = r.materialized_value().map_err(|_| ())?;
                 // TODO(EVM-1074): use tree index instead of key for repeated writes
                 let derived_key = derive_flat_storage_key_with_hasher(
                     &k.address,
@@ -604,8 +604,8 @@ impl<
                         .ok_or(())?;
                     let (l, r) = cache_item.get_initial_and_last_values().ok_or(())?;
                     AccountProperties::diff_compression::<PROOF_ENV, _, _, _>(
-                        l.value(),
-                        r.value(),
+                        l.materialized_value().map_err(|_| ())?,
+                        r.materialized_value().map_err(|_| ())?,
                         r.metadata().not_publish_bytecode,
                         pubdata_dst,
                         result_keeper,
@@ -615,8 +615,8 @@ impl<
                     .map_err(|_| ())?;
                 } else {
                     ValueDiffCompressionStrategy::optimal_compression(
-                        l.value(),
-                        r.value(),
+                        l_value,
+                        r_value,
                         pubdata_dst,
                         result_keeper,
                     );

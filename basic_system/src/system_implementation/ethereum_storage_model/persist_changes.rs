@@ -352,7 +352,7 @@ impl EthereumStoragePersister {
                 .cache
                 .get((&addr.address).into())
                 .expect("account with storage address must be cached");
-            let initial_root = entry.current().value().storage_root;
+            let initial_root = entry.current().materialized_value()?.storage_root;
 
             debug_assert!(
                 initial_root.is_zero() == false,
@@ -582,9 +582,9 @@ impl EthereumStoragePersister {
                         &new_root,
                     ));
 
-                    assert_ne!(new_root, e.current().value().storage_root);
+                    assert_ne!(new_root, e.current().materialized_value()?.storage_root);
                     e.update(|v| {
-                        v.update(|v, _m| {
+                        v.update_materialized(|v, _m| {
                             v.storage_root = new_root;
 
                             Ok(())
@@ -612,7 +612,7 @@ impl EthereumStoragePersister {
                         .cache
                         .get((&addr.address).into())
                         .expect("account with storage address must be cached");
-                    let initial_root = entry.current().value().storage_root;
+                    let initial_root = entry.current().materialized_value()?.storage_root;
 
                     debug_assert!(
                         initial_root.is_zero() == false,
@@ -721,15 +721,15 @@ impl EthereumStoragePersister {
                             })?;
 
                     debug_assert!(
-                        initial.value().bytecode_hash.is_zero() == false,
+                        initial.materialized_value()?.bytecode_hash.is_zero() == false,
                         "bytecode hash must not be zero for retrieved account"
                     );
                     debug_assert!(
-                        initial.value().storage_root.is_zero() == false,
+                        initial.materialized_value()?.storage_root.is_zero() == false,
                         "storage root hash must not be zero for retrieved account"
                     );
 
-                    assert_eq!(initial.value(), &parsed);
+                    assert_eq!(initial.materialized_value()?, &parsed);
                 }
 
                 // let _ = logger
@@ -742,7 +742,7 @@ impl EthereumStoragePersister {
                 //     .write_fmt(format_args!("\n",));
 
                 if key_properties.is_new_element() {
-                    let current = current.value();
+                    let current = current.materialized_value()?;
 
                     if current == &EthereumAccountProperties::EMPTY_ACCOUNT
                         || current == &EthereumAccountProperties::EMPTY_BUT_EXISTING_ACCOUNT
@@ -791,8 +791,8 @@ impl EthereumStoragePersister {
                 } else {
                     // it's an update potentially, and initial is not empty leaf
 
-                    let initial = initial.value();
-                    let current = current.value();
+                    let initial = initial.materialized_value()?;
+                    let current = current.materialized_value()?;
 
                     debug_assert!(current.bytecode_hash.is_zero() == false);
 

@@ -41,21 +41,13 @@ where
                     .touch_account(ExecutionEnvironmentType::NoEE, resources, &address)
             })?;
             for key in slots_list.iter() {
-                // per-slot charge
-                resources.charge(&S::Resources::from_ergs_and_native(
-                    Ergs(evm_interpreter::gas_constants::ACCESS_LIST_STORAGE_KEY * ERGS_PER_GAS),
-                        <<S::Resources as Resources>::Native as zk_ee::system::Computational>::from_computational(crate::bootloader::constants::PER_SLOT_ACCESS_LIST_NATIVE_COST)
-                    )
-                )?;
                 let key = key?;
-                resources.with_infinite_ergs(|resources| {
-                    system.io.storage_touch(
-                        ExecutionEnvironmentType::NoEE,
-                        resources,
-                        &address,
-                        &Bytes32::from_array(*key),
-                    )
-                })?;
+                system.io.storage_touch(
+                    ExecutionEnvironmentType::NoEE,
+                    resources,
+                    &address,
+                    &Bytes32::from_array(*key),
+                )?;
             }
         }
     }

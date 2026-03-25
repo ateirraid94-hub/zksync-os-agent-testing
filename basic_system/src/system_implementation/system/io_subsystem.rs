@@ -542,8 +542,7 @@ impl<
         address: &<Self::IOTypes as SystemIOTypesConfig>::Address,
         key: &<Self::IOTypes as SystemIOTypesConfig>::StorageKey,
     ) -> Result<(), SystemError> {
-        self.storage
-            .storage_touch(ee_type, resources, address, key, &mut self.oracle)
+        self.storage.storage_touch(ee_type, resources, address, key)
     }
 
     fn touch_account(
