@@ -580,35 +580,26 @@ where
         // following transfer on simulation, and avoid compressing the pubdata
         // for the balance changes resulting from it.
         //
-        // Use FORMAL_INFINITE: the treasury transfer and asset-tracker
-        // notification are intrinsic to L1 tx processing and their native
-        // cost is accounted for in the intrinsic native cost constant.
-        // Running with FORMAL_INFINITE also ensures these operations cannot
-        // fail due to resource exhaustion.
-        //
-        // IMPORTANT: the out-of-native error handler (FatalRuntimeError)
-        // only covers `run_single_interaction` for the main tx body below.
-        // All operations before it MUST use FORMAL_INFINITE so they cannot
-        // trigger a FatalRuntimeError that would propagate uncaught and
-        // halt the chain instead of gracefully reverting the tx.
-        let mut inf_resources = S::Resources::FORMAL_INFINITE;
+        // Use with_infinite_ergs so the transfer cannot fail due to
+        // out-of-gas, but native consumption is still tracked against
+        // the user's resources.
         if to_transfer > U256::ZERO || Config::SIMULATION {
-            transfer_from_treasury::<S>(
-                system,
-                &to_transfer,
-                &from,
-                &mut inf_resources,
-                Config::SIMULATION,
-            )
-            .map_err(|e| match e.root_cause() {
-                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    internal_error!("Out of ergs on infinite ergs").into()
-                }
-                RootCause::Runtime(RuntimeError::FatalRuntimeError(_)) => {
-                    internal_error!("Out of native on infinite").into()
-                }
-                _ => e,
-            })?;
+            resources
+                .with_infinite_ergs(|inf_resources| {
+                    transfer_from_treasury::<S>(
+                        system,
+                        &to_transfer,
+                        &from,
+                        inf_resources,
+                        Config::SIMULATION,
+                    )
+                })
+                .map_err(|e| match e.root_cause() {
+                    RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
+                        internal_error!("Out of ergs on infinite ergs").into()
+                    }
+                    _ => e,
+                })?;
         }
 
         // Notify L2AssetTracker about the value mint portion of the deposit.
@@ -619,7 +610,7 @@ where
             system_functions,
             memories.reborrow(),
             to_transfer,
-            &mut inf_resources,
+            resources,
             tracer,
             validator,
         )?;

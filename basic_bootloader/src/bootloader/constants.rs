@@ -31,15 +31,15 @@ pub const MAX_BLOCK_GAS_LIMIT: u64 = u64::MAX / ERGS_PER_GAS;
 // Just for EVM compatibility.
 pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 
-// Covers FORMAL_INFINITE work intrinsic to L1 tx processing:
+// Covers intrinsic L1 tx work not charged as tx-body computation:
 //  - storing and hashing the L1 tx log
 //  - hashing tx hash into the rolling hash and linear hasher
-//  - 3 treasury transfers in the common path: value mint, operator payment, refund
-//  - 3 L2AssetTracker notifications in the common path: value mint, operator payment, refund
+//  - post-execution coinbase transfer and refund transfer
+//  - post-execution L2AssetTracker notifications for operator payment and refund
 //
-// The transfer/accounting steps above are not charged to the tx body directly,
-// so they must be prepaid here.
-pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 230_000;
+// The sender-side transfer/accounting is charged separately. For the refund path
+// we assume the recipient is, in most cases, a cold existing account.
+pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 300_000;
 
 // Pubdata needed for the diff in balance as a result of
 // the fee payment to the coinbase.
