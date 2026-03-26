@@ -51,13 +51,13 @@ impl DelegatedU256 {
         let limbs = self.as_limbs();
         // Limbs are LE-ordered: limbs[0] = least significant.
         // BE output: most significant limb first.
-        let dst_ptr = dst.as_mut_ptr().cast::<[u8; 8]>();
-        unsafe {
-            dst_ptr.write(limbs[3].to_be_bytes());
-            dst_ptr.add(1).write(limbs[2].to_be_bytes());
-            dst_ptr.add(2).write(limbs[1].to_be_bytes());
-            dst_ptr.add(3).write(limbs[0].to_be_bytes());
-        }
+        let (chunk0, rest) = dst.split_at_mut(8);
+        let (chunk1, rest) = rest.split_at_mut(8);
+        let (chunk2, chunk3) = rest.split_at_mut(8);
+        chunk0.copy_from_slice(&limbs[3].to_be_bytes());
+        chunk1.copy_from_slice(&limbs[2].to_be_bytes());
+        chunk2.copy_from_slice(&limbs[1].to_be_bytes());
+        chunk3.copy_from_slice(&limbs[0].to_be_bytes());
     }
 
     pub fn from_le_bytes(input: &[u8; 32]) -> Self {
