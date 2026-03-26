@@ -18,7 +18,7 @@ use crate::helpers::{
     calculate_excess_blob_gas_from_blob_base_fee, zk_tx_into_revm_tx, BLOB_BASE_FEE_UPDATE_FRACTION,
 };
 use crate::revm_state_provider::{RevmStateProvider, ViewState};
-use crate::storage_diff_comp::CompareReport;
+use crate::storage_diff_comp::{ComparePolicy, CompareReport};
 
 pub struct RevmRunner<State>
 where
@@ -169,7 +169,16 @@ where
         }
 
         let compare_report = if let Some(block_output) = block_output.as_ref() {
-            Some(Self::build_compare_report(evm.0.db_mut(), block_output)?)
+            let compare_policy = ComparePolicy {
+                allow_l1_bootloader_asset_tracker_mismatches: transactions
+                    .iter()
+                    .any(|tx| matches!(tx, ZKsyncTxEnvelope::ZKsync(zksync_os_tests_common::zksync_tx::ZKsyncSpecificTxEnvelope::L1(_)))),
+            };
+            Some(Self::build_compare_report(
+                evm.0.db_mut(),
+                block_output,
+                compare_policy,
+            )?)
         } else {
             None
         };
@@ -232,6 +241,7 @@ where
     fn build_compare_report<DB>(
         cache_db: &mut CacheDB<DB>,
         block_output: &BlockOutput,
+        compare_policy: ComparePolicy,
     ) -> anyhow::Result<CompareReport>
     where
         DB: DatabaseRef,
@@ -241,6 +251,7 @@ where
             cache_db,
             &block_output.storage_writes,
             &block_output.account_diffs,
+            compare_policy,
         )
     }
 }
