@@ -4,13 +4,14 @@ use alloy::{
         eip4844::{fake_exponential, BLOB_GASPRICE_UPDATE_FRACTION, BLOB_TX_MIN_BLOB_GASPRICE},
         Typed2718,
     },
-    primitives::{TxKind, U256},
+    primitives::{Address, Bytes, TxKind, U256},
 };
 use anyhow::{anyhow, bail, Context};
 use revm::context::TxEnv;
 use zksync_os_revm::{transaction::abstraction::ZKsyncTxBuilder, ZKsyncTx};
 use zksync_os_tests_common::zksync_tx::{
-    encoding::BOOTLOADER_FORMAL_ADDRESS, ZKsyncSpecificTxEnvelope, ZKsyncTxEnvelope,
+    encoding::BOOTLOADER_FORMAL_ADDRESS, service_tx::ZKsyncServiceTx, ZKsyncSpecificTxEnvelope,
+    ZKsyncTxEnvelope,
 };
 
 fn checked_u64(value: u128, field: &str) -> anyhow::Result<u64> {
@@ -178,6 +179,38 @@ pub fn zk_tx_into_revm_tx(
         .service_tx(is_service_tx)
         .build()
         .map_err(|e| anyhow!("Failed to build TxEnv: {e:?}"))
+}
+
+pub fn internal_service_call_into_revm_tx(
+    caller: Address,
+    to: Address,
+    input: Bytes,
+    block_gas_limit: u64,
+) -> anyhow::Result<ZKsyncTx<TxEnv>> {
+    let tx_env_builder = TxEnv::builder()
+        .caller(caller)
+        .gas_limit(block_gas_limit)
+        .gas_price(0)
+        .kind(TxKind::Call(to))
+        .value(U256::ZERO)
+        .data(input)
+        .nonce(0)
+        .access_list(Default::default())
+        .tx_type(Some(ZKsyncServiceTx::TX_TYPE))
+        .chain_id(None)
+        .blob_hashes(vec![])
+        .max_fee_per_blob_gas(0)
+        .authorization_list_signed(vec![]);
+
+    ZKsyncTxBuilder::new()
+        .base(tx_env_builder)
+        .mint(U256::ZERO)
+        .refund_recipient(None)
+        .gas_used_override(None)
+        .force_fail(false)
+        .service_tx(true)
+        .build()
+        .map_err(|e| anyhow!("Failed to build internal service TxEnv: {e:?}"))
 }
 
 pub const BLOB_BASE_FEE_UPDATE_FRACTION: u128 = BLOB_GASPRICE_UPDATE_FRACTION;

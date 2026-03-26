@@ -292,9 +292,15 @@ fn test_call_tracer_preserves_multiple_top_level_frames() {
 
     <CallTracer as Tracer<ForwardRunningSystem>>::finish_tx(&mut tracer);
 
-    let root = tracer.transactions[0].as_ref().expect("Should be populated");
+    let root = tracer.transactions[0]
+        .as_ref()
+        .expect("Should be populated");
     assert_eq!(root.to, B160::from_limbs([0x7002, 0, 0]));
     assert_eq!(root.gas_used, 2850);
-    assert_eq!(root.calls.len(), 1, "extra top-level frames must be preserved");
+    assert_eq!(
+        root.calls.len(),
+        1,
+        "extra top-level frames must be preserved"
+    );
     assert_eq!(root.calls[0].to, B160::from_limbs([0x1000f, 0, 0]));
 }
