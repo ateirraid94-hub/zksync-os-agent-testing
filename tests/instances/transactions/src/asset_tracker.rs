@@ -15,6 +15,7 @@
 //! - slot 3: last `_amount` argument
 
 use rig::alloy::primitives::address;
+use rig::evm_bytecode::BytecodeBuilder;
 use rig::forward_system::run::convert_alloy::IntoAlloy;
 use rig::ruint::aliases::U256;
 use rig::system_hooks::addresses_constants::{L2_ASSET_TRACKER_ADDRESS, SYSTEM_CONTEXT_ADDRESS};
@@ -92,6 +93,33 @@ fn read_slot(tester: &mut TestingFramework, slot: u64) -> Option<U256> {
     tester
         .get_storage_slot(&asset_tracker_address(), U256::from(slot))
         .map(|v| v.into_u256_be())
+}
+
+fn assert_reverted_deposit_asset_tracker(
+    tester: &mut TestingFramework,
+    output: &rig::zksync_os_interface::types::BlockOutput,
+    expected_total_deposited: rig::alloy::primitives::U256,
+) {
+    assert_eq!(output.tx_results.len(), 1);
+    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
+    assert!(
+        !tx_result.is_success(),
+        "L1 tx should revert during execution, not be rejected"
+    );
+
+    let call_count = read_slot(tester, 0).unwrap_or(U256::ZERO);
+    assert_eq!(
+        call_count,
+        U256::from(2u64),
+        "only operator fee and refund should reach the asset tracker after execution revert"
+    );
+
+    let accumulated = read_slot(tester, 1).unwrap_or(U256::ZERO);
+    assert_eq!(
+        accumulated,
+        U256::from_be_slice(&expected_total_deposited.to_be_bytes::<32>()),
+        "accumulated amount should equal total_deposited after execution revert"
+    );
 }
 
 /// Verify that when an L1 tx has a deposit (total_deposited > 0), the bootloader
@@ -242,4 +270,73 @@ fn test_asset_tracker_uses_correct_chain_id() {
         U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
         "accumulated deposit amount should match to_mint"
     );
+}
+
+#[test]
+fn test_asset_tracker_reverted_body_skips_value_mint_notification() {
+    let sl_chain_id: u64 = 1;
+    let from = address!("1234000000000000000000000000000000000000");
+    let to = address!("abcd000000000000000000000000000000000000");
+    let gas_price: u128 = 1000;
+    let gas_limit: u128 = 50_000;
+    let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
+        + rig::alloy::primitives::U256::from(1_000_000u64);
+
+    let mut tester = setup_with_chain_id(sl_chain_id)
+        .with_evm_contract(to, &rig::evm_bytecode::revert())
+        .with_balance(from, U256::from(u64::MAX));
+
+    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+        .from(from)
+        .to(to)
+        .gas_price(gas_price)
+        .gas_limit(gas_limit)
+        .value(rig::alloy::primitives::U256::from(500))
+        .to_mint(to_mint)
+        .build()
+        .into();
+
+    let output = tester.execute_block(vec![tx]);
+    assert_reverted_deposit_asset_tracker(&mut tester, &output, to_mint);
+}
+
+#[test]
+fn test_asset_tracker_oog_body_still_notifies_fee_and_refund() {
+    let sl_chain_id: u64 = 1;
+    let from = address!("1234000000000000000000000000000000000000");
+    let to = address!("abcd000000000000000000000000000000000000");
+    let gas_price: u128 = 1000;
+    let gas_limit: u128 = 50_000;
+    let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
+        + rig::alloy::primitives::U256::from(1_000_000u64);
+
+    let expensive_bytecode = BytecodeBuilder::new()
+        .push_u8(1)
+        .push0()
+        .sstore()
+        .push_u8(2)
+        .push_u8(1)
+        .sstore()
+        .push_u8(3)
+        .push_u8(2)
+        .sstore()
+        .return_empty()
+        .finish();
+
+    let mut tester = setup_with_chain_id(sl_chain_id)
+        .with_evm_contract(to, &expensive_bytecode)
+        .with_balance(from, U256::from(u64::MAX));
+
+    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+        .from(from)
+        .to(to)
+        .gas_price(gas_price)
+        .gas_limit(gas_limit)
+        .value(rig::alloy::primitives::U256::from(500))
+        .to_mint(to_mint)
+        .build()
+        .into();
+
+    let output = tester.execute_block(vec![tx]);
+    assert_reverted_deposit_asset_tracker(&mut tester, &output, to_mint);
 }
