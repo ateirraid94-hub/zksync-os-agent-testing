@@ -215,11 +215,6 @@ impl CompareReport {
     }
 }
 
-fn should_skip_consistency_check_for_address(addr: Address) -> bool {
-    let _ = addr;
-    false
-}
-
 fn build_revm_storage_map<DB>(
     cache_db: &CacheDB<DB>,
 ) -> Result<HashMap<(Address, B256), B256>, anyhow::Error>
@@ -231,9 +226,7 @@ where
     let account_properties_storage_address = ACCOUNT_PROPERTIES_STORAGE_ADDRESS.into_alloy();
 
     for (addr, account) in &cache_db.cache.accounts {
-        if *addr == account_properties_storage_address
-            || should_skip_consistency_check_for_address(*addr)
-        {
+        if *addr == account_properties_storage_address {
             continue;
         }
         for (slot_key, slot_val) in &account.storage {
@@ -257,9 +250,7 @@ where
     let mut map = HashMap::new();
     let account_properties_storage_address = ACCOUNT_PROPERTIES_STORAGE_ADDRESS.into_alloy();
     for w in zksync_storage_writes {
-        if w.account == account_properties_storage_address
-            || should_skip_consistency_check_for_address(w.account)
-        {
+        if w.account == account_properties_storage_address {
             continue;
         }
         let prev_value = B256::from(cache_db.db.storage_ref(w.account, w.account_key.into())?);
@@ -280,9 +271,6 @@ where
     let mut map = HashMap::new();
 
     for (addr, acc) in &cache_db.cache.accounts {
-        if should_skip_consistency_check_for_address(*addr) {
-            continue;
-        }
         let bytecode_hash = if let Some(code) = acc.info.code.as_ref() {
             if code.is_empty() {
                 B256::ZERO
@@ -323,9 +311,6 @@ where
 fn build_zk_accounts(zksync_account_diffs: &[AccountDiff]) -> HashMap<Address, AccountSnap> {
     let mut map = HashMap::new();
     for d in zksync_account_diffs {
-        if should_skip_consistency_check_for_address(d.address) {
-            continue;
-        }
         map.insert(
             d.address,
             AccountSnap {

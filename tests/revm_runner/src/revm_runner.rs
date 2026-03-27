@@ -1,4 +1,4 @@
-use alloy::primitives::{address, Address, Bytes, U256};
+use alloy::primitives::U256;
 use alloy::rpc::types::trace::geth::CallFrame;
 use anyhow::{anyhow, bail, Context as AnyhowContext};
 use forward_system::run::convert_alloy::IntoAlloy;
@@ -11,24 +11,19 @@ use revm::{
 };
 use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
 use zksync_os_interface::types::{BlockContext, BlockOutput};
-use zksync_os_revm::{DefaultZk, ZKsyncTx, ZKsyncTxError, ZkBuilder, ZkContext, ZkSpecId};
-use zksync_os_tests_common::zksync_tx::{ZKsyncSpecificTxEnvelope, ZKsyncTxEnvelope};
+use zksync_os_revm::ZKsyncTx;
+use zksync_os_revm::{DefaultZk, ZKsyncTxError, ZkBuilder, ZkContext, ZkSpecId};
+use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 use crate::helpers::{
-    calculate_excess_blob_gas_from_blob_base_fee, internal_service_call_into_revm_tx,
-    zk_tx_into_revm_tx, BLOB_BASE_FEE_UPDATE_FRACTION,
+    calculate_excess_blob_gas_from_blob_base_fee, zk_tx_into_revm_tx, BLOB_BASE_FEE_UPDATE_FRACTION,
 };
 use crate::revm_state_provider::{RevmStateProvider, ViewState};
 use crate::storage_diff_comp::CompareReport;
 
-const L2_BASE_TOKEN_ADDRESS: Address = address!("000000000000000000000000000000000000800a");
-const L2_ASSET_TRACKER_ADDRESS: Address = address!("000000000000000000000000000000000001000f");
-const HANDLE_FINALIZE_BASE_TOKEN_BRIDGING_ON_L2_SELECTOR: [u8; 4] = [0x03, 0x11, 0x7c, 0x8c];
-
 struct ReplayTx {
     tx: ZKsyncTx<TxEnv>,
-    include_trace: bool,
-    original_tx_index: Option<usize>,
+    original_tx_index: usize,
 }
 
 pub struct RevmRunner<State>
@@ -150,14 +145,8 @@ where
                 Ok(res) => res,
                 Err(err) => match err {
                     revm::context_interface::result::EVMError::Transaction(e) => {
-                        if let Some(idx) = replay_tx.original_tx_index {
-                            invalid_transactions.push((idx, e.clone()));
-                            continue;
-                        }
-                        return Err(anyhow!(
-                            "Synthetic bootloader replay tx failed validation: {:?}",
-                            e
-                        ));
+                        invalid_transactions.push((replay_tx.original_tx_index, e.clone()));
+                        continue;
                     }
                     revm::context_interface::result::EVMError::Header(e) => {
                         return Err(anyhow!("Header error: {:?}", e));
@@ -170,14 +159,12 @@ where
                     }
                 },
             };
-            if replay_tx.include_trace {
-                let trace = evm
-                    .0
-                    .inspector
-                    .geth_builder()
-                    .geth_call_traces(Default::default(), tx_execution.gas_used());
-                call_traces.push(trace);
-            }
+            let trace = evm
+                .0
+                .inspector
+                .geth_builder()
+                .geth_call_traces(Default::default(), tx_execution.gas_used());
+            call_traces.push(trace);
             evm.0.inspector.fuse();
         }
 
@@ -232,22 +219,14 @@ where
                     Some(tx_output.gas_used),
                     !tx_output.is_success(),
                     block_gas_limit,
+                    Some(settlement_layer_chain_id),
                 )
                 .with_context(|| format!("Failed to convert tx #{idx} to REVM tx"))?;
 
                 revm_txs.push(ReplayTx {
                     tx: tx_env,
-                    include_trace: true,
-                    original_tx_index: Some(idx),
+                    original_tx_index: idx,
                 });
-                Self::append_l1_post_processing_replay_txs(
-                    &mut revm_txs,
-                    transaction,
-                    tx_output.gas_used,
-                    tx_output.is_success(),
-                    block_gas_limit,
-                    settlement_layer_chain_id,
-                )?;
             }
 
             Ok(revm_txs)
@@ -256,13 +235,18 @@ where
                 .iter()
                 .enumerate()
                 .map(|(idx, transaction)| {
-                    zk_tx_into_revm_tx(transaction, None, false, block_gas_limit)
-                        .with_context(|| format!("Failed to convert tx #{idx} to REVM tx"))
-                        .map(|tx| ReplayTx {
-                            tx,
-                            include_trace: true,
-                            original_tx_index: Some(idx),
-                        })
+                    zk_tx_into_revm_tx(
+                        transaction,
+                        None,
+                        false,
+                        block_gas_limit,
+                        Some(settlement_layer_chain_id),
+                    )
+                    .with_context(|| format!("Failed to convert tx #{idx} to REVM tx"))
+                    .map(|tx| ReplayTx {
+                        tx,
+                        original_tx_index: idx,
+                    })
                 })
                 .collect()
         }
@@ -294,96 +278,5 @@ where
                 .unwrap_or_default()
                 .as_slice(),
         ))
-    }
-
-    fn append_l1_post_processing_replay_txs(
-        replay_txs: &mut Vec<ReplayTx>,
-        transaction: &ZKsyncTxEnvelope,
-        gas_used: u64,
-        is_success: bool,
-        block_gas_limit: u64,
-        settlement_layer_chain_id: U256,
-    ) -> anyhow::Result<()> {
-        let ZKsyncTxEnvelope::ZKsync(ZKsyncSpecificTxEnvelope::L1(l1_tx)) = transaction else {
-            return Ok(());
-        };
-
-        let gas_price = U256::from(l1_tx.max_fee_per_gas);
-        let gas_limit = U256::from(l1_tx.gas_limit);
-        let total_deposited = l1_tx.to_mint;
-        let max_fee_commitment = gas_price
-            .checked_mul(gas_limit)
-            .ok_or_else(|| anyhow!("L1 max fee commitment overflow during REVM replay"))?;
-        let to_transfer = total_deposited
-            .checked_sub(max_fee_commitment)
-            .ok_or_else(|| {
-                anyhow!("L1 deposit smaller than max fee commitment during REVM replay")
-            })?;
-        let pay_to_operator = U256::from(gas_used)
-            .checked_mul(gas_price)
-            .ok_or_else(|| anyhow!("L1 operator payment overflow during REVM replay"))?;
-        let refund = if is_success {
-            max_fee_commitment
-                .checked_sub(pay_to_operator)
-                .ok_or_else(|| anyhow!("L1 successful refund underflow during REVM replay"))?
-        } else {
-            total_deposited
-                .checked_sub(pay_to_operator)
-                .ok_or_else(|| anyhow!("L1 reverted refund underflow during REVM replay"))?
-        };
-
-        if is_success && to_transfer > U256::ZERO {
-            replay_txs.push(ReplayTx {
-                tx: Self::build_asset_tracker_replay_tx(
-                    settlement_layer_chain_id,
-                    to_transfer,
-                    block_gas_limit,
-                )?,
-                include_trace: false,
-                original_tx_index: None,
-            });
-        }
-        if pay_to_operator > U256::ZERO {
-            replay_txs.push(ReplayTx {
-                tx: Self::build_asset_tracker_replay_tx(
-                    settlement_layer_chain_id,
-                    pay_to_operator,
-                    block_gas_limit,
-                )?,
-                include_trace: false,
-                original_tx_index: None,
-            });
-        }
-        if refund > U256::ZERO {
-            replay_txs.push(ReplayTx {
-                tx: Self::build_asset_tracker_replay_tx(
-                    settlement_layer_chain_id,
-                    refund,
-                    block_gas_limit,
-                )?,
-                include_trace: false,
-                original_tx_index: None,
-            });
-        }
-
-        Ok(())
-    }
-
-    fn build_asset_tracker_replay_tx(
-        settlement_layer_chain_id: U256,
-        amount: U256,
-        block_gas_limit: u64,
-    ) -> anyhow::Result<ZKsyncTx<TxEnv>> {
-        let mut calldata = [0u8; 68];
-        calldata[..4].copy_from_slice(&HANDLE_FINALIZE_BASE_TOKEN_BRIDGING_ON_L2_SELECTOR);
-        calldata[4..36].copy_from_slice(&settlement_layer_chain_id.to_be_bytes::<32>());
-        calldata[36..68].copy_from_slice(&amount.to_be_bytes::<32>());
-
-        internal_service_call_into_revm_tx(
-            L2_BASE_TOKEN_ADDRESS,
-            L2_ASSET_TRACKER_ADDRESS,
-            Bytes::copy_from_slice(&calldata),
-            block_gas_limit,
-        )
     }
 }
