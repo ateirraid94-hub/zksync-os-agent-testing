@@ -1,28 +1,27 @@
 #![cfg(test)]
 
-use rig::TestingFramework;
 use rig::alloy::consensus::TxEip2930;
-use rig::alloy::primitives::{Address, B256, TxKind, U256, address};
+use rig::alloy::primitives::{address, Address, TxKind, B256, U256};
 use rig::alloy::rpc::types::{AccessList, AccessListItem};
 use rig::basic_system::system_implementation::flat_storage_model::{
-    ExactIndexQuery, ExistingReadProof, PROOF_FOR_INDEX_QUERY_ID, PreviousIndexQuery,
-    ValueAtIndexProof,
+    ExactIndexQuery, ExistingReadProof, PreviousIndexQuery, ValueAtIndexProof,
+    PROOF_FOR_INDEX_QUERY_ID,
 };
 use rig::chain::TestingOracleFactory;
 use rig::evm_bytecode;
-use rig::forward_system::run::ReadStorageTree;
 use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::run::query_processors::{
     BlockMetadataResponder, DACommitmentSchemeResponder, GenericPreimageResponder, TxDataResponder,
     ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
+use rig::forward_system::run::ReadStorageTree;
 use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
 use rig::ruint::aliases::B160;
 use rig::testing_signer;
-use rig::utils::{ACCOUNT_PROPERTIES_STORAGE_ADDRESS, address_into_special_storage_key};
+use rig::utils::{address_into_special_storage_key, ACCOUNT_PROPERTIES_STORAGE_ADDRESS};
 use rig::zk_ee::common_structs::{
-    ProofData, da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key,
+    da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key, ProofData,
 };
 use rig::zk_ee::oracle::basic_queries::InitialStorageSlotQuery;
 use rig::zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
@@ -33,6 +32,7 @@ use rig::zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
 use rig::zk_ee::types_config::EthereumIOTypesConfig;
 use rig::zk_ee::utils::Bytes32;
 use rig::zksync_os_interface::traits::TxListSource;
+use rig::TestingFramework;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;

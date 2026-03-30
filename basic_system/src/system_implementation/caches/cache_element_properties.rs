@@ -25,6 +25,7 @@ pub struct CacheElementProperties {
 }
 
 impl CacheElementProperties {
+    #[inline(always)]
     pub fn new(is_new_element: bool, is_value_observed: bool) -> Self {
         let persistent_storage_status = if is_new_element {
             CacheElementPersistenceStatus::NonExisting
@@ -45,10 +46,12 @@ impl CacheElementProperties {
     }
 
     /// Returns true if the element didn't exist in persistent storage before
+    #[inline(always)]
     pub fn is_new_element(&self) -> bool {
         self.persistent_storage_status == CacheElementPersistenceStatus::NonExisting
     }
 
+    #[inline(always)]
     pub fn set_is_new(&mut self, is_new_element: bool) {
         self.persistent_storage_status = if is_new_element {
             CacheElementPersistenceStatus::NonExisting
@@ -59,6 +62,7 @@ impl CacheElementProperties {
 
     /// Returns true if the initial value from storage was accessed/used.
     /// This excludes records that were only touched but never observed, updated, or deleted.
+    #[inline(always)]
     pub fn is_value_observed(&self) -> bool {
         matches!(
             self.cache_value_status,
@@ -67,6 +71,7 @@ impl CacheElementProperties {
     }
 
     /// Marks the cache element's value as having been observed/accessed
+    #[inline(always)]
     pub fn mark_value_as_observed(&mut self) {
         if self.cache_value_status == CacheElementValueStatus::Undefined {
             self.cache_value_status = CacheElementValueStatus::Materialized;

@@ -12,6 +12,7 @@ pub struct CacheRecord<V, M> {
 }
 
 impl<V, M: Default> CacheRecord<V, M> {
+    #[inline(always)]
     pub fn new_empty() -> Self {
         Self {
             value: None,
@@ -19,6 +20,7 @@ impl<V, M: Default> CacheRecord<V, M> {
         }
     }
 
+    #[inline(always)]
     pub fn new(value: V) -> Self {
         Self {
             value: Some(value),
@@ -28,6 +30,7 @@ impl<V, M: Default> CacheRecord<V, M> {
 }
 
 impl<V, M> CacheRecord<V, M> {
+    #[inline(always)]
     pub fn new_empty_with_metadata(metadata: M) -> Self {
         Self {
             value: None,
@@ -35,26 +38,31 @@ impl<V, M> CacheRecord<V, M> {
         }
     }
 
+    #[inline(always)]
     pub fn value(&self) -> Option<&V> {
         self.value.as_ref()
     }
 
+    #[inline(always)]
     pub fn materialized_value(&self) -> Result<&V, InternalError> {
         self.value
             .as_ref()
             .ok_or_else(|| internal_error!("Cache record value must be materialized"))
     }
 
+    #[inline(always)]
     pub fn materialize(&mut self, value: V) {
         self.value = Some(value);
     }
 
+    #[inline(always)]
     pub fn metadata(&self) -> &M {
         &self.metadata
     }
 
     #[must_use]
     /// Updates value and metadata using callback
+    #[inline(always)]
     pub fn update<F>(&mut self, f: F) -> Result<(), InternalError>
     where
         F: FnOnce(&mut Option<V>, &mut M) -> Result<(), InternalError>,
@@ -64,6 +72,7 @@ impl<V, M> CacheRecord<V, M> {
 
     #[must_use]
     /// Updates a materialized value and metadata using callback
+    #[inline(always)]
     pub fn update_materialized<F>(&mut self, f: F) -> Result<(), InternalError>
     where
         F: FnOnce(&mut V, &mut M) -> Result<(), InternalError>,
@@ -78,6 +87,7 @@ impl<V, M> CacheRecord<V, M> {
 
     #[must_use]
     /// Updates the metadata
+    #[inline(always)]
     pub fn update_metadata<F>(&mut self, f: F) -> Result<(), SystemError>
     where
         F: FnOnce(&mut M) -> Result<(), SystemError>,
@@ -86,6 +96,7 @@ impl<V, M> CacheRecord<V, M> {
     }
 
     /// Updates the metadata with an infallible callback.
+    #[inline(always)]
     pub fn update_metadata_infallible<F>(&mut self, f: F)
     where
         F: FnOnce(&mut M),

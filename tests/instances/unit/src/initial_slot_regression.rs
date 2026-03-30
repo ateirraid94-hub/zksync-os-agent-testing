@@ -7,27 +7,26 @@
 //! must be Bytes32::ZERO, preventing bugs where invalid initial values might be provided.
 //!
 
-use rig::TestingFramework;
 use rig::alloy::consensus::TxEip2930;
-use rig::alloy::primitives::{TxKind, U256, address};
+use rig::alloy::primitives::{address, TxKind, U256};
 use rig::basic_system::system_implementation::flat_storage_model::{
-    ExactIndexQuery, ExistingReadProof, FlatStorageCommitment, PROOF_FOR_INDEX_QUERY_ID,
-    PreviousIndexQuery, TREE_HEIGHT, ValueAtIndexProof,
+    ExactIndexQuery, ExistingReadProof, FlatStorageCommitment, PreviousIndexQuery,
+    ValueAtIndexProof, PROOF_FOR_INDEX_QUERY_ID, TREE_HEIGHT,
 };
 use rig::chain::TestingOracleFactory;
-use rig::forward_system::run::ReadStorageTree;
 use rig::forward_system::run::convert_alloy::FromAlloy;
 use rig::forward_system::run::query_processors::{
     BlockMetadataResponder, DACommitmentSchemeResponder, GenericPreimageResponder, TxDataResponder,
     ZKProofDataResponder,
 };
 use rig::forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree};
+use rig::forward_system::run::ReadStorageTree;
 use rig::oracle_provider::DummyMemorySource;
 use rig::oracle_provider::{MemorySource, OracleQueryProcessor, ZkEENonDeterminismSource};
 use rig::risc_v_simulator::abstractions::memory::VectorMemoryImpl;
 use rig::ruint::aliases::B160;
 use rig::zk_ee::common_structs::{
-    ProofData, da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key,
+    da_commitment_scheme::DACommitmentScheme, derive_flat_storage_key, ProofData,
 };
 use rig::zk_ee::oracle::basic_queries::InitialStorageSlotQuery;
 use rig::zk_ee::oracle::simple_oracle_query::SimpleOracleQuery;
@@ -38,6 +37,7 @@ use rig::zk_ee::system::metadata::zk_metadata::BlockMetadataFromOracle;
 use rig::zk_ee::types_config::EthereumIOTypesConfig;
 use rig::zk_ee::utils::Bytes32;
 use rig::zksync_os_interface::traits::TxListSource;
+use rig::TestingFramework;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 /// Malicious storage responder that returns non-zero initial values for new storage slots

@@ -14,6 +14,7 @@ pub struct BasicAccountPropertiesMetadata {
 }
 
 impl BasicAccountPropertiesMetadata {
+    #[inline(always)]
     pub fn considered_warm(&self, current_tx_number: u32) -> bool {
         self.last_touched_in_tx == Some(current_tx_number)
     }

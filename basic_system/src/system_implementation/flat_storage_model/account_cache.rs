@@ -283,56 +283,70 @@ impl<
                 ))
             })
             .and_then(|mut x| {
-                // Warm up element according to EVM rules if needed
                 let is_warm = x
                     .current()
                     .metadata()
                     .basic
                     .considered_warm(self.current_tx_id);
+                if x.element_properties().is_value_observed() {
+                    if is_warm == false {
+                        if !initialized_element {
+                            // Element exists in cache, but wasn't touched in current tx yet
+                            Self::charge_ergs_for_cold_access(
+                                ee_type,
+                                resources,
+                                address,
+                                is_selfdestruct,
+                            )?;
+                            let empty_account = x.element_properties().is_new_element();
+                            Self::charge_native_for_cold_access(
+                                ee_type,
+                                resources,
+                                empty_account,
+                                &storage.0.resources_policy,
+                            )?;
+                        }
 
-                let mut cold_access_charged_during_materialization = initialized_element;
-
-                if !x.element_properties().is_value_observed() {
-                    let (acc_data, empty_account) = Self::load_account_properties::<PROOF_ENV>(
-                        ee_type,
-                        resources,
-                        address,
-                        storage,
-                        preimages_cache,
-                        oracle,
-                        is_selfdestruct,
-                        !is_warm,
-                    )?;
-                    cold_access_charged_during_materialization = !is_warm;
-                    x.mutate_current_in_place(|cache_record| cache_record.materialize(acc_data));
-                    x.element_properties_mut().set_is_new(empty_account);
-                    x.element_properties_mut().mark_value_as_observed();
-                }
-                if is_warm == false {
-                    if !cold_access_charged_during_materialization {
-                        // Element exists in cache, but wasn't touched in current tx yet
-                        Self::charge_ergs_for_cold_access(
-                            ee_type,
-                            resources,
-                            address,
-                            is_selfdestruct,
-                        )?;
-                        let empty_account = x.element_properties().is_new_element();
-                        Self::charge_native_for_cold_access(
-                            ee_type,
-                            resources,
-                            empty_account,
-                            &storage.0.resources_policy,
-                        )?;
+                        x.update(|cache_record| {
+                            cache_record.update_metadata(|m| {
+                                m.basic.last_touched_in_tx = Some(self.current_tx_id);
+                                Ok(())
+                            })
+                        })?;
                     }
 
-                    x.update(|cache_record| {
-                        cache_record.update_metadata(|m| {
-                            m.basic.last_touched_in_tx = Some(self.current_tx_id);
-                            Ok(())
-                        })
-                    })?;
+                    return Ok(x);
                 }
+
+                let (acc_data, empty_account) = Self::load_account_properties::<PROOF_ENV>(
+                    ee_type,
+                    resources,
+                    address,
+                    storage,
+                    preimages_cache,
+                    oracle,
+                    is_selfdestruct,
+                    !is_warm,
+                )?;
+                x.mutate_current_in_place(|cache_record| {
+                    cache_record.materialize(acc_data);
+                    cache_record.update_metadata_infallible(|m| {
+                        if is_warm == false {
+                            m.basic.last_touched_in_tx = Some(self.current_tx_id);
+                        }
+                    });
+                });
+                x.element_properties_mut().set_is_new(empty_account);
+                x.element_properties_mut().mark_value_as_observed();
+
+                if is_warm == false {
+                    assert!(x
+                        .current()
+                        .metadata()
+                        .basic
+                        .considered_warm(self.current_tx_id));
+                }
+
                 Ok(x)
             })
     }

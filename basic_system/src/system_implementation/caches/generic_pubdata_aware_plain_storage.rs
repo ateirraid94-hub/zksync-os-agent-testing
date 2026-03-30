@@ -41,6 +41,7 @@ pub struct StorageElementMetadata {
 }
 
 impl StorageElementMetadata {
+    #[inline(always)]
     pub fn considered_warm(&self, current_tx_id: TransactionId) -> bool {
         self.last_touched_in_tx == Some(current_tx_id)
     }
@@ -229,33 +230,50 @@ impl<
                 ))
             })
             .and_then(|mut x| {
-                if !x.element_properties().is_value_observed() {
-                    let (value, is_new_storage_slot) = Self::query_initial_value(key, oracle)?;
-                    x.mutate_current_in_place(|cache_record| cache_record.materialize(value));
-                    x.element_properties_mut().set_is_new(is_new_storage_slot);
-                    x.element_properties_mut().mark_value_as_observed();
-                }
-
-                // Warm up element according to EVM rules if needed
                 let is_warm_read = x.current().metadata().considered_warm(current_tx_id);
-                if is_warm_read == false {
-                    if initialized_element == false {
-                        let is_new_storage_slot = x.element_properties().is_new_element();
-                        // Element exists in cache, but wasn't touched in current tx yet
-                        resources_policy.charge_cold_storage_read_extra(
-                            ee_type,
-                            resources,
-                            is_new_storage_slot,
-                        )?;
+                if x.element_properties().is_value_observed() {
+                    if is_warm_read == false {
+                        if initialized_element == false {
+                            let is_new_storage_slot = x.element_properties().is_new_element();
+                            // Element exists in cache, but wasn't touched in current tx yet
+                            resources_policy.charge_cold_storage_read_extra(
+                                ee_type,
+                                resources,
+                                is_new_storage_slot,
+                            )?;
+                        }
+
+                        x.update(|cache_record| {
+                            cache_record.update_metadata(|m| {
+                                m.last_touched_in_tx = Some(current_tx_id);
+                                Ok(())
+                            })
+                        })?;
                     }
 
-                    x.update(|cache_record| {
-                        cache_record.update_metadata(|m| {
-                            m.last_touched_in_tx = Some(current_tx_id);
-                            Ok(())
-                        })
-                    })?;
+                    return Ok((x, IsWarmRead(is_warm_read)));
                 }
+
+                let (value, is_new_storage_slot) = Self::query_initial_value(key, oracle)?;
+                if is_warm_read == false && initialized_element == false {
+                    let is_new_storage_slot = x.element_properties().is_new_element();
+                    resources_policy.charge_cold_storage_read_extra(
+                        ee_type,
+                        resources,
+                        is_new_storage_slot,
+                    )?;
+                }
+
+                x.mutate_current_in_place(|cache_record| {
+                    cache_record.materialize(value);
+                    cache_record.update_metadata_infallible(|m| {
+                        if is_warm_read == false {
+                            m.last_touched_in_tx = Some(current_tx_id);
+                        }
+                    });
+                });
+                x.element_properties_mut().set_is_new(is_new_storage_slot);
+                x.element_properties_mut().mark_value_as_observed();
 
                 Ok((x, IsWarmRead(is_warm_read)))
             })

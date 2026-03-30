@@ -89,6 +89,7 @@ where
     }
 
     /// Get history of an element by key
+    #[inline(always)]
     pub fn get<'s>(&'s self, key: &'s K) -> Option<HistoryMapItemRef<'s, K, V, A, KP>> {
         self.btree
             .get(key)
@@ -96,6 +97,7 @@ where
     }
 
     /// Get history of an element by key, mutable
+    #[inline(always)]
     pub fn get_mut<'s>(&'s mut self, key: &'s K) -> Option<HistoryMapItemRefMut<'s, K, V, A, KP>> {
         self.btree.get_mut(key).map(|ec| HistoryMapItemRefMut {
             key,
@@ -106,6 +108,7 @@ where
     }
 
     /// Get history of an element by key or use callback to insert initial value
+    #[inline(always)]
     pub fn get_or_insert<'s, E>(
         &'s mut self,
         key: &'s K,
@@ -298,22 +301,27 @@ where
     K: Clone,
     A: Allocator + Clone,
 {
+    #[inline(always)]
     pub fn key(&self) -> &'a K {
         self.key
     }
 
+    #[inline(always)]
     pub fn key_properties(&self) -> &KP {
         &self.history.element_properties
     }
 
+    #[inline(always)]
     pub fn current(&self) -> &'a V {
         unsafe { &self.history.head.as_ref().value }
     }
 
+    #[inline(always)]
     pub fn initial(&self) -> &'a V {
         unsafe { &self.history.initial.as_ref().value }
     }
 
+    #[inline(always)]
     pub fn committed(&self) -> &V {
         unsafe { &self.history.committed.as_ref().value }
     }
@@ -338,22 +346,27 @@ where
     V: Clone,
     A: Allocator + Clone,
 {
+    #[inline(always)]
     pub fn current(&self) -> &V {
         unsafe { &self.history.head.as_ref().value }
     }
 
+    #[inline(always)]
     pub fn initial(&self) -> &V {
         unsafe { &self.history.initial.as_ref().value }
     }
 
+    #[inline(always)]
     pub fn committed(&self) -> &V {
         unsafe { &self.history.committed.as_ref().value }
     }
 
+    #[inline(always)]
     pub fn element_properties(&self) -> &KP {
         &self.history.element_properties
     }
 
+    #[inline(always)]
     pub fn element_properties_mut(&mut self) -> &mut KP {
         &mut self.history.element_properties
     }
@@ -366,6 +379,7 @@ where
 
     #[must_use]
     /// Use callback `f` to add new record and update element
+    #[inline(always)]
     pub fn update<F, E>(&mut self, f: F) -> Result<(), E>
     where
         F: FnOnce(&mut V) -> Result<(), E>,
@@ -401,6 +415,7 @@ where
     /// Mutates the current record in place without creating a new history entry.
     ///
     /// Caller must ensure that the current record is also the initial and committed one.
+    #[inline(always)]
     pub fn mutate_current_in_place(&mut self, f: impl FnOnce(&mut V)) {
         assert_eq!(self.history.head, self.history.initial);
         assert_eq!(self.history.head, self.history.committed);

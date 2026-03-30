@@ -184,53 +184,64 @@ impl<A: Allocator + Clone, R: Resources, SF: StackFactory<N>, const N: usize>
                 ))
             })
             .and_then(|mut x| {
-                let mut cold_charge_already_applied = initialized_element;
-
-                if !x.element_properties().is_value_observed() {
-                    let is_warm_before_materialization = x
-                        .current()
-                        .metadata()
-                        .considered_warm(self.current_tx_number);
-                    let (acc_data, empty_account) = Self::load_account_properties(
-                        ee_type,
-                        resources,
-                        address,
-                        oracle,
-                        is_selfdestruct,
-                        !is_warm_before_materialization,
-                    )?;
-                    cold_charge_already_applied = !is_warm_before_materialization;
-                    x.mutate_current_in_place(|cache_record| cache_record.materialize(acc_data));
-                    x.element_properties_mut().set_is_new(empty_account);
-                    x.element_properties_mut().mark_value_as_observed();
-                }
-
-                // Warm up element according to EVM rules if needed
                 let is_warm = x
                     .current()
                     .metadata()
                     .considered_warm(self.current_tx_number);
-                if is_warm == false {
-                    if !cold_charge_already_applied {
-                        // Element exists in cache, but wasn't touched in current tx yet
-                        Self::charge_cold_access_ergs(
-                            ee_type,
-                            resources,
-                            address,
-                            is_selfdestruct,
-                        )?;
+                if x.element_properties().is_value_observed() {
+                    if is_warm == false {
+                        if !initialized_element {
+                            // Element exists in cache, but wasn't touched in current tx yet
+                            Self::charge_cold_access_ergs(
+                                ee_type,
+                                resources,
+                                address,
+                                is_selfdestruct,
+                            )?;
+                        }
+                        // mark as warm
+                        x.update(|cache_record| {
+                            cache_record.update_metadata(|m| {
+                                if is_warm == false {
+                                    assert!(m.is_marked_for_deconstruction == false); // any deconstuction should finish in previous TX
+                                    m.last_touched_in_tx = Some(self.current_tx_number);
+                                }
+                                Ok(())
+                            })
+                        })?;
                     }
-                    // mark as warm
-                    x.update(|cache_record| {
-                        cache_record.update_metadata(|m| {
-                            if is_warm == false {
-                                assert!(m.is_marked_for_deconstruction == false); // any deconstuction should finish in previous TX
-                                m.last_touched_in_tx = Some(self.current_tx_number);
-                            }
-                            Ok(())
-                        })
-                    })?;
+
+                    return Ok(x);
                 }
+
+                let (acc_data, empty_account) = Self::load_account_properties(
+                    ee_type,
+                    resources,
+                    address,
+                    oracle,
+                    is_selfdestruct,
+                    !is_warm,
+                )?;
+                x.mutate_current_in_place(|cache_record| {
+                    cache_record.materialize(acc_data);
+                    cache_record.update_metadata_infallible(|m| {
+                        // Element exists in cache, but wasn't touched in current tx yet
+                        if is_warm == false {
+                            assert!(m.is_marked_for_deconstruction == false); // any deconstuction should finish in previous TX
+                            m.last_touched_in_tx = Some(self.current_tx_number);
+                        }
+                    });
+                });
+                x.element_properties_mut().set_is_new(empty_account);
+                x.element_properties_mut().mark_value_as_observed();
+
+                if is_warm == false {
+                    assert!(x
+                        .current()
+                        .metadata()
+                        .considered_warm(self.current_tx_number));
+                }
+
                 Ok(x)
             })
     }
