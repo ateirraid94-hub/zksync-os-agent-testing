@@ -60,6 +60,16 @@ pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 395_000;
 // the uncompressed update.
 const COINBASE_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 
+// Pubdata needed for the treasury balance diff caused by transfers 
+// from treasury. Use the same worst-case balance-diff estimate as 
+// for coinbase balance updates.
+const TREASURY_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
+
+// Pubdata needed for the refund recipient balance diff in the worst case.
+// As with the coinbase/treasury balance updates, price a 32-byte key and
+// 34-byte uncompressed value update.
+const REFUND_RECIPIENT_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
+
 // Pubdata produced by the L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2
 // call that the bootloader makes inside the L1 tx execution frame (value-mint
 // notification). In the steady-state case (base token already registered,
@@ -70,9 +80,13 @@ const COINBASE_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 // 256-bit amount falls back to Nothing encoding = 33 bytes.
 const ASSET_TRACKER_INTRINSIC_PUBDATA: u64 = 32 + 33;
 
-// Needed to publish the l1 tx log, coinbase balance, and asset tracker state diff.
+// Needed to publish the L1 tx log, coinbase balance, treasury balance, refund
+// recipient balance, and asset tracker state diff.
 pub const L1_TX_INTRINSIC_PUBDATA: u64 =
-    88 + COINBASE_BALANCE_INTRINSIC_PUBDATA + ASSET_TRACKER_INTRINSIC_PUBDATA;
+    88 + COINBASE_BALANCE_INTRINSIC_PUBDATA
+        + TREASURY_BALANCE_INTRINSIC_PUBDATA
+        + REFUND_RECIPIENT_BALANCE_INTRINSIC_PUBDATA
+        + ASSET_TRACKER_INTRINSIC_PUBDATA;
 
 pub const L2_TX_INTRINSIC_GAS: u64 = 21_000;
 
