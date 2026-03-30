@@ -111,7 +111,7 @@ fn run_with_tracer<const RANDOMIZED: bool>(
     run_config: rig::chain::RunConfig,
     tracer: &mut impl Tracer<ForwardRunningSystem>,
 ) -> (BlockOutput, BlockExtraStats) {
-    let (output, stats, _) = chain
+    let (output, stats, _, _) = chain
         .run_block_with_extra_stats(
             transactions,
             Some(block_context),
@@ -244,8 +244,8 @@ pub fn single_run(
 }
 
 pub fn eth_run(block_dir: String) -> anyhow::Result<()> {
-    use rig::zksync_os_tests_common::zksync_tx::encoding::encode_alloy_rpc_tx;
     use rig::alloy_rlp::Encodable;
+    use rig::zksync_os_tests_common::zksync_tx::encoding::encode_alloy_rpc_tx;
     use std::path::Path;
 
     let dir = Path::new(&block_dir);
