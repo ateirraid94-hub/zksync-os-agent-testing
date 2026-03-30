@@ -52,7 +52,7 @@ pub(crate) fn process_l1_transaction<
 >(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
-    memories: RunnerMemoryBuffers<'a>,
+    mut memories: RunnerMemoryBuffers<'a>,
     transaction: &AbiEncodedTransaction<S::Allocator>,
     is_priority_op: bool,
     tracer: &mut impl Tracer<S>,
@@ -168,7 +168,7 @@ where
             match execute_l1_transaction_and_notify_result::<S, Config>(
                 system,
                 system_functions,
-                memories,
+                &mut memories,
                 &transaction,
                 from,
                 to,
@@ -180,7 +180,7 @@ where
                 tracer,
                 validator,
             ) {
-                Ok((outcome, returned_memories)) => {
+                Ok(outcome) => {
                     let pubdata_info = if outcome.is_success {
                         system.finish_global_frame(None)?;
                         Some((outcome.pubdata_used, outcome.to_charge_for_pubdata))
@@ -193,12 +193,33 @@ where
                         outcome.returndata,
                         pubdata_info,
                         outcome.resources_before_refund,
-                        returned_memories,
+                        memories,
                     )
                 }
                 Err(e) => {
-                    system.finish_global_frame(Some(&rollback_handle))?;
-                    return Err(e);
+                    match e.root_cause() {
+                        // Out of native / memory is converted to a top-level
+                        // revert so post-execution L1 accounting can still run.
+                        RootCause::Runtime(runtime @ RuntimeError::FatalRuntimeError(_)) => {
+                            system_log!(
+                                system,
+                                "L1 transaction ran out of native resources or memory {runtime:?}\n"
+                            );
+                            resources.exhaust_ergs();
+                            system.finish_global_frame(Some(&rollback_handle))?;
+                            (
+                                false,
+                                Vec::new_in(system.get_allocator()),
+                                None,
+                                S::Resources::empty(),
+                                memories,
+                            )
+                        }
+                        _ => {
+                            system.finish_global_frame(Some(&rollback_handle))?;
+                            return Err(e);
+                        }
+                    }
                 }
             }
         } else {
@@ -525,8 +546,6 @@ struct L1ExecutionOutcome<S: EthereumLikeTypes> {
     resources_before_refund: S::Resources,
 }
 
-// Returns (outcome, memories) — memories is returned so the caller can
-// reborrow it for subsequent `run_single_interaction` calls.
 fn execute_l1_transaction_and_notify_result<
     'a,
     S: EthereumLikeTypes + 'a,
@@ -534,7 +553,7 @@ fn execute_l1_transaction_and_notify_result<
 >(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
-    memories: RunnerMemoryBuffers<'a>,
+    memories: &mut RunnerMemoryBuffers<'a>,
     transaction: &AbiEncodedTransaction<S::Allocator>,
     from: B160,
     to: B160,
@@ -545,7 +564,7 @@ fn execute_l1_transaction_and_notify_result<
     withheld_resources: S::Resources,
     tracer: &mut impl Tracer<S>,
     validator: &mut impl TxValidator<S>,
-) -> Result<(L1ExecutionOutcome<S>, RunnerMemoryBuffers<'a>), BootloaderSubsystemError>
+) -> Result<L1ExecutionOutcome<S>, BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
     S::Metadata: ZkSpecificPricingMetadata
@@ -553,35 +572,31 @@ where
 {
     system_log!(system, "Executing L1 transaction\n");
 
-    let rollback_handle = system.start_global_frame()?;
-    let mut frame_finished = false;
-    let mut memories = Some(memories);
-    let result = (|| {
-        let memories = memories
-            .as_mut()
-            .expect("memories is always Some inside closure");
-        let gas_price = U256::from(transaction.max_fee_per_gas.read());
-        system.set_tx_context(TxLevelMetadata {
-            tx_gas_price: gas_price,
-            tx_origin: from,
-            blobs: ArrayVec::new(),
-        });
+    let gas_price = U256::from(transaction.max_fee_per_gas.read());
+    system.set_tx_context(TxLevelMetadata {
+        tx_gas_price: gas_price,
+        tx_origin: from,
+        blobs: ArrayVec::new(),
+    });
 
-        // Fee payment is done in two steps.
-        // The first step is here, where the max fee (gas limit * gas price)
-        // is committed to.
-        // This fee is deducted from the deposit to be minted (transferred from
-        // the treasury).
-        // After the execution of the transaction, the actual fee
-        // (gas used * gas price) is paid to the operator, while the
-        // rest of the max fee is refunded.
-        let max_fee_commitment = gas_price
-            .checked_mul(U256::from(transaction.gas_limit.read()))
-            .ok_or(internal_error!("gp*gl"))?;
-        let total_deposited = transaction.reserved[0].read();
-        let to_transfer = total_deposited
-            .checked_sub(max_fee_commitment)
-            .ok_or(internal_error!("mfc+tic"))?;
+    // Fee payment is done in two steps.
+    // The first step is here, where the max fee (gas limit * gas price)
+    // is committed to.
+    // This fee is deducted from the deposit to be minted (transferred from
+    // the treasury).
+    // After the execution of the transaction, the actual fee
+    // (gas used * gas price) is paid to the operator, while the
+    // rest of the max fee is refunded.
+    let max_fee_commitment = gas_price
+        .checked_mul(U256::from(transaction.gas_limit.read()))
+        .ok_or(internal_error!("gp*gl"))?;
+    let total_deposited = transaction.reserved[0].read();
+    let to_transfer = total_deposited
+        .checked_sub(max_fee_commitment)
+        .ok_or(internal_error!("mfc+tic"))?;
+
+    let (reverted, returndata) = {
+        let rollback_handle = system.start_global_frame()?;
 
         // Transfer value from treasury to sender (the deposit minus max fee).
         // We want to ensure that the simulation of a transaction
@@ -647,106 +662,68 @@ where
 
         // TODO: add support for deployment transactions,
         // probably unify with execution logic for EOA
-
-        let (reverted, returndata) =
-            match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
-                system,
-                system_functions,
-                memories.reborrow(),
-                calldata,
-                &from,
-                &to,
-                resources_for_tx,
-                &value,
-                false,
-                tracer,
-                validator,
-            ) {
-                Ok(CompletedExecution {
-                    resources_returned,
-                    result,
-                }) => {
-                    let reverted = result.failed();
-                    // Save the returndata before asset-tracker calls overwrite
-                    // the runner memory buffer. Use the system allocator (not
-                    // global) to avoid panics in proving mode.
-                    let rd = result.return_values().returndata;
-                    let mut returndata = Vec::with_capacity_in(rd.len(), system.get_allocator());
-                    returndata.extend_from_slice(rd);
-                    *resources = resources_returned;
-                    system.finish_global_frame(reverted.then_some(&rollback_handle))?;
-                    frame_finished = true;
-                    (reverted, returndata)
-                }
-                Err(e) => return Err(e),
-            };
-
-        system_log!(system, "Main TX body successful = {}\n", !reverted);
-
-        // Just used for computing native used
-        // Needs to use the resources before we reclaim withheld
-        let resources_before_refund = resources.clone();
-
-        // After the transaction is executed, we reclaim the withheld resources.
-        // This is needed to ensure correct "gas_used" calculation, also these
-        // resources could be spent for pubdata.
-        resources.reclaim_withheld(withheld_resources);
-
-        let (enough, to_charge_for_pubdata, pubdata_used) =
-            check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
-        let is_success = !reverted && enough;
-        if !enough {
-            system_log!(system, "Not enough gas for pubdata after execution\n");
-            // Burn all remaining ergs.
-            resources.exhaust_ergs();
-        }
-
-        Ok(L1ExecutionOutcome {
-            is_success,
-            returndata,
-            pubdata_used,
-            to_charge_for_pubdata,
-            resources_before_refund,
-        })
-    })();
-
-    // SAFETY: memories is always Some at this point: the closure holds a mutable
-    // reference to the inner value (not ownership), so it cannot move it out.
-    let memories = memories.expect("memories is always Some after closure");
-
-    match result {
-        Ok(outcome) => Ok((outcome, memories)),
-        Err(e) => {
-            if !frame_finished {
-                // Handle out-of-native / out-of-memory as a top-level revert so that
-                // `memories` is always returned to the caller for post-execution
-                // asset-tracker notifications (operator fee, refund).
-                if matches!(
-                    e.root_cause(),
-                    RootCause::Runtime(RuntimeError::FatalRuntimeError(_))
-                ) {
-                    system_log!(
-                        system,
-                        "L1 transaction ran out of native resources or memory\n"
-                    );
-                    resources.exhaust_ergs();
-                    system.finish_global_frame(Some(&rollback_handle))?;
-                    return Ok((
-                        L1ExecutionOutcome {
-                            is_success: false,
-                            returndata: Vec::new_in(system.get_allocator()),
-                            pubdata_used: 0,
-                            to_charge_for_pubdata: S::Resources::empty(),
-                            resources_before_refund: S::Resources::empty(),
-                        },
-                        memories,
-                    ));
-                }
-                system.finish_global_frame(Some(&rollback_handle))?;
+        match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
+            system,
+            system_functions,
+            memories.reborrow(),
+            calldata,
+            &from,
+            &to,
+            resources_for_tx,
+            &value,
+            false,
+            tracer,
+            validator,
+        ) {
+            Ok(CompletedExecution {
+                resources_returned,
+                result,
+            }) => {
+                let reverted = result.failed();
+                // Save the returndata before asset-tracker calls overwrite
+                // the runner memory buffer. Use the system allocator (not
+                // global) to avoid panics in proving mode.
+                let rd = result.return_values().returndata;
+                let mut returndata = Vec::with_capacity_in(rd.len(), system.get_allocator());
+                returndata.extend_from_slice(rd);
+                *resources = resources_returned;
+                system.finish_global_frame(reverted.then_some(&rollback_handle))?;
+                (reverted, returndata)
             }
-            Err(e)
+            Err(e) => {
+                system.finish_global_frame(Some(&rollback_handle))?;
+                return Err(e);
+            }
         }
+    };
+
+    system_log!(system, "Main TX body successful = {}\n", !reverted);
+
+    // Just used for computing native used
+    // Needs to use the resources before we reclaim withheld
+    let resources_before_refund = resources.clone();
+
+    // After the transaction is executed, we reclaim the withheld resources.
+    // This is needed to ensure correct "gas_used" calculation, also these
+    // resources could be spent for pubdata.
+    resources.reclaim_withheld(withheld_resources);
+
+    let (enough, to_charge_for_pubdata, pubdata_used) =
+        check_enough_resources_for_pubdata(system, native_per_pubdata, resources, None)?;
+    let is_success = !reverted && enough;
+    if !enough {
+        system_log!(system, "Not enough gas for pubdata after execution\n");
+        // Burn all remaining ergs.
+        resources.exhaust_ergs();
     }
+
+    Ok(L1ExecutionOutcome {
+        is_success,
+        returndata,
+        pubdata_used,
+        to_charge_for_pubdata,
+        resources_before_refund,
+    })
 }
 
 /// Transfers [value] from the treasury account to address [to].
