@@ -579,6 +579,9 @@ where
         blobs: ArrayVec::new(),
     });
 
+    // Start a frame, to revert minting of value if execution fails
+    let rollback_handle = system.start_global_frame()?;
+
     // Fee payment is done in two steps.
     // The first step is here, where the max fee (gas limit * gas price)
     // is committed to.
@@ -595,73 +598,71 @@ where
         .checked_sub(max_fee_commitment)
         .ok_or(internal_error!("mfc+tic"))?;
 
-    let (reverted, returndata) = {
-        let rollback_handle = system.start_global_frame()?;
+    // Transfer value from treasury to sender (the deposit minus max fee).
+    // We want to ensure that the simulation of a transaction
+    // never underestimates gas/pubdata compared to the actual execution
+    // of said transaction.
+    // During simulation the gas price is typically set to 0. So we need
+    // to be conservative about operations that incur in gas/pubdata depending
+    // on the value of the fee. For that reason, we always perform the
+    // following transfer on simulation, and avoid compressing the pubdata
+    // for the balance changes resulting from it.
+    //
+    // Use with_infinite_ergs so the transfer cannot fail due to
+    // out-of-gas, but native consumption is still tracked against
+    // the user's resources.
+    if to_transfer > U256::ZERO || Config::SIMULATION {
+        resources
+            .with_infinite_ergs(|inf_resources| {
+                transfer_from_treasury::<S>(
+                    system,
+                    &to_transfer,
+                    &from,
+                    inf_resources,
+                    Config::SIMULATION,
+                )
+            })
+            .map_err(|e| match e.root_cause() {
+                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
+                    internal_error!("Out of ergs on infinite ergs").into()
+                }
+                _ => e,
+            })?;
 
-        // Transfer value from treasury to sender (the deposit minus max fee).
-        // We want to ensure that the simulation of a transaction
-        // never underestimates gas/pubdata compared to the actual execution
-        // of said transaction.
-        // During simulation the gas price is typically set to 0. So we need
-        // to be conservative about operations that incur in gas/pubdata depending
-        // on the value of the fee. For that reason, we always perform the
-        // following transfer on simulation, and avoid compressing the pubdata
-        // for the balance changes resulting from it.
-        //
-        // Use with_infinite_ergs so the transfer cannot fail due to
-        // out-of-gas, but native consumption is still tracked against
-        // the user's resources.
-        if to_transfer > U256::ZERO || Config::SIMULATION {
-            resources
-                .with_infinite_ergs(|inf_resources| {
-                    transfer_from_treasury::<S>(
-                        system,
-                        &to_transfer,
-                        &from,
-                        inf_resources,
-                        Config::SIMULATION,
-                    )
-                })
-                .map_err(|e| match e.root_cause() {
-                    RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                        internal_error!("Out of ergs on infinite ergs").into()
-                    }
-                    _ => e,
-                })?;
+        // Notify L2AssetTracker about the value mint portion of the deposit.
+        // This is inside the execution frame, so it gets rolled back if the
+        // main tx body reverts — matching the treasury transfer above.
+        // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
+        // but native consumption is still tracked against the user's resources.
+        resources
+            .with_infinite_ergs(|inf_resources| {
+                notify_l2_asset_tracker::<S>(
+                    system,
+                    system_functions,
+                    memories.reborrow(),
+                    to_transfer,
+                    sl_chain_id,
+                    inf_resources,
+                    tracer,
+                    validator,
+                )
+            })
+            .map_err(|e| match e.root_cause() {
+                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
+                    internal_error!("Out of ergs on infinite ergs").into()
+                }
+                _ => e,
+            })?;
+    }
 
-            // Notify L2AssetTracker about the value mint portion of the deposit.
-            // This is inside the execution frame, so it gets rolled back if the
-            // main tx body reverts — matching the treasury transfer above.
-            // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
-            // but native consumption is still tracked against the user's resources.
-            resources
-                .with_infinite_ergs(|inf_resources| {
-                    notify_l2_asset_tracker::<S>(
-                        system,
-                        system_functions,
-                        memories.reborrow(),
-                        to_transfer,
-                        sl_chain_id,
-                        inf_resources,
-                        tracer,
-                        validator,
-                    )
-                })
-                .map_err(|e| match e.root_cause() {
-                    RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                        internal_error!("Out of ergs on infinite ergs").into()
-                    }
-                    _ => e,
-                })?;
-        }
+    let resources_for_tx = resources.clone();
 
-        let resources_for_tx = resources.clone();
+    // transaction is in managed region, so we can recast it back
+    let calldata = transaction.calldata();
 
-        // transaction is in managed region, so we can recast it back
-        let calldata = transaction.calldata();
-
-        // TODO: add support for deployment transactions,
-        // probably unify with execution logic for EOA
+    // TODO: add support for deployment transactions,
+    // probably unify with execution logic for EOA
+    let (reverted, returndata) =
         match BasicBootloader::<S, ZkTransactionFlowOnlyEOA<S>>::run_single_interaction(
             system,
             system_functions,
@@ -694,8 +695,7 @@ where
                 system.finish_global_frame(Some(&rollback_handle))?;
                 return Err(e);
             }
-        }
-    };
+        };
 
     system_log!(system, "Main TX body successful = {}\n", !reverted);
 
