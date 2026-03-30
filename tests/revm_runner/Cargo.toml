@@ -24,7 +24,7 @@ revm = "=34.0.0"
 revm-inspectors = "0.34.0"
 log = { workspace = true }
 
-zksync-os-revm = { git = "https://github.com/matter-labs/zksync-os-revm", rev = "466dcfe831d081577563b8e28c715e6127e460c7" }
+zksync-os-revm = { git = "https://github.com/matter-labs/zksync-os-revm", rev = "96db7423f2cda008fabfd5d5ff40f82478a11918" }
 zksync_os_interface = { workspace = true, default-features = false }
 
 zk_ee = { path = "../../zk_ee" }

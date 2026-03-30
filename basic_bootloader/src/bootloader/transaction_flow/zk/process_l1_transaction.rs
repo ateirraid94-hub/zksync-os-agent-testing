@@ -150,6 +150,9 @@ where
             }
         };
 
+    // Read once here; passed to all notify_l2_asset_tracker calls below.
+    let sl_chain_id = read_settlement_layer_chain_id(&mut system.io);
+
     // pubdata_info = (pubdata_used, to_charge_for_pubdata) can be cached
     // to used in the refund step only if the execution succeeded.
     // Otherwise, this value needs to be recomputed after reverting
@@ -170,6 +173,7 @@ where
                 from,
                 to,
                 value,
+                sl_chain_id,
                 native_per_pubdata,
                 &mut resources,
                 withheld_resources,
@@ -266,6 +270,7 @@ where
         system_functions,
         memories.reborrow(),
         pay_to_operator,
+        sl_chain_id,
         &mut inf_resources,
         tracer,
         validator,
@@ -318,15 +323,18 @@ where
     }
 
     // Notify asset tracker about the refund portion of the deposit.
-    notify_l2_asset_tracker::<S>(
-        system,
-        system_functions,
-        memories.reborrow(),
-        to_refund_recipient,
-        &mut inf_resources,
-        tracer,
-        validator,
-    )?;
+    if to_refund_recipient > U256::ZERO {
+        notify_l2_asset_tracker::<S>(
+            system,
+            system_functions,
+            memories.reborrow(),
+            to_refund_recipient,
+            sl_chain_id,
+            &mut inf_resources,
+            tracer,
+            validator,
+        )?;
+    }
 
     // Emit log
     // We don't send logs for upgrade txs by protocol convention
@@ -526,11 +534,12 @@ fn execute_l1_transaction_and_notify_result<
 >(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
-    mut memories: RunnerMemoryBuffers<'a>,
+    memories: RunnerMemoryBuffers<'a>,
     transaction: &AbiEncodedTransaction<S::Allocator>,
     from: B160,
     to: B160,
     value: U256,
+    sl_chain_id: U256,
     native_per_pubdata: u64,
     resources: &mut S::Resources,
     withheld_resources: S::Resources,
@@ -546,7 +555,9 @@ where
 
     let rollback_handle = system.start_global_frame()?;
     let mut frame_finished = false;
+    let mut memories = Some(memories);
     let result = (|| {
+        let memories = memories.as_mut().expect("memories is always Some inside closure");
         let gas_price = U256::from(transaction.max_fee_per_gas.read());
         system.set_tx_context(TxLevelMetadata {
             tx_gas_price: gas_price,
@@ -600,20 +611,32 @@ where
                     }
                     _ => e,
                 })?;
-        }
 
-        // Notify L2AssetTracker about the value mint portion of the deposit.
-        // This is inside the execution frame, so it gets rolled back if the
-        // main tx body reverts — matching the treasury transfer above.
-        notify_l2_asset_tracker::<S>(
-            system,
-            system_functions,
-            memories.reborrow(),
-            to_transfer,
-            resources,
-            tracer,
-            validator,
-        )?;
+            // Notify L2AssetTracker about the value mint portion of the deposit.
+            // This is inside the execution frame, so it gets rolled back if the
+            // main tx body reverts — matching the treasury transfer above.
+            // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
+            // but native consumption is still tracked against the user's resources.
+            resources
+                .with_infinite_ergs(|inf_resources| {
+                    notify_l2_asset_tracker::<S>(
+                        system,
+                        system_functions,
+                        memories.reborrow(),
+                        to_transfer,
+                        sl_chain_id,
+                        inf_resources,
+                        tracer,
+                        validator,
+                    )
+                })
+                .map_err(|e| match e.root_cause() {
+                    RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
+                        internal_error!("Out of ergs on infinite ergs").into()
+                    }
+                    _ => e,
+                })?;
+        }
 
         let resources_for_tx = resources.clone();
 
@@ -653,22 +676,7 @@ where
                     frame_finished = true;
                     (reverted, returndata)
                 }
-                // Handle out-of-native / out-of-memory as a top-level revert so that
-                // `memories` is always returned to the caller for post-execution
-                // asset-tracker notifications.
-                Err(e) => match e.root_cause() {
-                    RootCause::Runtime(RuntimeError::FatalRuntimeError(re)) => {
-                        system_log!(
-                            system,
-                            "L1 transaction ran out of native resources or memory {re:?}\n"
-                        );
-                        resources.exhaust_ergs();
-                        system.finish_global_frame(Some(&rollback_handle))?;
-                        frame_finished = true;
-                        (true, Vec::new_in(system.get_allocator()))
-                    }
-                    _ => return Err(e),
-                },
+                Err(e) => return Err(e),
             };
 
         system_log!(system, "Main TX body successful = {}\n", !reverted);
@@ -691,22 +699,47 @@ where
             resources.exhaust_ergs();
         }
 
-        Ok((
-            L1ExecutionOutcome {
-                is_success,
-                returndata,
-                pubdata_used,
-                to_charge_for_pubdata,
-                resources_before_refund,
-            },
-            memories,
-        ))
+        Ok(L1ExecutionOutcome {
+            is_success,
+            returndata,
+            pubdata_used,
+            to_charge_for_pubdata,
+            resources_before_refund,
+        })
     })();
 
+    // SAFETY: memories is always Some at this point: the closure holds a mutable
+    // reference to the inner value (not ownership), so it cannot move it out.
+    let memories = memories.expect("memories is always Some after closure");
+
     match result {
-        Ok(v) => Ok(v),
+        Ok(outcome) => Ok((outcome, memories)),
         Err(e) => {
             if !frame_finished {
+                // Handle out-of-native / out-of-memory as a top-level revert so that
+                // `memories` is always returned to the caller for post-execution
+                // asset-tracker notifications (operator fee, refund).
+                if matches!(
+                    e.root_cause(),
+                    RootCause::Runtime(RuntimeError::FatalRuntimeError(_))
+                ) {
+                    system_log!(
+                        system,
+                        "L1 transaction ran out of native resources or memory\n"
+                    );
+                    resources.exhaust_ergs();
+                    system.finish_global_frame(Some(&rollback_handle))?;
+                    return Ok((
+                        L1ExecutionOutcome {
+                            is_success: false,
+                            returndata: Vec::new_in(system.get_allocator()),
+                            pubdata_used: 0,
+                            to_charge_for_pubdata: S::Resources::empty(),
+                            resources_before_refund: S::Resources::empty(),
+                        },
+                        memories,
+                    ));
+                }
                 system.finish_global_frame(Some(&rollback_handle))?;
             }
             Err(e)
@@ -795,11 +828,16 @@ where
 /// Failure halts block processing — if the asset tracker reverts, the
 /// chain's token accounting would be inconsistent, so we treat it as
 /// fatal rather than silently continuing with incorrect bookkeeping.
+///
+/// If no contract is deployed at L2AssetTracker, the call succeeds silently
+/// (a call to an empty address returns success with no returndata in EVM).
+/// However, we are certain that L2AssetTracker is available after the upgrade.
 fn notify_l2_asset_tracker<'a, S: EthereumLikeTypes + 'a>(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
     memories: RunnerMemoryBuffers<'a>,
     amount: U256,
+    sl_chain_id: U256,
     resources: &mut S::Resources,
     tracer: &mut impl Tracer<S>,
     validator: &mut impl TxValidator<S>,
@@ -810,9 +848,6 @@ where
         + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
 {
     if amount > U256::ZERO {
-        // Read settlement layer chain ID from SystemContext storage slot 0
-        let sl_chain_id = read_settlement_layer_chain_id(&mut system.io);
-
         // Encode calldata for handleFinalizeBaseTokenBridgingOnL2(uint256,uint256):
         // selector 0x03117c8c + abi-encoded (fromChainId, amount)
         let mut calldata = [0u8; 68];
@@ -848,6 +883,8 @@ where
                 system,
                 "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 failed for amount {amount:?}\n"
             );
+            // A revert here means the chain's token accounting would be inconsistent.
+            // Treated as a fatal system error — block processing cannot continue.
             return Err(internal_error!(
                 "L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2 reverted"
             )

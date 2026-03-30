@@ -43,6 +43,12 @@ pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 //  - refund transfer: treasury warm write 5k + refund recipient cold new write ~205k
 //  - refund L2AssetTracker notification: warm path, 25k
 //
+// We use the warm-path cost for asset tracker notifications because
+// L2AssetTracker is always accessed earlier in the same tx (value-mint
+// notification), so subsequent accesses hit the warm cache. Using the cold
+// path cost would overcharge and unnecessarily reduce the gas available
+// for user execution.
+//
 // This gives a worst-case incremental cost of ~260k, so we set:
 //   130k + 260k = 390k
 pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 390_000;
