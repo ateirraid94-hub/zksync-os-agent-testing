@@ -60,8 +60,8 @@ pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 395_000;
 // the uncompressed update.
 const COINBASE_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 
-// Pubdata needed for the treasury balance diff caused by transfers 
-// from treasury. Use the same worst-case balance-diff estimate as 
+// Pubdata needed for the treasury balance diff caused by transfers
+// from treasury. Use the same worst-case balance-diff estimate as
 // for coinbase balance updates.
 const TREASURY_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 
@@ -82,11 +82,11 @@ const ASSET_TRACKER_INTRINSIC_PUBDATA: u64 = 32 + 33;
 
 // Needed to publish the L1 tx log, coinbase balance, treasury balance, refund
 // recipient balance, and asset tracker state diff.
-pub const L1_TX_INTRINSIC_PUBDATA: u64 =
-    88 + COINBASE_BALANCE_INTRINSIC_PUBDATA
-        + TREASURY_BALANCE_INTRINSIC_PUBDATA
-        + REFUND_RECIPIENT_BALANCE_INTRINSIC_PUBDATA
-        + ASSET_TRACKER_INTRINSIC_PUBDATA;
+pub const L1_TX_INTRINSIC_PUBDATA: u64 = 88
+    + COINBASE_BALANCE_INTRINSIC_PUBDATA
+    + TREASURY_BALANCE_INTRINSIC_PUBDATA
+    + REFUND_RECIPIENT_BALANCE_INTRINSIC_PUBDATA
+    + ASSET_TRACKER_INTRINSIC_PUBDATA;
 
 pub const L2_TX_INTRINSIC_GAS: u64 = 21_000;
 
