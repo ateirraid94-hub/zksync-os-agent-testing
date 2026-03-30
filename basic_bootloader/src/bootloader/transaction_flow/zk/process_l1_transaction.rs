@@ -557,7 +557,9 @@ where
     let mut frame_finished = false;
     let mut memories = Some(memories);
     let result = (|| {
-        let memories = memories.as_mut().expect("memories is always Some inside closure");
+        let memories = memories
+            .as_mut()
+            .expect("memories is always Some inside closure");
         let gas_price = U256::from(transaction.max_fee_per_gas.read());
         system.set_tx_context(TxLevelMetadata {
             tx_gas_price: gas_price,

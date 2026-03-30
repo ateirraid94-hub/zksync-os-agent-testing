@@ -42,6 +42,7 @@ pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 //  - operator-fee L2AssetTracker notification: warm path, 25k
 //  - refund transfer: treasury warm write 5k + refund recipient cold new write ~205k
 //  - refund L2AssetTracker notification: warm path, 25k
+//  - coinbase transfer: treasury warm write 5k
 //
 // We use the warm-path cost for asset tracker notifications because
 // L2AssetTracker is always accessed earlier in the same tx (value-mint
@@ -49,9 +50,9 @@ pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 // path cost would overcharge and unnecessarily reduce the gas available
 // for user execution.
 //
-// This gives a worst-case incremental cost of ~260k, so we set:
-//   130k + 260k = 390k
-pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 390_000;
+// This gives a worst-case incremental cost of ~265k, so we set:
+//   130k + 265k = 395k
+pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 395_000;
 
 // Pubdata needed for the diff in balance as a result of
 // the fee payment to the coinbase.
