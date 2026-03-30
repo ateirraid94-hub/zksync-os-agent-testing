@@ -402,9 +402,11 @@ where
     ///
     /// Caller must ensure that the current record is also the initial and committed one.
     pub fn mutate_current_in_place(&mut self, f: impl FnOnce(&mut V)) {
-        debug_assert_eq!(self.history.head, self.history.initial);
-        debug_assert_eq!(self.history.head, self.history.committed);
+        assert_eq!(self.history.head, self.history.initial);
+        assert_eq!(self.history.head, self.history.committed);
 
+        // SAFETY: the runtime assertions above guarantee that head, initial, and committed all
+        // point to the same record, so mutating head in place cannot violate history invariants.
         let record = unsafe { self.history.head.as_mut() };
         f(&mut record.value);
     }

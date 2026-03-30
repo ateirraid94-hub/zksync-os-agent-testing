@@ -446,8 +446,12 @@ impl<
 
             // TODO: so far we copy, but can try to remove it eventually
             StorageDiff {
-                initial_value: initial_record.value().copied().unwrap_or_default(),
-                current_value: current_record.value().copied().unwrap_or_default(),
+                initial_value: *initial_record
+                    .materialized_value()
+                    .expect("storage diff entries must be materialized"),
+                current_value: *current_record
+                    .materialized_value()
+                    .expect("storage diff entries must be materialized"),
                 is_new_storage_slot,
                 initial_value_used,
             }
@@ -466,8 +470,12 @@ impl<
                 item.key(),
                 // TODO: so far we copy, but can try to remove it eventually
                 StorageDiff {
-                    initial_value: initial_record.value().copied().unwrap_or_default(),
-                    current_value: current_record.value().copied().unwrap_or_default(),
+                    initial_value: *initial_record
+                        .materialized_value()
+                        .expect("storage diff entries must be materialized"),
+                    current_value: *current_record
+                        .materialized_value()
+                        .expect("storage diff entries must be materialized"),
                     is_new_storage_slot,
                     initial_value_used,
                 },
