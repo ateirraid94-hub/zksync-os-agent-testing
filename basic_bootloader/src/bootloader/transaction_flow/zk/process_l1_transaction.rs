@@ -624,7 +624,13 @@ where
             })
             .map_err(|e| match e.root_cause() {
                 RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    internal_error!("Out of ergs on infinite ergs").into()
+                    system_log!(
+                        system,
+                        "Out of ergs on infinite ergs: inner error was {e:?}"
+                    );
+                    BootloaderSubsystemError::LeafDefect(internal_error!(
+                        "Out of ergs on infinite ergs"
+                    ))
                 }
                 _ => e,
             })?;
@@ -649,7 +655,13 @@ where
             })
             .map_err(|e| match e.root_cause() {
                 RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    internal_error!("Out of ergs on infinite ergs").into()
+                    system_log!(
+                        system,
+                        "Out of ergs on infinite ergs: inner error was {e:?}"
+                    );
+                    BootloaderSubsystemError::LeafDefect(internal_error!(
+                        "Out of ergs on infinite ergs"
+                    ))
                 }
                 _ => e,
             })?;
