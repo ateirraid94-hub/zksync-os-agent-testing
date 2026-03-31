@@ -31,12 +31,55 @@ pub const MAX_BLOCK_GAS_LIMIT: u64 = u64::MAX / ERGS_PER_GAS;
 // Just for EVM compatibility.
 pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 
-// Includes:
-//  - Storing and hashing the l1 tx log.
-//  - Transferring fee to coinbase.
-//  - Hashing of tx hash into rolling hash.
-//  - Adding tx hash into l1 tx linear hasher
-pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 130_000;
+// Covers intrinsic L1 tx work not charged as tx-body computation.
+//
+//  - storing and hashing the L1 tx log:
+//      EVENT_STORAGE_BASE_NATIVE_COST
+//    + keccak256_native_cost(88)
+//    + 2 * keccak256_native_cost(64)
+//    = 6_000 + 20_000 + 40_000
+//    = 66_000
+//  - hashing tx hash into the rolling hash and linear hashers:
+//      3 * keccak256_native_cost(64)
+//    = 3 * 20_000
+//    = 60_000
+//  - coinbase transfer:
+//      warm existing balance write
+//    = WARM_STORAGE_READ_NATIVE_COST + WARM_STORAGE_WRITE_EXTRA_NATIVE_COST x 2 (to account for treasury)
+//    = (4_000 + 1_000) x 2
+//    = 10_000
+//  - coinbase L2AssetTracker notification:
+//      cold call into L2AssetTracker
+//    + BASE_TOKEN_ASSET_ID read
+//    + isAssetRegistered read
+//    + assetMigrationNumber read
+//    + L2BaseTokenZKOS.totalSupply() path
+//    + L2_CHAIN_ASSET_HANDLER.migrationNumber() call
+//    + assetMigrationNumber write
+//    + SystemContext.currentSettlementLayerChainId() call
+//    + interopInfo.totalSuccessfulDepositsFromL1 += amount
+//    = 132_600
+//    + 125_120
+//    + 145_120
+//    + 286_240
+//    + 392_340
+//    + 277_720
+//    + 164_800
+//    + 257_720
+//    + 391_040
+//    ~= 2_172_700
+//  - refund transfer:
+//      treasury cold existing write
+//    + refund recipient cold new write
+//    = 171_680 + 363_040
+//    = 534_720
+//  - refund L2AssetTracker notification:
+//      warm-path estimate
+//    = 32_000
+//
+// We use the cold-path cost for asset tracker first notification because
+// first mint / call to L2AssetTracker can fail due to out-of-native
+pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 2_875_420;
 
 // Pubdata needed for the diff in balance as a result of
 // the fee payment to the coinbase.
@@ -44,8 +87,33 @@ pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 130_000;
 // the uncompressed update.
 const COINBASE_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
 
-// Needed to publish the l1 tx log and coinbase balance.
-pub const L1_TX_INTRINSIC_PUBDATA: u64 = 88 + COINBASE_BALANCE_INTRINSIC_PUBDATA;
+// Pubdata needed for the treasury balance diff caused by transfers
+// from treasury. Use the same worst-case balance-diff estimate as
+// for coinbase balance updates.
+const TREASURY_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
+
+// Pubdata needed for the refund recipient balance diff in the worst case.
+// As with the coinbase/treasury balance updates, price a 32-byte key and
+// 34-byte uncompressed value update.
+const REFUND_RECIPIENT_BALANCE_INTRINSIC_PUBDATA: u64 = 32 + 34;
+
+// Pubdata produced by the L2AssetTracker.handleFinalizeBaseTokenBridgingOnL2
+// call that the bootloader makes inside the L1 tx execution frame (value-mint
+// notification). In the steady-state case (base token already registered,
+// settled on L1), the contract performs a single SSTORE:
+//   interopInfo[assetId].totalSuccessfulDepositsFromL1 += _amount
+// Each storage diff is encoded as 32 bytes (derived key) + compressed value
+// diff. The worst-case compressed value using the Add strategy with a
+// 256-bit amount falls back to Nothing encoding = 33 bytes.
+const ASSET_TRACKER_INTRINSIC_PUBDATA: u64 = 32 + 33;
+
+// Needed to publish the L1 tx log, coinbase balance, treasury balance, refund
+// recipient balance, and asset tracker state diff.
+pub const L1_TX_INTRINSIC_PUBDATA: u64 = 88
+    + COINBASE_BALANCE_INTRINSIC_PUBDATA
+    + TREASURY_BALANCE_INTRINSIC_PUBDATA
+    + REFUND_RECIPIENT_BALANCE_INTRINSIC_PUBDATA
+    + ASSET_TRACKER_INTRINSIC_PUBDATA;
 
 pub const L2_TX_INTRINSIC_GAS: u64 = 21_000;
 

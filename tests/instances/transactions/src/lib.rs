@@ -21,6 +21,7 @@ use zksync_os_tests_common::zksync_tx::upgrade_tx::ZKsyncUpgradeTx;
 use zksync_os_tests_common::zksync_tx::ZKsyncSpecificTxEnvelope;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
+mod asset_tracker;
 mod l1_tx_resilience;
 mod native_charging;
 // Pre-execution transaction validation and bootloader rejection paths.
@@ -117,7 +118,7 @@ fn run_base_system() {
             .from(address!("1234000000000000000000000000000000000000"))
             .to(common_target_address())
             .value(alloy::primitives::U256::from(100))
-            .gas_price(1000)
+            .gas_price(10_000)
             .gas_limit(21_000)
             .build()
             .into()
@@ -128,7 +129,7 @@ fn run_base_system() {
             .from(wallet.address())
             .to(to)
             .input(hex::decode(ERC_20_TRANSFER_CALLDATA).unwrap().into())
-            .gas_price(1000)
+            .gas_price(10_000)
             .gas_limit(40_000)
             .nonce(3)
             .build()

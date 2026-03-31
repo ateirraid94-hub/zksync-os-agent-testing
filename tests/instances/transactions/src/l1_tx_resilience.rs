@@ -35,7 +35,7 @@ fn test_l1_tx_gas_limit_below_intrinsic() {
     let tx = L1TxBuilder::new()
         .from(from)
         .to(to)
-        .gas_price(1500)
+        .gas_price(15_000)
         .gas_limit(20_000)
         .value(alloy::primitives::U256::from(100))
         .build()

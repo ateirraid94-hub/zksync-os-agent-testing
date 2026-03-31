@@ -1,6 +1,7 @@
 use alloy::primitives::U256;
 use alloy::rpc::types::trace::geth::CallFrame;
 use anyhow::{anyhow, bail, Context as AnyhowContext};
+use forward_system::run::convert_alloy::IntoAlloy;
 use revm::{
     context::{ContextTr, TxEnv},
     context_interface::block::BlobExcessGasAndPrice,
@@ -9,9 +10,9 @@ use revm::{
     DatabaseRef,
 };
 use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
-use zksync_os_interface::types::BlockContext;
-use zksync_os_interface::types::BlockOutput;
-use zksync_os_revm::{DefaultZk, ZKsyncTx, ZKsyncTxError, ZkBuilder, ZkContext, ZkSpecId};
+use zksync_os_interface::types::{BlockContext, BlockOutput};
+use zksync_os_revm::ZKsyncTx;
+use zksync_os_revm::{DefaultZk, ZKsyncTxError, ZkBuilder, ZkContext, ZkSpecId};
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 use crate::helpers::{
@@ -19,6 +20,11 @@ use crate::helpers::{
 };
 use crate::revm_state_provider::{RevmStateProvider, ViewState};
 use crate::storage_diff_comp::CompareReport;
+
+struct ReplayTx {
+    tx: ZKsyncTx<TxEnv>,
+    original_tx_index: usize,
+}
 
 pub struct RevmRunner<State>
 where
@@ -98,6 +104,7 @@ where
             block_context.block_hashes,
             block_context.block_number.saturating_sub(1),
         );
+        let settlement_layer_chain_id = Self::read_settlement_layer_chain_id(self.state.clone())?;
 
         let blob_excess_gas_and_price = BlobExcessGasAndPrice::new(
             calculate_excess_blob_gas_from_blob_base_fee(blob_fee, BLOB_BASE_FEE_UPDATE_FRACTION),
@@ -128,16 +135,17 @@ where
             &transactions,
             block_output.as_ref(),
             block_context.gas_limit,
+            settlement_layer_chain_id,
         )?;
 
-        let mut call_traces = Vec::with_capacity(revm_txs.len());
+        let mut call_traces = Vec::with_capacity(transactions.len());
         let mut invalid_transactions = vec![];
-        for (idx, tx) in revm_txs.into_iter().enumerate() {
-            let tx_execution = match evm.inspect_tx_commit(tx) {
+        for replay_tx in revm_txs {
+            let tx_execution = match evm.inspect_tx_commit(replay_tx.tx) {
                 Ok(res) => res,
                 Err(err) => match err {
                     revm::context_interface::result::EVMError::Transaction(e) => {
-                        invalid_transactions.push((idx, e.clone()));
+                        invalid_transactions.push((replay_tx.original_tx_index, e.clone()));
                         continue;
                     }
                     revm::context_interface::result::EVMError::Header(e) => {
@@ -181,7 +189,8 @@ where
         transactions: &[ZKsyncTxEnvelope],
         block_output: Option<&BlockOutput>,
         block_gas_limit: u64,
-    ) -> anyhow::Result<Vec<ZKsyncTx<TxEnv>>> {
+        settlement_layer_chain_id: U256,
+    ) -> anyhow::Result<Vec<ReplayTx>> {
         if let Some(block_output) = block_output {
             if transactions.len() != block_output.tx_results.len() {
                 bail!(
@@ -210,10 +219,14 @@ where
                     Some(tx_output.gas_used),
                     !tx_output.is_success(),
                     block_gas_limit,
+                    Some(settlement_layer_chain_id),
                 )
                 .with_context(|| format!("Failed to convert tx #{idx} to REVM tx"))?;
 
-                revm_txs.push(tx_env);
+                revm_txs.push(ReplayTx {
+                    tx: tx_env,
+                    original_tx_index: idx,
+                });
             }
 
             Ok(revm_txs)
@@ -222,8 +235,18 @@ where
                 .iter()
                 .enumerate()
                 .map(|(idx, transaction)| {
-                    zk_tx_into_revm_tx(transaction, None, false, block_gas_limit)
-                        .with_context(|| format!("Failed to convert tx #{idx} to REVM tx"))
+                    zk_tx_into_revm_tx(
+                        transaction,
+                        None,
+                        false,
+                        block_gas_limit,
+                        Some(settlement_layer_chain_id),
+                    )
+                    .with_context(|| format!("Failed to convert tx #{idx} to REVM tx"))
+                    .map(|tx| ReplayTx {
+                        tx,
+                        original_tx_index: idx,
+                    })
                 })
                 .collect()
         }
@@ -242,5 +265,18 @@ where
             &block_output.storage_writes,
             &block_output.account_diffs,
         )
+    }
+
+    fn read_settlement_layer_chain_id(mut state: State) -> anyhow::Result<U256> {
+        let flat_key = zk_ee::common_structs::derive_flat_storage_key(
+            &ruint::aliases::B160::from_limbs([0x800b, 0, 0]),
+            &zk_ee::utils::Bytes32::ZERO,
+        );
+        Ok(U256::from_be_slice(
+            state
+                .read(flat_key.into_alloy())
+                .unwrap_or_default()
+                .as_slice(),
+        ))
     }
 }
