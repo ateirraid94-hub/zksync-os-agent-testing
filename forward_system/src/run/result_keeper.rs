@@ -24,6 +24,7 @@ pub struct ForwardRunningResultKeeper<TR: TxResultCallback, T: 'static + Sized =
         Result<TxProcessingOutputOwned, basic_bootloader::bootloader::errors::InvalidTransaction>,
     >,
     pub new_preimages: Vec<(Bytes32, Vec<u8>, PreimageType)>,
+    pub block_pubdata_used: u64,
     pub tx_result_callback: TR,
 }
 
@@ -36,6 +37,7 @@ impl<TR: TxResultCallback, T: 'static + Sized> ForwardRunningResultKeeper<TR, T>
             storage_writes: vec![],
             tx_results: vec![],
             new_preimages: vec![],
+            block_pubdata_used: 0,
             tx_result_callback,
         }
     }
@@ -111,6 +113,10 @@ impl<TR: TxResultCallback, T: 'static + Sized> ResultKeeperExt<EthereumIOTypesCo
 
     fn block_sealed(&mut self, block_header: Self::BlockHeader) {
         self.block_header = Some(block_header);
+    }
+
+    fn record_block_pubdata_used(&mut self, pubdata_used: u64) {
+        self.block_pubdata_used = pubdata_used;
     }
 
     fn get_gas_used(&self) -> u64 {
@@ -201,6 +207,11 @@ impl<TR: TxResultCallback, T: 'static + Sized> ResultKeeperExt<EthereumIOTypesCo
 
     fn block_sealed(&mut self, block_header: Self::BlockHeader) {
         self.forward_running_rk.block_sealed(block_header)
+    }
+
+    fn record_block_pubdata_used(&mut self, pubdata_used: u64) {
+        self.forward_running_rk
+            .record_block_pubdata_used(pubdata_used);
     }
 
     fn get_gas_used(&self) -> u64 {
