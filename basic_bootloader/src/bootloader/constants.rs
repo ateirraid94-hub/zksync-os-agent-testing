@@ -33,26 +33,53 @@ pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 
 // Covers intrinsic L1 tx work not charged as tx-body computation.
 //
-// Baseline 130k covers:
-//  - storing and hashing the L1 tx log
-//  - hashing tx hash into the rolling hash and linear hasher
-//  - coinbase transfer from the older accounting model
+//  - storing and hashing the L1 tx log:
+//      EVENT_STORAGE_BASE_NATIVE_COST
+//    + keccak256_native_cost(88)
+//    + 2 * keccak256_native_cost(64)
+//    = 6_000 + 20_000 + 40_000
+//    = 66_000
+//  - hashing tx hash into the rolling hash and linear hashers:
+//      3 * keccak256_native_cost(64)
+//    = 3 * 20_000
+//    = 60_000
+//  - coinbase transfer:
+//      warm existing balance write
+//    = WARM_STORAGE_READ_NATIVE_COST + WARM_STORAGE_WRITE_EXTRA_NATIVE_COST x 2 (to account for treasury)
+//    = (4_000 + 1_000) x 2
+//    = 10_000
+//  - coinbase L2AssetTracker notification:
+//      cold call into L2AssetTracker
+//    + BASE_TOKEN_ASSET_ID read
+//    + isAssetRegistered read
+//    + assetMigrationNumber read
+//    + L2BaseTokenZKOS.totalSupply() path
+//    + L2_CHAIN_ASSET_HANDLER.migrationNumber() call
+//    + assetMigrationNumber write
+//    + SystemContext.currentSettlementLayerChainId() call
+//    + interopInfo.totalSuccessfulDepositsFromL1 += amount
+//    = 132_600
+//    + 125_120
+//    + 145_120
+//    + 286_240
+//    + 392_340
+//    + 277_720
+//    + 164_800
+//    + 257_720
+//    + 391_040
+//    ~= 2_172_700
+//  - refund transfer:
+//      treasury cold existing write
+//    + refund recipient cold new write
+//    = 171_680 + 363_040
+//    = 534_720
+//  - refund L2AssetTracker notification:
+//      warm-path estimate
+//    = 32_000
 //
-// The current L1 path adds post-execution intrinsic work:
-//  - operator-fee L2AssetTracker notification: warm path, 25k
-//  - refund transfer: treasury warm write 5k + refund recipient cold new write ~205k
-//  - refund L2AssetTracker notification: warm path, 25k
-//  - coinbase transfer: treasury warm write 5k
-//
-// We use the warm-path cost for asset tracker notifications because
-// L2AssetTracker is always accessed earlier in the same tx (value-mint
-// notification), so subsequent accesses hit the warm cache. Using the cold
-// path cost would overcharge and unnecessarily reduce the gas available
-// for user execution.
-//
-// This gives a worst-case incremental cost of ~265k, so we set:
-//   130k + 265k = 395k
-pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 395_000;
+// We use the cold-path cost for asset tracker first notification because
+// first mint / call to L2AssetTracker can fail due to out-of-native
+pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 2_875_420;
 
 // Pubdata needed for the diff in balance as a result of
 // the fee payment to the coinbase.

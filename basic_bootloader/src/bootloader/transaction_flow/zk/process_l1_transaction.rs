@@ -812,9 +812,8 @@ where
 /// payment, refund) so that the asset tracker's accounting stays correct even
 /// if the main transaction body reverts.
 ///
-/// Uses FORMAL_INFINITE because this bookkeeping is intrinsic to L1 tx
-/// processing. Its native cost is prepaid via L1_TX_INTRINSIC_NATIVE_COST
-/// and is not included in computational_native_used.
+/// Resource usage depends on the caller — value-mint tracks native against user resources;
+/// operator-fee and refund use FORMAL_INFINITE.
 ///
 /// Failure halts block processing — if the asset tracker reverts, the
 /// chain's token accounting would be inconsistent, so we treat it as
