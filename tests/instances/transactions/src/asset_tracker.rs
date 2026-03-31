@@ -130,7 +130,7 @@ fn test_asset_tracker_called_on_deposit() {
     let sl_chain_id: u64 = 1;
     let from = address!("1234000000000000000000000000000000000000");
     let to = address!("abcd000000000000000000000000000000000000");
-    let gas_price: u128 = 1000;
+    let gas_price: u128 = 10_000;
     let gas_limit: u128 = 50_000;
     let value = rig::alloy::primitives::U256::from(500);
     let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
@@ -232,7 +232,7 @@ fn test_asset_tracker_uses_correct_chain_id() {
     let sl_chain_id: u64 = 270;
     let from = address!("1234000000000000000000000000000000000000");
     let to = address!("abcd000000000000000000000000000000000000");
-    let gas_price: u128 = 1000;
+    let gas_price: u128 = 10_000;
     let gas_limit: u128 = 50_000;
     let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
         + rig::alloy::primitives::U256::from(2_000_000u64);
