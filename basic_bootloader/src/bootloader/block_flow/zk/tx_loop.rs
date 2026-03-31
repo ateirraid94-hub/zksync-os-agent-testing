@@ -181,9 +181,12 @@ where
                                         ExecutionResult::Revert { output } => (false, output, None),
                                     };
 
+                                // note that this hashing is done after actual TX processing, but we want to charge user for it,
+                                // so it's included in the intrinsic cost
                                 block_data
                                     .transaction_hashes_accumulator
                                     .add_tx_hash(&tx_processing_result.tx_hash);
+                                // for l1 -> l2 txs we charge for this hashing as well, assuming it's keccak256
                                 if tx_processing_result.is_priority_tx {
                                     block_data
                                         .enforced_transaction_hashes_accumulator

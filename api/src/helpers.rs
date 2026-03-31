@@ -22,7 +22,22 @@ use zk_ee::execution_environment_type::ExecutionEnvironmentType;
 use zk_ee::system::EIP7702_DELEGATION_MARKER;
 use zk_ee::utils::Bytes32;
 use zksync_os_interface::traits::EncodedTx;
+use basic_bootloader::bootloader::constants::{
+    L2_TX_INTRINSIC_NATIVE_COST, L2_TX_INTRINSIC_PUBDATA,
+};
+use basic_system::cost_constants::ECRECOVER_NATIVE_COST;
+use basic_system::system_functions::keccak256::keccak256_native_cost_u64;
+use basic_system::system_implementation::flat_storage_model::cost_constants::{
+    blake2s_native_cost, COLD_EXISTING_STORAGE_READ_NATIVE_COST, PREIMAGE_CACHE_GET_NATIVE_COST,
+    WARM_ACCOUNT_CACHE_ACCESS_NATIVE_COST, WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST,
+    WARM_STORAGE_READ_NATIVE_COST,
+};
 
+use basic_bootloader::bootloader::constants::{
+    PER_ADDRESS_ACCESS_LIST_NATIVE_COST, PER_AUTH_NATIVE_COST,
+    PER_SLOT_ACCESS_LIST_NATIVE_COST,
+};
+use zk_ee::system::MAX_NATIVE_COMPUTATIONAL;
 // Getters
 
 /// Retrieves balance from an account.
@@ -371,4 +386,144 @@ pub fn encode_set_settlement_layer_chain_id_calldata(new_sl_chain_id: U256) -> V
 
     // Construct calldata
     setSettlementLayerChainIdCall(new_sl_chain_id).abi_encode()
+}
+
+/// Estimated native resource consumption during L2 transaction validation.
+///
+/// The bootloader splits the native budget into two pools:
+/// - **main resources** (`≤ MAX_NATIVE_COMPUTATIONAL`): covers computational native costs.
+/// - **withheld resources** (excess above `MAX_NATIVE_COMPUTATIONAL`): can only pay for pubdata.
+///
+/// Validation pubdata is charged from withheld first, then from main if withheld is exhausted.
+/// Computational native is always charged from main only.
+pub struct ValidationNativeCostEstimate {
+    /// Computational native resources consumed during validation (excluding pubdata cost).
+    /// Charged exclusively from main resources.
+    pub native_computational: u64,
+    /// Pubdata bytes consumed during validation.
+    /// The corresponding native cost (`pubdata × (pubdata_price / native_price)`) is charged
+    /// from withheld resources first, then from main resources if withheld is insufficient.
+    pub pubdata: u64,
+}
+
+impl ValidationNativeCostEstimate {
+    /// Returns the native cost for the pubdata portion.
+    pub fn pubdata_native_cost(&self, pubdata_price: U256, native_price: U256) -> Option<U256> {
+        if native_price.is_zero() {
+            return None;
+        }
+        let native_per_pubdata = pubdata_price / native_price;
+        native_per_pubdata.checked_mul(U256::from(self.pubdata))
+    }
+}
+
+// TODO: may be unified with bootloader
+/// Estimates the native resources consumed during L2 transaction validation, without executing
+/// the actual validation logic.
+///
+/// Returns [`ValidationNativeCostEstimate`] with separate `native_computational` and `pubdata`
+/// fields so callers can properly account for withheld resources (see module-level doc).
+pub fn validation_native_cost(
+    max_fee_per_gas: U256,
+    max_priority_fee_per_gas: U256,
+    gas_limit: U256,
+    pubdata_price: U256,
+    base_fee: U256,
+    native_price: U256,
+    calldata_len: u64,
+    tx_len: u64,
+    num_access_list_addresses: u64,
+    num_access_list_slots: u64,
+    num_authorization_list_entries: u64,
+) -> Result<ValidationNativeCostEstimate, ()> {
+    if native_price.is_zero() {
+        return Err(());
+    }
+    let priority_fee =
+        std::cmp::min(max_priority_fee_per_gas, max_fee_per_gas.saturating_sub(base_fee));
+    let gas_price = base_fee + priority_fee;
+
+    let native_per_pubdata = pubdata_price / native_price;
+    let native_limit = gas_price * gas_limit / native_price;
+    let mut withheld = 0;
+    if native_limit > MAX_NATIVE_COMPUTATIONAL {
+        withheld = native_limit - MAX_NATIVE_COMPUTATIONAL;
+        native_limit = MAX_NATIVE_COMPUTATIONAL;
+    }
+
+    // Cost of a cold account read: warm access + cold extra + account data preimage decommitment.
+    // Used for the originator, each access list address, and each auth entry's authority.
+    let account_decommitment_cost = PREIMAGE_CACHE_GET_NATIVE_COST
+        .saturating_add(blake2s_native_cost(AccountProperties::ENCODED_SIZE));
+    let cold_account_read_cost = WARM_ACCOUNT_CACHE_ACCESS_NATIVE_COST
+        .saturating_add(COLD_EXISTING_STORAGE_READ_NATIVE_COST)
+        .saturating_add(account_decommitment_cost);
+
+    // Cost of a warm account write (nonce increment, balance update, delegation): warm access + write extra.
+    let warm_account_write_cost = WARM_ACCOUNT_CACHE_ACCESS_NATIVE_COST
+        .saturating_add(WARM_ACCOUNT_CACHE_WRITE_EXTRA_NATIVE_COST);
+
+    // Calldata: 1 native per byte (COPY_BYTE_NATIVE_COST = 1)
+    let mut native_computational: u64 = calldata_len;
+    // L2 intrinsic native cost (fee transfer to coinbase, gas refund transfer, tx hash rolling hash)
+    native_computational = native_computational.saturating_add(L2_TX_INTRINSIC_NATIVE_COST);
+    // Keccak for signing hash (overestimated using total tx length)
+    native_computational =
+        native_computational.saturating_add(keccak256_native_cost_u64(tx_len as usize));
+    // ECRecover for originator signature verification
+    native_computational = native_computational.saturating_add(ECRECOVER_NATIVE_COST);
+    // Keccak for full tx hash
+    native_computational =
+        native_computational.saturating_add(keccak256_native_cost_u64(tx_len as usize));
+    // Cold originator account read
+    native_computational = native_computational.saturating_add(cold_account_read_cost);
+    // Originator nonce increment (account is warm after previous read)
+    native_computational = native_computational.saturating_add(warm_account_write_cost);
+
+    // EIP-2930 access list:
+    // Per address: base charge + cold account touch (materialize_element, same cost as a cold read).
+    let access_list_address_cost =
+        PER_ADDRESS_ACCESS_LIST_NATIVE_COST.saturating_add(cold_account_read_cost);
+    native_computational = native_computational
+        .saturating_add(access_list_address_cost.saturating_mul(num_access_list_addresses));
+    // Per slot: base charge + cold storage slot touch.
+    let access_list_slot_cost = PER_SLOT_ACCESS_LIST_NATIVE_COST
+        .saturating_add(WARM_STORAGE_READ_NATIVE_COST)
+        .saturating_add(COLD_EXISTING_STORAGE_READ_NATIVE_COST);
+    native_computational = native_computational
+        .saturating_add(access_list_slot_cost.saturating_mul(num_access_list_slots));
+
+    // EIP-7702 authorization list:
+    // Per entry: base charge + keccak of auth message + ecrecover + cold authority account read
+    //            + nonce increment + delegation code write (both warm writes on authority account).
+    // Auth message is at most ~70 bytes (magic + rlp([chain_id, address, nonce])), fits in one keccak round.
+    let auth_message_keccak_cost = keccak256_native_cost_u64(70);
+    let per_auth_cost = PER_AUTH_NATIVE_COST
+        .saturating_add(auth_message_keccak_cost)
+        .saturating_add(ECRECOVER_NATIVE_COST)
+        .saturating_add(cold_account_read_cost) // authority account read
+        .saturating_add(warm_account_write_cost) // authority nonce increment
+        .saturating_add(warm_account_write_cost); // delegation code write
+    native_computational = native_computational
+        .saturating_add(per_auth_cost.saturating_mul(num_authorization_list_entries));
+
+    // Fee prepayment balance deduction (originator account is warm at this point)
+    native_computational = native_computational.saturating_add(warm_account_write_cost);
+
+    // Pubdata estimation (worst case: key 32 bytes + compressed value diff 34 bytes per state change):
+    // - Intrinsic: coinbase balance change
+    // - Sender nonce increment
+    // - Sender balance deduction (fee prepayment)
+    // - Per auth entry: authority nonce increment + authority delegation code write
+    let mut pubdata: u64 = L2_TX_INTRINSIC_PUBDATA
+        .saturating_add(32 + 34) // sender nonce change
+        .saturating_add(32 + 34); // sender balance change (fee prepayment)
+    pubdata = pubdata.saturating_add(
+        (32 + 34 + 32 + 34).saturating_mul(num_authorization_list_entries), // nonce + delegation per auth
+    );
+
+    Ok(ValidationNativeCostEstimate {
+        native_computational,
+        pubdata,
+    })
 }

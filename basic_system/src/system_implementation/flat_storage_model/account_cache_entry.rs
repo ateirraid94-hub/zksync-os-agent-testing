@@ -297,7 +297,7 @@ impl AccountProperties {
     /// 4(0-3) types are used for values, so we'll use 4 as the account diff compression type.
     /// 5 most significant bits of metadata byte can be used to save additional info for encoding type.
     ///
-    /// For account data we have following encoding formats(index encoded in the 5 most significant bits of the metadata byte, 3 less significant == 4):
+    /// For account data we have the following encoding formats(index encoded in the 5 most significant bits of the metadata byte, 3 less significant == 4):
     /// 0(full data): `versioning_data(8 BE bytes) & nonce_diff(using storage value strategy)
     /// & balance_diff & unpadded_code_len(4 BE bytes) &  artifacts_len (4 BE bytes) &
     /// & bytecode & observable_len (4 BE bytes)`

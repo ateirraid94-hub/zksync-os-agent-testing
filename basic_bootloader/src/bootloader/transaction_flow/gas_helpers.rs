@@ -275,7 +275,7 @@ where
             native_limit,
         );
 
-    // Intrinsic overhead - he can quickly check deployment cost and calldata tokens cost
+    // Intrinsic overhead - we can quickly check deployment cost and calldata tokens cost
     let mut intrinsic_overhead = intrinsic_gas;
 
     if is_deployment {
@@ -356,6 +356,8 @@ pub fn check_enough_resources_for_pubdata<S: EthereumLikeTypes>(
 
 ///
 /// Get the gas price for a transaction.
+///
+/// Gas price = base_fee + priority_fee, priority_fee = min(max_priority_fee_per_gas, max_fee_per_gas - base_fee)
 ///
 pub(crate) fn get_gas_price<S: EthereumLikeTypes, Config: BasicBootloaderExecutionConfig>(
     system: &mut System<S>,
