@@ -268,24 +268,17 @@ where
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
 
     let coinbase = system.get_coinbase();
-    // Notify asset tracker about the operator fee portion of the deposit.
-    notify_l2_asset_tracker::<S>(
+    // Mint operator fee portion of the deposit to coinbase.
+    mint_base_token::<S, Config>(
         system,
         system_functions,
         memories.reborrow(),
-        pay_to_operator,
+        &pay_to_operator,
+        &coinbase,
         l1_chain_id,
         &mut inf_resources,
         tracer,
         validator,
-    )?;
-
-    transfer_from_treasury::<S>(
-        system,
-        &pay_to_operator,
-        &coinbase,
-        &mut inf_resources,
-        Config::SIMULATION,
     )
     .map_err(|e| match e.root_cause() {
         RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
@@ -321,27 +314,19 @@ where
             .checked_sub(pay_to_operator)
             .ok_or(internal_error!("pf-pto"))
     }?;
-    // Notify asset tracker about the refund portion of the deposit.
+    // Mint refund portion of the deposit to the refund recipient.
     if to_refund_recipient > U256::ZERO {
-        notify_l2_asset_tracker::<S>(
+        let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
+        mint_base_token::<S, Config>(
             system,
             system_functions,
             memories.reborrow(),
-            to_refund_recipient,
+            &to_refund_recipient,
+            &refund_recipient,
             l1_chain_id,
             &mut inf_resources,
             tracer,
             validator,
-        )?;
-    }
-    if to_refund_recipient > U256::ZERO {
-        let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
-        transfer_from_treasury::<S>(
-            system,
-            &to_refund_recipient,
-            &refund_recipient,
-            &mut inf_resources,
-            Config::SIMULATION,
         )
         .map_err(|e| -> BootloaderSubsystemError {
             match e.root_cause() {
@@ -610,25 +595,27 @@ where
     // Use with_infinite_ergs so the transfer cannot fail due to
     // out-of-gas, but native consumption is still tracked against
     // the user's resources.
+    // Mint the value portion of the deposit (total deposited minus max fee)
+    // to the sender. Inside the execution frame so it rolls back if the
+    // main tx body reverts.
+    //
+    // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
+    // but native consumption is still tracked against the user's resources.
+    //
+    // Notify the asset tracker BEFORE changing balances/totalSupply, so that
+    // _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
+    //
+    // Flow in this file should replicate the behaviour of the following call:
+    // https://github.com/matter-labs/era-contracts/blob/2f024c5764e7a873ce1dda5fb990331559996441/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol#L86
     if to_transfer > U256::ZERO || Config::SIMULATION {
-        // Notify L2AssetTracker about the value mint portion of the deposit.
-        // This is inside the execution frame, so it gets rolled back if the
-        // main tx body reverts — matching the treasury transfer above.
-        // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
-        // but native consumption is still tracked against the user's resources.
-        //
-        // Notify the asset tracker BEFORE changing balances/totalSupply, so that
-        // _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
-        //
-        // Flow in this file should replicate the behaviour of the following call:
-        // https://github.com/matter-labs/era-contracts/blob/2f024c5764e7a873ce1dda5fb990331559996441/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol#L86
         resources
             .with_infinite_ergs(|inf_resources| {
-                notify_l2_asset_tracker::<S>(
+                mint_base_token::<S, Config>(
                     system,
                     system_functions,
                     memories.reborrow(),
-                    to_transfer,
+                    &to_transfer,
+                    &from,
                     l1_chain_id,
                     inf_resources,
                     tracer,
@@ -637,36 +624,7 @@ where
             })
             .map_err(|e| match e.root_cause() {
                 RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    system_log!(
-                        system,
-                        "Out of ergs on infinite ergs: inner error was {e:?}"
-                    );
-                    BootloaderSubsystemError::LeafDefect(internal_error!(
-                        "Out of ergs on infinite ergs"
-                    ))
-                }
-                _ => e,
-            })?;
-
-        resources
-            .with_infinite_ergs(|inf_resources| {
-                transfer_from_treasury::<S>(
-                    system,
-                    &to_transfer,
-                    &from,
-                    inf_resources,
-                    Config::SIMULATION,
-                )
-            })
-            .map_err(|e| match e.root_cause() {
-                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    system_log!(
-                        system,
-                        "Out of ergs on infinite ergs: inner error was {e:?}"
-                    );
-                    BootloaderSubsystemError::LeafDefect(internal_error!(
-                        "Out of ergs on infinite ergs"
-                    ))
+                    internal_error!("Out of ergs on infinite ergs").into()
                 }
                 _ => e,
             })?;
@@ -741,6 +699,39 @@ where
         to_charge_for_pubdata,
         resources_before_refund,
     })
+}
+
+/// Notifies L2AssetTracker and transfers base tokens from the treasury
+/// to [to] in a single operation. This pairs the two steps that must always
+/// happen together: asset-tracker bookkeeping and the actual balance change.
+fn mint_base_token<'a, S: EthereumLikeTypes + 'a, Config: BasicBootloaderExecutionConfig>(
+    system: &mut System<S>,
+    system_functions: &mut HooksStorage<S, S::Allocator>,
+    memories: RunnerMemoryBuffers<'a>,
+    amount: &U256,
+    to: &B160,
+    l1_chain_id: U256,
+    resources: &mut S::Resources,
+    tracer: &mut impl Tracer<S>,
+    validator: &mut impl TxValidator<S>,
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+    S::Metadata: ZkSpecificPricingMetadata
+        + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
+{
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories,
+        *amount,
+        l1_chain_id,
+        resources,
+        tracer,
+        validator,
+    )?;
+
+    transfer_from_treasury::<S>(system, amount, to, resources, Config::SIMULATION)
 }
 
 /// Transfers [value] from the treasury account to address [to].
