@@ -160,12 +160,14 @@ pub fn read_l1_chain_id<IO: IOSubsystem>(io: &mut IO) -> U256
 where
     IO::IOTypes: SystemIOTypesConfig<Address = B160, StorageKey = Bytes32, StorageValue = Bytes32>,
 {
-    // L2AssetTracker storage layout (inherits AssetTrackerBase):
-    //   slot 0: mapping chainBalance
-    //   slot 1: mapping assetMigrationNumber
-    //   slot 2: mapping isAssetRegistered
-    //   slot 3: uint256 L1_CHAIN_ID  <-- this one
-    let l1_chain_id_slot = Bytes32::from_u256_be(&U256::from(3));
+    // L2AssetTracker storage layout (verified via `forge inspect`):
+    //   slots 0-100:   Initializable + OwnableUpgradeable + Ownable2StepUpgradeable
+    //   slots 101-150: Ownable2Step __gap
+    //   slot 151:      mapping chainBalance
+    //   slot 152:      mapping assetMigrationNumber
+    //   slot 153:      mapping isAssetRegistered
+    //   slot 154:      uint256 L1_CHAIN_ID
+    let l1_chain_id_slot = Bytes32::from_u256_be(&U256::from(154));
     let mut inf_resources = IO::Resources::FORMAL_INFINITE;
     let chain_id = io
         .storage_read::<false>(

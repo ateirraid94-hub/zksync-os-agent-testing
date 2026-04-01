@@ -77,13 +77,14 @@ fn mock_accumulating_contract() -> Vec<u8> {
 
 /// Build a TestingFramework with:
 /// - A mock accumulating contract at L2_ASSET_TRACKER_ADDRESS
-/// - L2AssetTracker slot 3 (L1_CHAIN_ID) set to the given chain ID
+/// - L2AssetTracker slot 154 (L1_CHAIN_ID) set to the given chain ID
+///   (slot verified via `forge inspect L2AssetTracker storage-layout`)
 fn setup_with_chain_id(l1_chain_id: u64) -> TestingFramework {
     TestingFramework::new()
         .with_evm_contract(asset_tracker_address(), &mock_accumulating_contract())
         .with_storage_slot(
             asset_tracker_address(),
-            U256::from(3),
+            U256::from(154),
             rig::ruint::aliases::B256::from(U256::from(l1_chain_id)),
         )
 }
