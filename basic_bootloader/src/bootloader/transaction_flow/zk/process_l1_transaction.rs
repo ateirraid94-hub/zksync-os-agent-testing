@@ -619,6 +619,9 @@ where
         //
         // Notify the asset tracker BEFORE changing balances/totalSupply, so that
         // _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
+        //
+        // Flow in this file should replicate the behaviour of the following call:
+        // https://github.com/matter-labs/era-contracts/blob/2f024c5764e7a873ce1dda5fb990331559996441/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol#L86
         resources
             .with_infinite_ergs(|inf_resources| {
                 notify_l2_asset_tracker::<S>(
