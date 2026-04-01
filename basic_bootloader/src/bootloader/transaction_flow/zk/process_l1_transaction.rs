@@ -268,6 +268,18 @@ where
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
 
     let coinbase = system.get_coinbase();
+    // Notify asset tracker about the operator fee portion of the deposit.
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories.reborrow(),
+        pay_to_operator,
+        sl_chain_id,
+        &mut inf_resources,
+        tracer,
+        validator,
+    )?;
+
     transfer_from_treasury::<S>(
         system,
         &pay_to_operator,
@@ -284,18 +296,6 @@ where
         }
         _ => e,
     })?;
-
-    // Notify asset tracker about the operator fee portion of the deposit.
-    notify_l2_asset_tracker::<S>(
-        system,
-        system_functions,
-        memories.reborrow(),
-        pay_to_operator,
-        sl_chain_id,
-        &mut inf_resources,
-        tracer,
-        validator,
-    )?;
 
     // Refund
     let to_refund_recipient = if !is_success {
@@ -321,6 +321,19 @@ where
             .checked_sub(pay_to_operator)
             .ok_or(internal_error!("pf-pto"))
     }?;
+    // Notify asset tracker about the refund portion of the deposit.
+    if to_refund_recipient > U256::ZERO {
+        notify_l2_asset_tracker::<S>(
+            system,
+            system_functions,
+            memories.reborrow(),
+            to_refund_recipient,
+            sl_chain_id,
+            &mut inf_resources,
+            tracer,
+            validator,
+        )?;
+    }
     if to_refund_recipient > U256::ZERO {
         let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
         transfer_from_treasury::<S>(
@@ -341,20 +354,6 @@ where
                 _ => e,
             }
         })?;
-    }
-
-    // Notify asset tracker about the refund portion of the deposit.
-    if to_refund_recipient > U256::ZERO {
-        notify_l2_asset_tracker::<S>(
-            system,
-            system_functions,
-            memories.reborrow(),
-            to_refund_recipient,
-            sl_chain_id,
-            &mut inf_resources,
-            tracer,
-            validator,
-        )?;
     }
 
     // Emit log
@@ -612,14 +611,25 @@ where
     // out-of-gas, but native consumption is still tracked against
     // the user's resources.
     if to_transfer > U256::ZERO || Config::SIMULATION {
+        // Notify L2AssetTracker about the value mint portion of the deposit.
+        // This is inside the execution frame, so it gets rolled back if the
+        // main tx body reverts — matching the treasury transfer above.
+        // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
+        // but native consumption is still tracked against the user's resources.
+        //
+        // Notify the asset tracker BEFORE changing balances/totalSupply, so that
+        // _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
         resources
             .with_infinite_ergs(|inf_resources| {
-                transfer_from_treasury::<S>(
+                notify_l2_asset_tracker::<S>(
                     system,
-                    &to_transfer,
-                    &from,
+                    system_functions,
+                    memories.reborrow(),
+                    to_transfer,
+                    sl_chain_id,
                     inf_resources,
-                    Config::SIMULATION,
+                    tracer,
+                    validator,
                 )
             })
             .map_err(|e| match e.root_cause() {
@@ -635,22 +645,14 @@ where
                 _ => e,
             })?;
 
-        // Notify L2AssetTracker about the value mint portion of the deposit.
-        // This is inside the execution frame, so it gets rolled back if the
-        // main tx body reverts — matching the treasury transfer above.
-        // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
-        // but native consumption is still tracked against the user's resources.
         resources
             .with_infinite_ergs(|inf_resources| {
-                notify_l2_asset_tracker::<S>(
+                transfer_from_treasury::<S>(
                     system,
-                    system_functions,
-                    memories.reborrow(),
-                    to_transfer,
-                    sl_chain_id,
+                    &to_transfer,
+                    &from,
                     inf_resources,
-                    tracer,
-                    validator,
+                    Config::SIMULATION,
                 )
             })
             .map_err(|e| match e.root_cause() {
