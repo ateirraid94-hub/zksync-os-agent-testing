@@ -150,7 +150,6 @@ where
             }
         };
 
-    // Read L1 chain id once; passed to all notify_l2_asset_tracker calls below.
     let l1_chain_id = read_l1_chain_id(&mut system.io);
 
     // pubdata_info = (pubdata_used, to_charge_for_pubdata) can be cached
@@ -592,9 +591,6 @@ where
     // following transfer on simulation, and avoid compressing the pubdata
     // for the balance changes resulting from it.
     //
-    // Use with_infinite_ergs so the transfer cannot fail due to
-    // out-of-gas, but native consumption is still tracked against
-    // the user's resources.
     // Mint the value portion of the deposit (total deposited minus max fee)
     // to the sender. Inside the execution frame so it rolls back if the
     // main tx body reverts.
@@ -618,7 +614,13 @@ where
             })
             .map_err(|e| match e.root_cause() {
                 RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    internal_error!("Out of ergs on infinite ergs").into()
+                    system_log!(
+                        system,
+                        "Out of ergs on infinite ergs: inner error was {e:?}"
+                    );
+                    BootloaderSubsystemError::LeafDefect(internal_error!(
+                        "Out of ergs on infinite ergs"
+                    ))
                 }
                 _ => e,
             })?;

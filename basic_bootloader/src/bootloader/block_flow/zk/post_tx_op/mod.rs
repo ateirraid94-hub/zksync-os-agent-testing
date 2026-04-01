@@ -153,8 +153,7 @@ where
 }
 
 ///
-/// Reads L1 chain id from L2AssetTracker storage slot 3
-/// (`uint256 public L1_CHAIN_ID` declared after AssetTrackerBase's 3 mappings).
+/// Reads L1 chain id from L2AssetTracker storage slot
 ///
 pub fn read_l1_chain_id<IO: IOSubsystem>(io: &mut IO) -> U256
 where
