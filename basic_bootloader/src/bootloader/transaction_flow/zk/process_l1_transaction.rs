@@ -601,12 +601,6 @@ where
     //
     // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
     // but native consumption is still tracked against the user's resources.
-    //
-    // Notify the asset tracker BEFORE changing balances/totalSupply, so that
-    // _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
-    //
-    // Flow in this file should replicate the behaviour of the following call:
-    // https://github.com/matter-labs/era-contracts/blob/2f024c5764e7a873ce1dda5fb990331559996441/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol#L86
     if to_transfer > U256::ZERO || Config::SIMULATION {
         resources
             .with_infinite_ergs(|inf_resources| {
@@ -702,8 +696,13 @@ where
 }
 
 /// Notifies L2AssetTracker and transfers base tokens from the treasury
-/// to [to] in a single operation. This pairs the two steps that must always
-/// happen together: asset-tracker bookkeeping and the actual balance change.
+/// to [to] in a single operation.
+///
+/// This function replicates the behaviour of the corresponding call from bootloader to era contracts:
+/// https://github.com/matter-labs/era-contracts/blob/2f024c5764e7a873ce1dda5fb990331559996441/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol#L86
+///
+/// Notify the asset tracker BEFORE changing balances/totalSupply, so that
+/// _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
 fn mint_base_token<'a, S: EthereumLikeTypes + 'a, Config: BasicBootloaderExecutionConfig>(
     system: &mut System<S>,
     system_functions: &mut HooksStorage<S, S::Allocator>,
