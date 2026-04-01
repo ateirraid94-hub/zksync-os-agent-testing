@@ -1,4 +1,4 @@
-use crate::bootloader::block_flow::read_settlement_layer_chain_id;
+use crate::bootloader::block_flow::read_l1_chain_id;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
     FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
@@ -150,8 +150,8 @@ where
             }
         };
 
-    // Read once here; passed to all notify_l2_asset_tracker calls below.
-    let sl_chain_id = read_settlement_layer_chain_id(&mut system.io);
+    // Read L1 chain id once; passed to all notify_l2_asset_tracker calls below.
+    let l1_chain_id = read_l1_chain_id(&mut system.io);
 
     // pubdata_info = (pubdata_used, to_charge_for_pubdata) can be cached
     // to used in the refund step only if the execution succeeded.
@@ -173,7 +173,7 @@ where
                 from,
                 to,
                 value,
-                sl_chain_id,
+                l1_chain_id,
                 native_per_pubdata,
                 &mut resources,
                 withheld_resources,
@@ -274,7 +274,7 @@ where
         system_functions,
         memories.reborrow(),
         pay_to_operator,
-        sl_chain_id,
+        l1_chain_id,
         &mut inf_resources,
         tracer,
         validator,
@@ -328,7 +328,7 @@ where
             system_functions,
             memories.reborrow(),
             to_refund_recipient,
-            sl_chain_id,
+            l1_chain_id,
             &mut inf_resources,
             tracer,
             validator,
@@ -557,7 +557,7 @@ fn execute_l1_transaction_and_notify_result<
     from: B160,
     to: B160,
     value: U256,
-    sl_chain_id: U256,
+    l1_chain_id: U256,
     native_per_pubdata: u64,
     resources: &mut S::Resources,
     withheld_resources: S::Resources,
@@ -629,7 +629,7 @@ where
                     system_functions,
                     memories.reborrow(),
                     to_transfer,
-                    sl_chain_id,
+                    l1_chain_id,
                     inf_resources,
                     tracer,
                     validator,
@@ -832,7 +832,7 @@ fn notify_l2_asset_tracker<'a, S: EthereumLikeTypes + 'a>(
     system_functions: &mut HooksStorage<S, S::Allocator>,
     memories: RunnerMemoryBuffers<'a>,
     amount: U256,
-    sl_chain_id: U256,
+    l1_chain_id: U256,
     resources: &mut S::Resources,
     tracer: &mut impl Tracer<S>,
     validator: &mut impl TxValidator<S>,
@@ -847,7 +847,7 @@ where
         // selector 0x03117c8c + abi-encoded (fromChainId, amount)
         let mut calldata = [0u8; 68];
         calldata[0..4].copy_from_slice(&[0x03, 0x11, 0x7c, 0x8c]);
-        calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
+        calldata[4..36].copy_from_slice(&l1_chain_id.to_be_bytes::<32>());
         calldata[36..68].copy_from_slice(&amount.to_be_bytes::<32>());
 
         let failed = resources.with_infinite_ergs(|inf_ergs| {

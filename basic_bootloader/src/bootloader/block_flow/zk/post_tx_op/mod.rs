@@ -5,7 +5,9 @@ use basic_system::system_implementation::system::FullIO;
 use core::alloc::Allocator;
 use crypto::MiniDigest;
 use ruint::aliases::{B160, U256};
-use system_hooks::addresses_constants::{MESSAGE_ROOT_ADDRESS, SYSTEM_CONTEXT_ADDRESS};
+use system_hooks::addresses_constants::{
+    L2_ASSET_TRACKER_ADDRESS, MESSAGE_ROOT_ADDRESS, SYSTEM_CONTEXT_ADDRESS,
+};
 use zk_ee::common_structs::interop_root_storage::InteropRoot;
 use zk_ee::memory::stack_trait::StackFactory;
 use zk_ee::oracle::IOOracle;
@@ -147,6 +149,32 @@ where
             &SL_CHAIN_ID_STORAGE_SLOT,
         )
         .expect("must read SystemContext SL chain id");
+    U256::from_be_bytes(chain_id.as_u8_array())
+}
+
+///
+/// Reads L1 chain id from L2AssetTracker storage slot 3
+/// (`uint256 public L1_CHAIN_ID` declared after AssetTrackerBase's 3 mappings).
+///
+pub fn read_l1_chain_id<IO: IOSubsystem>(io: &mut IO) -> U256
+where
+    IO::IOTypes: SystemIOTypesConfig<Address = B160, StorageKey = Bytes32, StorageValue = Bytes32>,
+{
+    // L2AssetTracker storage layout (inherits AssetTrackerBase):
+    //   slot 0: mapping chainBalance
+    //   slot 1: mapping assetMigrationNumber
+    //   slot 2: mapping isAssetRegistered
+    //   slot 3: uint256 L1_CHAIN_ID  <-- this one
+    let l1_chain_id_slot = Bytes32::from_u256_be(&U256::from(3));
+    let mut inf_resources = IO::Resources::FORMAL_INFINITE;
+    let chain_id = io
+        .storage_read::<false>(
+            ExecutionEnvironmentType::NoEE,
+            &mut inf_resources,
+            &L2_ASSET_TRACKER_ADDRESS,
+            &l1_chain_id_slot,
+        )
+        .expect("must read L2AssetTracker L1_CHAIN_ID");
     U256::from_be_bytes(chain_id.as_u8_array())
 }
 
