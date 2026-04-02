@@ -26,7 +26,7 @@ use forward_system::run::query_processors::InMemoryEthereumInitialAccountStateRe
 use forward_system::run::query_processors::InMemoryEthereumInitialStorageSlotValueResponder;
 use forward_system::run::query_processors::TxDataResponder;
 use forward_system::run::query_processors::UARTPrintResponder;
-use forward_system::run::result_keeper::ForwardRunningResultKeeper;
+use forward_system::run::result_keeper::{ForwardRunningResultKeeper, TxValidationNativeInfo};
 use forward_system::run::test_impl::{InMemoryPreimageSource, InMemoryTree, NoopTxCallback};
 use forward_system::system::bootloader::run_forward_no_panic;
 use forward_system::system::system_types::ethereum::EthereumStorageSystemTypesWithPostOps;
@@ -337,6 +337,9 @@ impl Chain<true> {
 pub struct BlockExtraStats {
     pub computational_native_used: Option<u64>,
     pub effective_used: Option<u64>,
+    /// Per-transaction validation native info from the forward run.
+    /// Parallel to `BlockOutput::tx_results`.
+    pub validation_native_info: Vec<Option<TxValidationNativeInfo>>,
 }
 
 impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
@@ -675,6 +678,8 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
             validator,
         )?;
 
+        // Extract validation native info before consuming result_keeper
+        let validation_native_info = result_keeper.validation_native_info.clone();
         let block_output: BlockOutput = result_keeper.into();
 
         trace!(
@@ -687,6 +692,7 @@ impl<const RANDOMIZED_TREE: bool> Chain<RANDOMIZED_TREE> {
         let mut stats = BlockExtraStats {
             computational_native_used: None,
             effective_used: None,
+            validation_native_info,
         };
 
         {

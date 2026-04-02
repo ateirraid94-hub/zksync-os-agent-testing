@@ -396,3 +396,118 @@ fn test_delta_gas() {
     // Should succeed
     run_tx(tx, gas_price, native_price, true, false)
 }
+
+/// Tests that `validation_native_cost` accurately predicts the native resources
+/// consumed during L2 transaction validation and fee payment.
+///
+/// Executes a minimal EIP-1559 transaction (self-call, 0 value, no calldata)
+/// and verifies the prediction is a tight lower bound of actual `native_used`.
+#[test]
+fn test_validation_native_cost_prediction() {
+    use rig::alloy::eips::Encodable2718;
+    use rig::zksync_os_api::helpers::{compute_l2_tx_gas_price, validation_native_resources};
+
+    let wallet = testing_signer(0);
+    let from = wallet.address();
+
+    let native_price = 1u64;
+    let basefee = 1000u64;
+    let pubdata_price = 100u64;
+    let gas_limit = 250_000u64;
+
+    // Simple EIP-1559 tx: self-call, 0 value, no calldata, no access/auth lists.
+    let tx_inner = TxEip1559 {
+        chain_id: 37u64,
+        nonce: 0,
+        max_fee_per_gas: basefee as u128,
+        max_priority_fee_per_gas: 0,
+        gas_limit,
+        to: TxKind::Call(from),
+        value: Default::default(),
+        access_list: Default::default(),
+        input: Default::default(),
+    };
+    let tx = ZKsyncTxEnvelope::from_eth_tx(tx_inner, wallet.clone());
+
+    // Get encoded tx length for the prediction.
+    let tx_len = match &tx {
+        ZKsyncTxEnvelope::Ethereum(env, _) => env.encode_2718_len() as u64,
+        _ => unreachable!(),
+    };
+
+    let sender_balance = U256::from(1_000_000_000_000_000u64);
+    let gas_price = compute_l2_tx_gas_price(
+        U256::from(basefee),
+        U256::ZERO,
+        U256::from(basefee),
+    );
+    let fee_to_prepay = gas_price
+        .checked_mul(U256::from(gas_limit))
+        .expect("fee overflow");
+    let prediction = validation_native_resources(
+        0,       // calldata_len
+        tx_len,
+        &[],     // no access list addresses
+        &[],     // no access list slots
+        &[],     // no auth entries
+        sender_balance,
+        fee_to_prepay,
+    )
+    .expect("prediction should succeed");
+
+    // Execute the block.
+    let block_context = BlockContext {
+        native_price: U256::from(native_price),
+        eip1559_basefee: U256::from(basefee),
+        pubdata_price: U256::from(pubdata_price),
+        ..Default::default()
+    };
+
+    let mut tester = TestingFramework::new()
+        .with_balance(from, sender_balance)
+        .with_block_context(block_context);
+
+    let output = tester.execute_block(vec![tx]);
+    let tx_output = output.tx_results[0]
+        .as_ref()
+        .expect("Tx should be processed");
+    assert!(tx_output.is_success(), "Simple self-call should succeed");
+
+    // Compare prediction with actual native usage.
+    //
+    // native_used = validation_computational + validation_pubdata_native
+    //             + execution_native + execution_pubdata_native
+    //
+    // For a no-op self-call to an EOA, execution overhead is small.
+    let native_per_pubdata = pubdata_price / native_price;
+    let predicted_pubdata_native = prediction.pubdata * native_per_pubdata;
+    let predicted_total_native = prediction.native_computational + predicted_pubdata_native;
+
+    eprintln!(
+        "Prediction: computational={}, pubdata_bytes={}, pubdata_native={}, total={}",
+        prediction.native_computational,
+        prediction.pubdata,
+        predicted_pubdata_native,
+        predicted_total_native,
+    );
+    eprintln!(
+        "Actual: native_used={}, computational_native_used={}, pubdata_used={}",
+        tx_output.native_used, tx_output.computational_native_used, tx_output.pubdata_used,
+    );
+
+    // Prediction should be a lower bound (it excludes execution overhead).
+    assert!(
+        tx_output.native_used >= predicted_total_native,
+        "native_used ({}) should be >= predicted validation native ({})",
+        tx_output.native_used,
+        predicted_total_native,
+    );
+
+    // Execution overhead for a no-op self-call should be bounded.
+    let overhead = tx_output.native_used - predicted_total_native;
+    assert!(
+        overhead < 100_000,
+        "Overhead between prediction and actual ({}) is too large; prediction may be inaccurate",
+        overhead,
+    );
+}

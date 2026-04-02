@@ -62,6 +62,8 @@ pub struct ZkTxResult<'a> {
     pub native_used: u64,
     pub pubdata_used: u64,
     pub blob_gas_used: u64,
+    pub validation_computational_native_used: u64,
+    pub validation_pubdata: u64,
 }
 
 impl<'a> MinimalTransactionOutput<'a> for ZkTxResult<'a> {
@@ -101,6 +103,8 @@ impl<'a> MinimalTransactionOutput<'a> for ZkTxResult<'a> {
             computational_native_used: self.computational_native_used,
             pubdata_used: self.pubdata_used,
             native_used: self.native_used,
+            validation_computational_native_used: self.validation_computational_native_used,
+            validation_pubdata: self.validation_pubdata,
         }
     }
 }
@@ -122,6 +126,12 @@ pub struct TxContextForPreAndPostProcessing<S: EthereumLikeTypes> {
     pub native_used: u64,
     pub initial_resources: S::Resources,
     pub resources_before_refund: S::Resources,
+    /// Native remaining in main_resources right after create_resources_for_tx
+    /// (before any validation charges). Used to compute validation native cost.
+    pub native_after_resource_creation: u64,
+    /// Computational native resources consumed during validation and fee payment
+    /// (before execution begins). Computed in before_execute_transaction_payload.
+    pub validation_computational_native_used: u64,
 }
 
 impl<S: EthereumLikeTypes> core::fmt::Debug for TxContextForPreAndPostProcessing<S> {
@@ -141,6 +151,14 @@ impl<S: EthereumLikeTypes> core::fmt::Debug for TxContextForPreAndPostProcessing
             .field("validation_pubdata", &self.validation_pubdata)
             .field("total_pubdata", &self.total_pubdata)
             .field("native_used", &self.native_used)
+            .field(
+                "native_after_resource_creation",
+                &self.native_after_resource_creation,
+            )
+            .field(
+                "validation_computational_native_used",
+                &self.validation_computational_native_used,
+            )
             .finish()
     }
 }
@@ -275,10 +293,22 @@ where
         context: &mut Self::TransactionContext,
         _tracer: &mut impl Tracer<S>,
     ) -> Result<(), TxError> {
+        // Compute validation computational native BEFORE pubdata charging.
+        // native_after_resource_creation was captured right after create_resources_for_tx.
+        // By now, all computational validation charges have been applied
+        // (keccak, ecrecover, IO reads, nonce, access list, fee prepayment).
+        context.validation_computational_native_used = context
+            .native_after_resource_creation
+            .saturating_sub(context.resources.main_resources.native().as_u64())
+            .saturating_add(context.resources.intrinsic_computational_native_charged);
+
         // Charge for validation pubdata
         let (validation_pubdata, to_charge_for_pubdata) =
             get_resources_to_charge_for_pubdata(system, context.native_per_pubdata, None)?;
-        context.validation_pubdata = validation_pubdata;
+        // Include intrinsic pubdata (e.g. coinbase balance change) which is a known
+        // validation-time cost even though the actual write happens later.
+        context.validation_pubdata =
+            validation_pubdata + crate::bootloader::constants::L2_TX_INTRINSIC_PUBDATA;
         Self::charge_for_validation_pubdata_using_withheld(
             &mut context.resources,
             &to_charge_for_pubdata,
@@ -290,6 +320,7 @@ where
 
         Ok(())
     }
+
 
     fn create_frame_and_execute_transaction_payload<'a, Config: BasicBootloaderExecutionConfig>(
         system: &mut System<S>,
@@ -574,6 +605,8 @@ where
             computational_native_used,
             pubdata_used: context.total_pubdata + L2_TX_INTRINSIC_PUBDATA,
             blob_gas_used,
+            validation_computational_native_used: context.validation_computational_native_used,
+            validation_pubdata: context.validation_pubdata,
         }
     }
 

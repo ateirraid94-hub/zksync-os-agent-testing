@@ -50,12 +50,81 @@ pub use zksync_os_interface;
 use zksync_os_interface::types::BlockOutput;
 use zksync_os_revm_runner::revm_runner::RevmRunner;
 pub use zksync_os_tests_common;
+use zksync_os_interface::traits::EncodedTx;
 use zksync_os_tests_common::zksync_tx::encoding::ZKsyncOsEncodable;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
 use crate::chain::TestingOracleFactory;
 use crate::chain::{BlockExtraStats, RunConfig};
 use crate::revm_consistency_checker::{generate_block_context_interface, ChainStateView};
+
+/// Parameters extracted from an L2 (Ethereum) transaction needed for
+/// `validation_native_cost` prediction comparison.
+struct L2TxValidationParams {
+    max_fee_per_gas: ruint::aliases::U256,
+    max_priority_fee_per_gas: ruint::aliases::U256,
+    gas_limit: ruint::aliases::U256,
+    calldata_len: u64,
+    /// Access list addresses (for existence lookup).
+    access_list_addresses: Vec<alloy::primitives::Address>,
+    /// Access list (address, slot) pairs (for existence lookup).
+    access_list_slots: Vec<(alloy::primitives::Address, alloy::primitives::B256)>,
+    /// Recovered authority addresses from the EIP-7702 authorization list.
+    /// `None` if recovery failed for that entry.
+    authorization_authorities: Vec<Option<alloy::primitives::Address>>,
+    sender_address: alloy::primitives::Address,
+}
+
+/// Pre-execution existence state for an L2 transaction's access/auth lists.
+struct L2TxExistsInfo {
+    addr_exists: Vec<bool>,
+    slot_exists: Vec<bool>,
+    auth_exists: Vec<bool>,
+}
+
+impl L2TxValidationParams {
+    /// Extract validation parameters from an L2 tx. Returns `None` for non-Ethereum txs.
+    fn extract(tx: &ZKsyncTxEnvelope) -> Option<Self> {
+        use alloy::consensus::Transaction;
+        use ruint::aliases::U256;
+
+        match tx {
+            ZKsyncTxEnvelope::Ethereum(env, signer) => {
+                let (access_list_addresses, access_list_slots) =
+                    env.access_list().map_or((vec![], vec![]), |al| {
+                        let addrs: Vec<_> = al.iter().map(|item| item.address).collect();
+                        let slots: Vec<_> = al
+                            .iter()
+                            .flat_map(|item| {
+                                item.storage_keys.iter().map(|k| (item.address, *k))
+                            })
+                            .collect();
+                        (addrs, slots)
+                    });
+                let authorization_authorities = env
+                    .authorization_list()
+                    .map_or(vec![], |al| {
+                        al.iter()
+                            .map(|auth| auth.recover_authority().ok())
+                            .collect()
+                    });
+                Some(Self {
+                    max_fee_per_gas: U256::from(env.max_fee_per_gas()),
+                    max_priority_fee_per_gas: U256::from(
+                        env.max_priority_fee_per_gas().unwrap_or(0),
+                    ),
+                    gas_limit: U256::from(env.gas_limit()),
+                    calldata_len: env.input().len() as u64,
+                    access_list_addresses,
+                    access_list_slots,
+                    authorization_authorities,
+                    sender_address: *signer,
+                })
+            }
+            _ => None,
+        }
+    }
+}
 
 static INIT_LOGGER_ONCE: Once = Once::new();
 pub fn init_logger() {
@@ -190,10 +259,88 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
         let block_context_for_revm =
             should_check_revm_consistency.then(|| self.block_context.clone().unwrap_or_default());
 
-        let encoded_txs = transactions
+        // Extract validation-relevant info from each L2 tx before encoding
+        let tx_validation_params: Vec<Option<L2TxValidationParams>> = transactions
+            .iter()
+            .map(L2TxValidationParams::extract)
+            .collect();
+
+        // Look up sender balances and access/auth list existence before execution.
+        // Existence MUST be read from the pre-execution state because validation runs before
+        // any state mutations from the transaction itself.
+        let sender_balances: Vec<Option<ruint::aliases::U256>> = tx_validation_params
+            .iter()
+            .map(|params| {
+                params.as_ref().map(|p| {
+                    self.chain
+                        .get_account_properties(
+                            &ruint::aliases::B160::from_alloy(&p.sender_address),
+                        )
+                        .balance
+                })
+            })
+            .collect();
+
+        let tx_exists_info: Vec<Option<L2TxExistsInfo>> = tx_validation_params
+            .iter()
+            .map(|params| {
+                params.as_ref().map(|p| {
+                    let addr_exists: Vec<bool> = p
+                        .access_list_addresses
+                        .iter()
+                        .map(|a| {
+                            self.chain
+                                .get_account_properties_maybe(
+                                    &ruint::aliases::B160::from_alloy(a),
+                                )
+                                .is_some()
+                        })
+                        .collect();
+                    let slot_exists: Vec<bool> = p
+                        .access_list_slots
+                        .iter()
+                        .map(|(addr, key)| {
+                            let slot = ruint::aliases::U256::from_be_bytes(key.0);
+                            self.chain
+                                .get_storage_slot(ruint::aliases::B160::from_alloy(addr), slot)
+                                .is_some()
+                        })
+                        .collect();
+                    let auth_exists: Vec<bool> = p
+                        .authorization_authorities
+                        .iter()
+                        .map(|maybe_auth| {
+                            maybe_auth.map_or(false, |auth| {
+                                self.chain
+                                    .get_account_properties_maybe(
+                                        &ruint::aliases::B160::from_alloy(&auth),
+                                    )
+                                    .is_some()
+                            })
+                        })
+                        .collect();
+                    L2TxExistsInfo {
+                        addr_exists,
+                        slot_exists,
+                        auth_exists,
+                    }
+                })
+            })
+            .collect();
+
+        let encoded_txs: Vec<EncodedTx> = transactions
             .into_iter()
             .map(ZKsyncTxEnvelope::encode)
-            .collect::<Vec<_>>();
+            .collect();
+
+        // Fill in tx_len from encoded bytes
+        let tx_encoded_lens: Vec<u64> = encoded_txs
+            .iter()
+            .map(|enc| match enc {
+                EncodedTx::Rlp(bytes, _) => bytes.len() as u64,
+                EncodedTx::Abi(bytes) => bytes.len() as u64,
+            })
+            .collect();
 
         let (block_output, block_extra_stats, proof_input) =
             if let Some(oracle_factory) = &self.oracle_factory {
@@ -216,6 +363,60 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
                     validator,
                 )?
             };
+
+        // Compare validation native cost predictions with actuals for each L2 tx
+        let block_ctx = self.block_context.clone().unwrap_or_default();
+        for (i, ((((params, &tx_len), balance), exists_info), validation_info)) in
+            tx_validation_params
+                .iter()
+                .zip(tx_encoded_lens.iter())
+                .zip(sender_balances.iter())
+                .zip(tx_exists_info.iter())
+                .zip(block_extra_stats.validation_native_info.iter())
+                .enumerate()
+        {
+            if let (Some(params), Some(&sender_balance), Some(exists), Some(info)) =
+                (params, balance.as_ref(), exists_info, validation_info)
+            {
+                let gas_price = zksync_os_api::helpers::compute_l2_tx_gas_price(
+                    params.max_fee_per_gas,
+                    params.max_priority_fee_per_gas,
+                    block_ctx.eip1559_basefee,
+                );
+                let estimate = gas_price
+                    .checked_mul(params.gas_limit)
+                    .and_then(|fee_to_prepay| {
+                        zksync_os_api::helpers::validation_native_resources(
+                            params.calldata_len,
+                            tx_len,
+                            &exists.addr_exists,
+                            &exists.slot_exists,
+                            &exists.auth_exists,
+                            sender_balance,
+                            fee_to_prepay,
+                        )
+                        .ok()
+                    });
+                if let Some(estimate) = estimate {
+                    assert_eq!(
+                        estimate.native_computational,
+                        info.validation_computational_native_used,
+                        "Tx {i}: validation native computational mismatch: \
+                         predicted={} actual={}",
+                        estimate.native_computational,
+                        info.validation_computational_native_used,
+                    );
+                    assert_eq!(
+                        estimate.pubdata,
+                        info.validation_pubdata,
+                        "Tx {i}: validation pubdata mismatch: \
+                         predicted={} actual={}",
+                        estimate.pubdata,
+                        info.validation_pubdata,
+                    );
+                }
+            }
+        }
 
         self.last_executed_block_info = Some(LastExecutedBlockInfo {
             block_output: block_output.clone(),

@@ -155,6 +155,10 @@ where
         L2_TX_INTRINSIC_NATIVE_COST,
     )?;
 
+    // Capture native resources right after creation (before any validation charges).
+    // This will be used to compute validation computational native consumption.
+    let native_after_resource_creation = tx_resources.main_resources.native().as_u64();
+
     system_log!(
         system,
         "Prepared resources for transaction: {:?}\n",
@@ -437,6 +441,8 @@ where
         total_pubdata: 0,
         initial_resources: S::Resources::empty(),
         resources_before_refund: S::Resources::empty(),
+        native_after_resource_creation,
+        validation_computational_native_used: 0,
     })
 }
 

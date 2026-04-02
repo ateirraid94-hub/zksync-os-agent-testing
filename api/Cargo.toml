@@ -21,6 +21,7 @@ basic_bootloader = { path = "../basic_bootloader", default-features = false }
 evm_interpreter = { path = "../evm_interpreter", default-features = false }
 ruint = { workspace = true, default-features = false }
 alloy = { workspace = true, features = ["eip712", "consensus", "rpc-types", "signer-local", "dyn-abi", "network"] }
+alloy-rlp = { workspace = true }
 zksync_os_interface = { workspace = true }
 alloy-sol-types = { workspace = true }
 

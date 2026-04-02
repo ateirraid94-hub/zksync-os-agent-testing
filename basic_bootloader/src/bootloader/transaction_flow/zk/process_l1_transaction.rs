@@ -342,6 +342,8 @@ where
         native_used,
         pubdata_used: pubdata_used + L1_TX_INTRINSIC_PUBDATA,
         blob_gas_used: 0,
+        validation_computational_native_used: 0,
+        validation_pubdata: 0,
     })
 }
 

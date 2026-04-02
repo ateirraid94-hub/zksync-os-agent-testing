@@ -10,7 +10,7 @@ use rig::alloy::rpc::types::{AccessList, AccessListItem, TransactionRequest};
 use rig::basic_bootloader::bootloader::block_flow::zk::PUBDATA_ENCODING_VERSION;
 use rig::basic_bootloader::bootloader::transaction::rlp_encoded::transaction_types::service_tx::ADD_INTEROP_ROOTS_IN_BATCH_SELECTOR;
 use rig::forward_system::run::convert_alloy::{FromAlloy, IntoAlloy};
-use rig::ruint::aliases::{B160, U256};
+use rig::ruint::aliases::{B160, B256, U256};
 use rig::system_hooks::addresses_constants::L2_INTEROP_ROOT_STORAGE_ADDRESS;
 use rig::zksync_os_interface::error::InvalidTransaction;
 use rig::{alloy, common_target_address, testing_signer, TestingFramework};
@@ -320,6 +320,53 @@ fn test_tx_with_access_list() {
     tester.assert_all_txs_succeeded(&output);
 }
 
+
+#[test]
+fn test_tx_with_access_list_exists_in_tree() {
+    let wallet = testing_signer(0);
+
+    let to = address!("0000000000000000000000000000000000010002");
+    let storage_key = b256!(
+                "0x0000000000000000000000000000000000000000000000000000000000000000"
+            );
+
+    // We do an initial mint to populate storage slots, otherwise SSTORE
+    // costs are hard to reason about.
+    let mint_tx = {
+        let access_list = AccessList::from(vec![AccessListItem {
+            address: to,
+            storage_keys: vec![storage_key],
+        }]);
+        let mint_tx = TxEip2930 {
+            chain_id: 37u64,
+            nonce: 0,
+            gas_price: 1000,
+            gas_limit: 75_000,
+            to: TxKind::Call(to),
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+            access_list,
+        };
+        ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet.clone())
+    };
+
+    let transactions = vec![mint_tx];
+
+    let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
+
+    let mut tester = TestingFramework::new()
+        .with_evm_contract(to, &bytecode)
+        // add account storage slot to the tree
+        .with_balance(to, U256::ONE)
+        // add storage slot to the tree
+        .with_storage_slot(to, U256::from_be_bytes(storage_key.0), B256::from_str_radix("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", 16).unwrap())
+        .with_prefunded_account(wallet.address());
+
+    let output = tester.execute_block(transactions);
+
+    tester.assert_all_txs_succeeded(&output);
+}
+
 #[test]
 fn test_tx_with_authorization_list() {
     use rig::alloy::eips::eip7702::*;
@@ -362,6 +409,58 @@ fn test_tx_with_authorization_list() {
 
     let mut tester = TestingFramework::new()
         .with_evm_contract(erc_20_contract, &bytecode)
+        .with_prefunded_account(wallet.address())
+        .without_revm_consistency_check();
+
+    let output = tester.execute_block(vec![mint_tx]);
+
+    tester.assert_all_txs_succeeded(&output);
+}
+
+#[test]
+fn test_tx_with_authorization_list_account_exists() {
+    use rig::alloy::eips::eip7702::*;
+    use rig::alloy::signers::SignerSync;
+
+    let wallet = testing_signer(0);
+
+    let delegate = testing_signer(1);
+
+    let to = delegate.address();
+
+    let erc_20_contract = address!("0000000000000000000000000000000000010002");
+
+    let mint_tx = {
+        let authorization = Authorization {
+            chain_id: U256::from(37u64),
+            address: erc_20_contract,
+            nonce: 0,
+        };
+        let signed_hash = authorization.signature_hash();
+        let sig = delegate.sign_hash_sync(&signed_hash).expect("must sign");
+        let signed = authorization.into_signed(sig);
+        let authorization_list = vec![signed];
+        let mint_tx = TxEip7702 {
+            chain_id: 37u64,
+            nonce: 0,
+            max_fee_per_gas: 1000,
+            max_priority_fee_per_gas: 1000,
+            gas_limit: 100_000,
+            to,
+            value: Default::default(),
+            input: hex::decode(ERC_20_MINT_CALLDATA).unwrap().into(),
+            access_list: Default::default(),
+            authorization_list,
+        };
+        ZKsyncTxEnvelope::from_eth_tx(mint_tx, wallet.clone())
+    };
+
+    let bytecode = hex::decode(ERC_20_BYTECODE).unwrap();
+
+    let mut tester = TestingFramework::new()
+        .with_evm_contract(erc_20_contract, &bytecode)
+        // to add account to the tree
+        .with_prefunded_account(delegate.address())
         .with_prefunded_account(wallet.address())
         .without_revm_consistency_check();
 

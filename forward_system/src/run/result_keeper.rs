@@ -15,6 +15,14 @@ use zk_ee::utils::{Bytes32, UsizeAlignedByteBox};
 // Use interface type as the direct place-in, can be changed in the future.
 pub use zksync_os_interface::types::TxProcessingOutputOwned;
 
+/// Per-transaction validation native resource info.
+/// Stored separately because `TxProcessingOutputOwned` is in an external crate.
+#[derive(Debug, Clone)]
+pub struct TxValidationNativeInfo {
+    pub validation_computational_native_used: u64,
+    pub validation_pubdata: u64,
+}
+
 pub struct ForwardRunningResultKeeper<TR: TxResultCallback, T: 'static + Sized = ()> {
     pub block_header: Option<T>,
     pub events: Vec<GenericEventContent<MAX_EVENT_TOPICS, EthereumIOTypesConfig>>,
@@ -25,6 +33,9 @@ pub struct ForwardRunningResultKeeper<TR: TxResultCallback, T: 'static + Sized =
     >,
     pub new_preimages: Vec<(Bytes32, Vec<u8>, PreimageType)>,
     pub pubdata: Vec<u8>,
+    /// Validation native info per transaction, parallel to `tx_results`.
+    /// `None` for invalid transactions.
+    pub validation_native_info: Vec<Option<TxValidationNativeInfo>>,
 
     pub tx_result_callback: TR,
 }
@@ -39,6 +50,7 @@ impl<TR: TxResultCallback, T: 'static + Sized> ForwardRunningResultKeeper<TR, T>
             tx_results: vec![],
             new_preimages: vec![],
             pubdata: vec![],
+            validation_native_info: vec![],
             tx_result_callback,
         }
     }
@@ -102,6 +114,10 @@ impl<TR: TxResultCallback, T: 'static + Sized> ResultKeeperExt<EthereumIOTypesCo
             basic_bootloader::bootloader::errors::InvalidTransaction,
         >,
     ) {
+        let validation_info = tx_result.as_ref().ok().map(|output| TxValidationNativeInfo {
+            validation_computational_native_used: output.validation_computational_native_used,
+            validation_pubdata: output.validation_pubdata,
+        });
         let owned_result = tx_result.map(|output| TxProcessingOutputOwned {
             status: output.status,
             output: output.output.to_vec(),
@@ -114,6 +130,7 @@ impl<TR: TxResultCallback, T: 'static + Sized> ResultKeeperExt<EthereumIOTypesCo
         });
         self.tx_result_callback.tx_executed(owned_result.clone());
         self.tx_results.push(owned_result);
+        self.validation_native_info.push(validation_info);
     }
 
     fn block_sealed(&mut self, block_header: Self::BlockHeader) {

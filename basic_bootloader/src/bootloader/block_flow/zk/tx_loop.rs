@@ -210,6 +210,9 @@ where
                                         .computational_native_used,
                                     native_used: tx_processing_result.native_used,
                                     pubdata_used: tx_processing_result.pubdata_used,
+                                    validation_computational_native_used: tx_processing_result
+                                        .validation_computational_native_used,
+                                    validation_pubdata: tx_processing_result.validation_pubdata,
                                 }));
 
                                 // Only bump tx number when tx is successful

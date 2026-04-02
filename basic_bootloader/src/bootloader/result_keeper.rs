@@ -21,6 +21,11 @@ pub struct TxProcessingOutput<'a> {
     pub computational_native_used: u64,
     pub native_used: u64,
     pub pubdata_used: u64,
+    /// Computational native resources consumed during validation and fee payment
+    /// (before execution begins). Includes intrinsic computational native.
+    pub validation_computational_native_used: u64,
+    /// Pubdata bytes consumed during validation (before execution begins).
+    pub validation_pubdata: u64,
 }
 
 pub trait ResultKeeperExt<IOTypes: SystemIOTypesConfig>: IOResultKeeper<IOTypes> {

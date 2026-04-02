@@ -81,6 +81,8 @@ impl<'a> MinimalTransactionOutput<'a> for EthereumTxResult<'a> {
             computational_native_used: 0,
             pubdata_used: 0,
             native_used: 0,
+            validation_computational_native_used: 0,
+            validation_pubdata: 0,
         }
     }
 }
