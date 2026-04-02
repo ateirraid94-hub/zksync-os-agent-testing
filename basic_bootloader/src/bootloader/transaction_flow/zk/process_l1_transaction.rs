@@ -591,8 +591,8 @@ where
     // for the balance changes resulting from it.
     //
     // Mint the value portion of the deposit (total deposited minus max fee)
-    // to the sender. Inside the execution frame so it rolls back if the
-    // main tx body reverts.
+    // to the sender inside the execution frame, it does not
+    // persist if the main tx body reverts.
     //
     // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
     // but native consumption is still tracked against the user's resources.
