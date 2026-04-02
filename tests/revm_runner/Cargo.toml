@@ -24,7 +24,7 @@ revm = "=34.0.0"
 revm-inspectors = "0.34.0"
 log = { workspace = true }
 
-zksync-os-revm = { git = "https://github.com/matter-labs/zksync-os-revm", rev="126464f2159af5d650e51628b32925971a5d1be5" } # ra/asset-tracker-replay
+zksync-os-revm = { git = "https://github.com/matter-labs/zksync-os-revm", rev="ad11fc57f2591e7340182647203c263807706efa" } # ra/asset-tracker-replay
 zksync_os_interface = { workspace = true, default-features = false }
 
 zk_ee = { path = "../../zk_ee" }
