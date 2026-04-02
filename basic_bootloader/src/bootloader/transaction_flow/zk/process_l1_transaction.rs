@@ -1,4 +1,3 @@
-use crate::bootloader::block_flow::read_l1_chain_id;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
     FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
@@ -35,7 +34,7 @@ use zk_ee::system::System;
 use zk_ee::system::{CompletedExecution, Computational};
 use zk_ee::system::{EthereumLikeTypes, Resources};
 #[allow(unused_imports)]
-use zk_ee::system::{IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
+use zk_ee::system::{IOSubsystem, IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
 use zk_ee::system_log;
 use zk_ee::utils::{u256_to_b160_checked, u256_try_to_u64, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
@@ -150,7 +149,7 @@ where
             }
         };
 
-    let l1_chain_id = read_l1_chain_id(&mut system.io);
+    let l1_chain_id = read_l1_chain_id(system);
 
     // pubdata_info = (pubdata_used, to_charge_for_pubdata) can be cached
     // to used in the refund step only if the execution succeeded.
@@ -879,4 +878,33 @@ where
         }
     }
     Ok(())
+}
+
+/// Reads L1 chain id from L2AssetTracker storage.
+///
+/// This is the chain tokens are bridged *from* during L1→L2 deposits,
+/// passed as `_fromChainId` to `handleFinalizeBaseTokenBridgingOnL2`.
+fn read_l1_chain_id<S: EthereumLikeTypes>(system: &mut System<S>) -> U256
+where
+    S::IO: IOSubsystemExt,
+{
+    // L2AssetTracker storage layout (verified via `forge inspect`):
+    //   slots 0-100:   Initializable + OwnableUpgradeable + Ownable2StepUpgradeable
+    //   slots 101-150: Ownable2Step __gap
+    //   slot 151:      mapping chainBalance
+    //   slot 152:      mapping assetMigrationNumber
+    //   slot 153:      mapping isAssetRegistered
+    //   slot 154:      uint256 L1_CHAIN_ID
+    let l1_chain_id_slot = Bytes32::from_u256_be(&U256::from(154));
+    let mut inf_resources = S::Resources::FORMAL_INFINITE;
+    let chain_id = system
+        .io
+        .storage_read::<false>(
+            ExecutionEnvironmentType::NoEE,
+            &mut inf_resources,
+            &L2_ASSET_TRACKER_ADDRESS,
+            &l1_chain_id_slot,
+        )
+        .expect("must read L2AssetTracker L1_CHAIN_ID");
+    U256::from_be_bytes(chain_id.as_u8_array())
 }
