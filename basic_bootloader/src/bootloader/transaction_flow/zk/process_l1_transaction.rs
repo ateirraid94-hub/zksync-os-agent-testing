@@ -1,7 +1,7 @@
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
-    FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
-    L1_TX_INTRINSIC_PUBDATA, L1_TX_NATIVE_PRICE,
+    ASSET_TRACKER_INTRINSIC_PUBDATA, FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS,
+    L1_TX_INTRINSIC_NATIVE_COST, L1_TX_INTRINSIC_PUBDATA, L1_TX_NATIVE_PRICE,
 };
 use crate::bootloader::errors::BootloaderInterfaceError;
 use crate::bootloader::errors::TxError;
@@ -78,6 +78,24 @@ where
     // will be refunded to the user.
     let gas_per_pubdata = transaction.gas_per_pubdata_limit.read();
 
+    // It's important to ensure that the amount of pubdata estimated during
+    // transaction simulation is never less than the amount estimated
+    // during execution of the same transaction.
+    // Since the introduction of the asset tracker calls during the base token
+    // minting, the pubdata for the storage diff of the first of such calls
+    // depends indirectly on the gas price, which can fluctuate from simulation
+    // to execution.
+    // Even though the pubdata for this storage change is already considered in
+    // L1_TX_INTRINSIC_PUBDATA (for the calls related to refunds), we need to
+    // add an extra worst case when in simulation to ensure that simulation
+    // never underestimates pubdata used.
+    let extra_pubdata_for_simulation = if Config::SIMULATION {
+        ASSET_TRACKER_INTRINSIC_PUBDATA
+    } else {
+        0
+    };
+    let intrinsic_pubdata = L1_TX_INTRINSIC_PUBDATA + extra_pubdata_for_simulation;
+
     // Compute resource and fee information, making sure we handle
     // all possible validation errors carefully.
     // L1 transactions cannot be invalidated. Therefore, the following
@@ -100,6 +118,7 @@ where
         gas_limit,
         gas_price,
         gas_per_pubdata,
+        intrinsic_pubdata,
     )?;
 
     // Just used for computing native used
@@ -387,7 +406,7 @@ where
         gas_refunded: evm_refund,
         computational_native_used,
         native_used,
-        pubdata_used: pubdata_used + L1_TX_INTRINSIC_PUBDATA,
+        pubdata_used: pubdata_used + intrinsic_pubdata,
         blob_gas_used: 0,
     })
 }
@@ -423,6 +442,7 @@ fn prepare_and_check_resources<
     gas_limit: u64,
     gas_price: U256,
     gas_per_pubdata: u32,
+    intrinsic_pubdata: u64,
 ) -> Result<ResourceAndFeeInfo<S>, BootloaderSubsystemError>
 where
     S::IO: IOSubsystemExt,
@@ -489,7 +509,7 @@ where
         transaction.calldata().len() as u64,
         calldata_tokens,
         L1_TX_INTRINSIC_L2_GAS,
-        L1_TX_INTRINSIC_PUBDATA,
+        intrinsic_pubdata,
         L1_TX_INTRINSIC_NATIVE_COST,
     )?;
 
