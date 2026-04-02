@@ -24,6 +24,7 @@ use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 mod asset_tracker;
 mod l1_tx_resilience;
 mod native_charging;
+mod real_asset_tracker_bytecodes;
 // Pre-execution transaction validation and bootloader rejection paths.
 mod validation_failures;
 
