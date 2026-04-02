@@ -4,31 +4,39 @@
 //!
 //! When an L1 transaction deposits base tokens (total_deposited > 0), the
 //! bootloader calls handleFinalizeBaseTokenBridgingOnL2(uint256, uint256)
-//! on the L2AssetTracker contract up to three times — once for the value
-//! mint, once for the operator fee, and once for the refund. If any of
-//! these amounts is zero the corresponding call is skipped.
+//! on the real L2AssetTracker contract up to three times — once for the
+//! value mint, once for the operator fee, and once for the refund. If any
+//! of these amounts is zero the corresponding call is skipped.
 //!
-//! Most tests deploy the compiled L2AssetTracker bytecode with the
-//! required storage pre-seeded and system-contract stubs, verifying
-//! end-to-end behaviour against the actual Solidity implementation.
-//!
-//! One test (`test_mock_called_on_deposit`) uses a trivial accumulating
-//! contract to verify the exact number of bootloader calls.
+//! When the source chain matches `L1_CHAIN_ID` and the current settlement
+//! layer also matches `L1_CHAIN_ID`, the contract records the aggregate
+//! bridged amount in `interopInfo[BASE_TOKEN_ASSET_ID].totalSuccessfulDepositsFromL1`.
 
-use rig::alloy::primitives::address;
+use alloy_sol_types::sol;
+use alloy_sol_types::SolCall;
+use rig::alloy::consensus::TxLegacy;
+use rig::alloy::primitives::{address, TxKind};
+use rig::crypto::MiniDigest;
 use rig::evm_bytecode::BytecodeBuilder;
 use rig::forward_system::run::convert_alloy::IntoAlloy;
-use rig::ruint::aliases::U256;
+use rig::predeployed_contracts::{
+    DEFAULT_BASE_TOKEN_ASSET_ID, L2_ASSET_TRACKER_L1_CHAIN_ID_SLOT,
+    SYSTEM_CONTEXT_SETTLEMENT_LAYER_CHAIN_ID_SLOT,
+};
+use rig::ruint::aliases::{B256, U256};
 use rig::system_hooks::addresses_constants::{L2_ASSET_TRACKER_ADDRESS, SYSTEM_CONTEXT_ADDRESS};
+use rig::testing_signer;
 use rig::utils::L1TxBuilder;
+use rig::zksync_os_interface::types::{ExecutionOutput, ExecutionResult};
 use rig::TestingFramework;
 use zksync_os_tests_common::zksync_tx::ZKsyncTxEnvelope;
 
-use crate::real_asset_tracker_bytecodes;
+sol! {
+    function L1_CHAIN_ID() external view returns (uint256 chainId);
+}
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const L2_ASSET_TRACKER_INTEROP_INFO_SLOT: u64 = 156;
+const INTEROP_INFO_TOTAL_SUCCESSFUL_DEPOSITS_OFFSET: u64 = 1;
 
 fn b160_to_address(b: rig::ruint::aliases::B160) -> rig::alloy::primitives::Address {
     b.into_alloy()
@@ -38,155 +46,60 @@ fn asset_tracker_address() -> rig::alloy::primitives::Address {
     b160_to_address(L2_ASSET_TRACKER_ADDRESS)
 }
 
-fn system_context_address() -> rig::alloy::primitives::Address {
-    b160_to_address(SYSTEM_CONTEXT_ADDRESS)
+fn interop_info_mapping_slot(asset_id: B256) -> U256 {
+    let mut hasher = rig::crypto::sha3::Keccak256::new();
+    hasher.update(asset_id.to_be_bytes::<32>());
+    hasher.update(U256::from(L2_ASSET_TRACKER_INTEROP_INFO_SLOT).to_be_bytes::<32>());
+    U256::from_be_bytes(hasher.finalize())
 }
 
-/// Compute the Solidity mapping storage key for `mapping(K => V)` at base slot.
-/// key_slot = keccak256(abi.encode(key, base_slot))
-fn solidity_mapping_key(key: U256, base_slot: U256) -> U256 {
-    let mut buf = [0u8; 64];
-    buf[..32].copy_from_slice(&key.to_be_bytes::<32>());
-    buf[32..].copy_from_slice(&base_slot.to_be_bytes::<32>());
-    let hash = rig::alloy::primitives::keccak256(buf);
-    U256::from_be_bytes(hash.0)
-}
-
-/// Compute the storage key for a nested mapping:
-/// `mapping(K1 => mapping(K2 => V))` at base slot.
-fn solidity_nested_mapping_key(key1: U256, key2: U256, base_slot: U256) -> U256 {
-    let inner = solidity_mapping_key(key1, base_slot);
-    solidity_mapping_key(key2, inner)
-}
-
-/// Storage slot for interopInfo[assetId].totalSuccessfulDepositsFromL1.
-/// interopInfo is at slot 156, InteropL2Info has fields:
-///   +0: totalWithdrawalsToL1
-///   +1: totalSuccessfulDepositsFromL1
-fn deposits_from_l1_slot(base_token_asset_id: U256) -> U256 {
-    solidity_mapping_key(base_token_asset_id, U256::from(156)) + U256::from(1)
-}
-
-const BASE_TOKEN_ASSET_ID: U256 = U256::from_limbs([0xBEEF, 0, 0, 0]);
-
-/// Helper: read an arbitrary-keyed storage slot from the asset tracker.
-fn read_slot_key(tester: &mut TestingFramework, key: U256) -> U256 {
+fn read_total_successful_deposits_from_l1(tester: &mut TestingFramework) -> U256 {
+    let slot = interop_info_mapping_slot(DEFAULT_BASE_TOKEN_ASSET_ID)
+        + U256::from(INTEROP_INFO_TOTAL_SUCCESSFUL_DEPOSITS_OFFSET);
     tester
-        .get_storage_slot(&asset_tracker_address(), key)
-        .map(|v| v.into_u256_be())
+        .get_storage_slot(&asset_tracker_address(), slot)
+        .map(|value| value.into_u256_be())
         .unwrap_or(U256::ZERO)
 }
 
-// ---------------------------------------------------------------------------
-// Real L2AssetTracker setup
-// ---------------------------------------------------------------------------
-
-/// Build a TestingFramework with the real compiled L2AssetTracker deployed
-/// and all required system contract stubs configured.
-///
-/// Storage pre-seeded:
-///   - slot 154: L1_CHAIN_ID
-///   - slot 155: BASE_TOKEN_ASSET_ID (0xBEEF)
-///   - isAssetRegistered[baseTokenAssetId] = true  (slot 153 mapping)
-///   - assetMigrationNumber[chainId][baseTokenAssetId] = 1  (slot 152 mapping)
-///
-/// System contract stubs:
-///   - SystemContext (0x800b): returns slot 0 value for any call
-///     (currentSettlementLayerChainId → L1 chain ID)
-fn setup_real(l1_chain_id: u64) -> TestingFramework {
-    let chain_id = 37u64; // default test chain id
-
-    let is_registered_key = solidity_mapping_key(BASE_TOKEN_ASSET_ID, U256::from(153));
-    let migration_key =
-        solidity_nested_mapping_key(U256::from(chain_id), BASE_TOKEN_ASSET_ID, U256::from(152));
-
-    let bytecode =
-        hex::decode(real_asset_tracker_bytecodes::L2_ASSET_TRACKER_DEPLOYED_BYTECODE).unwrap();
-    let return_slot_0_stub = real_asset_tracker_bytecodes::RETURN_SLOT_0_BYTECODE.to_vec();
-
-    TestingFramework::new()
-        .with_evm_contract(asset_tracker_address(), &bytecode)
-        .with_storage_slot(
-            asset_tracker_address(),
-            U256::from(154),
-            rig::ruint::aliases::B256::from(U256::from(l1_chain_id)),
-        )
-        .with_storage_slot(
-            asset_tracker_address(),
-            U256::from(155),
-            rig::ruint::aliases::B256::from(BASE_TOKEN_ASSET_ID),
-        )
-        .with_storage_slot(
-            asset_tracker_address(),
-            is_registered_key,
-            rig::ruint::aliases::B256::from(U256::from(1)),
-        )
-        .with_storage_slot(
-            asset_tracker_address(),
-            migration_key,
-            rig::ruint::aliases::B256::from(U256::from(1)),
-        )
-        .with_evm_contract(system_context_address(), &return_slot_0_stub)
-        .with_storage_slot(
-            system_context_address(),
-            U256::ZERO,
-            rig::ruint::aliases::B256::from(U256::from(l1_chain_id)),
-        )
+fn read_l1_chain_id_tx(nonce: u64) -> ZKsyncTxEnvelope {
+    let wallet = testing_signer(0);
+    let tx = TxLegacy {
+        chain_id: 37u64.into(),
+        nonce,
+        gas_price: 1000,
+        gas_limit: 50_000,
+        to: TxKind::Call(asset_tracker_address()),
+        value: Default::default(),
+        input: L1_CHAIN_IDCall {}.abi_encode().into(),
+    };
+    ZKsyncTxEnvelope::from_eth_tx(tx, wallet)
 }
 
-// ---------------------------------------------------------------------------
-// Mock accumulating contract — used only for call-count verification
-// ---------------------------------------------------------------------------
+fn assert_reverted_deposit_asset_tracker(
+    tester: &mut TestingFramework,
+    output: &rig::zksync_os_interface::types::BlockOutput,
+    expected_total_deposited: rig::alloy::primitives::U256,
+) {
+    assert_eq!(output.tx_results.len(), 1);
+    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
+    assert!(
+        !tx_result.is_success(),
+        "L1 tx should revert during execution, not be rejected"
+    );
 
-/// EVM bytecode for a mock contract that accumulates call data:
-/// - slot[0] += 1                      (call counter)
-/// - slot[1] += CALLDATALOAD(36)       (accumulated amount)
-/// - returns success
-fn mock_accumulating_contract() -> Vec<u8> {
-    BytecodeBuilder::new()
-        .push0()
-        .sload()
-        .push_u8(1)
-        .add()
-        .push0()
-        .sstore()
-        .push_u8(1)
-        .sload()
-        .push_u8(36)
-        .calldataload()
-        .add()
-        .push_u8(1)
-        .sstore()
-        .return_empty()
-        .finish()
+    let accumulated = read_total_successful_deposits_from_l1(tester);
+    assert_eq!(
+        accumulated,
+        U256::from_be_slice(&expected_total_deposited.to_be_bytes::<32>()),
+        "successful L1 deposits recorded by the real asset tracker should equal total_deposited"
+    );
 }
 
-fn setup_mock(l1_chain_id: u64) -> TestingFramework {
-    TestingFramework::new()
-        .with_evm_contract(asset_tracker_address(), &mock_accumulating_contract())
-        .with_storage_slot(
-            asset_tracker_address(),
-            U256::from(154),
-            rig::ruint::aliases::B256::from(U256::from(l1_chain_id)),
-        )
-}
-
-fn read_mock_slot(tester: &mut TestingFramework, slot: u64) -> U256 {
-    tester
-        .get_storage_slot(&asset_tracker_address(), U256::from(slot))
-        .map(|v| v.into_u256_be())
-        .unwrap_or(U256::ZERO)
-}
-
-// ===========================================================================
-// Mock test — verify exact call count
-// ===========================================================================
-
-/// Verify the bootloader makes at least 2 calls (value mint + operator fee)
-/// and the accumulated amount equals total_deposited.
+/// Verify that when an L1 tx has a deposit (total_deposited > 0), the bootloader
+/// notifies the real `L2AssetTracker` and it records the deposited amount.
 #[test]
-fn test_mock_called_on_deposit() {
-    let l1_chain_id: u64 = 1;
+fn test_asset_tracker_called_on_deposit() {
     let from = address!("1234000000000000000000000000000000000000");
     let to = address!("abcd000000000000000000000000000000000000");
     let gas_price: u128 = 10_000;
@@ -195,7 +108,7 @@ fn test_mock_called_on_deposit() {
     let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
         + rig::alloy::primitives::U256::from(1_000_000u64);
 
-    let mut tester = setup_mock(l1_chain_id).with_balance(from, U256::from(u64::MAX));
+    let mut tester = TestingFramework::new().with_balance(from, U256::from(u64::MAX));
 
     let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
         .from(from)
@@ -204,36 +117,34 @@ fn test_mock_called_on_deposit() {
         .gas_limit(gas_limit)
         .value(value)
         .to_mint(to_mint)
-        .build()
-        .into();
+        .build();
 
     let output = tester.execute_block(vec![tx]);
 
+    assert_eq!(output.tx_results.len(), 1);
     let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
     assert!(tx_result.is_success(), "L1 tx should succeed");
 
-    let call_count = read_mock_slot(&mut tester, 0);
-    assert!(
-        call_count >= U256::from(2),
-        "at least 2 calls expected (value mint + operator fee); got {call_count}"
-    );
-
-    let accumulated = read_mock_slot(&mut tester, 1);
+    let accumulated = read_total_successful_deposits_from_l1(&mut tester);
     assert_eq!(
         accumulated,
         U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
-        "accumulated amount across all calls should equal to_mint"
+        "recorded deposits from L1 should equal to_mint"
+    );
+
+    // computational_native_used reflects the main tx body computation
+    // plus intrinsic native. Post-execution operations (asset tracker
+    // notifications, coinbase transfer, refund) run on FORMAL_INFINITE
+    // and their cost is covered by L1_TX_INTRINSIC_NATIVE_COST, not
+    // measured at runtime.
+    assert!(
+        tx_result.computational_native_used > 0,
+        "computational_native_used should be nonzero"
     );
 }
 
-// ===========================================================================
-// Real L2AssetTracker tests
-// ===========================================================================
-
-/// Successful deposit: interopInfo.totalSuccessfulDepositsFromL1 == total_deposited.
 #[test]
-fn test_real_deposit_updates_interop_info() {
-    let l1_chain_id: u64 = 1;
+fn test_asset_tracker_predeploy_is_usable_in_l1_flow() {
     let from = address!("1234000000000000000000000000000000000000");
     let to = address!("abcd000000000000000000000000000000000000");
     let gas_price: u128 = 10_000;
@@ -241,46 +152,140 @@ fn test_real_deposit_updates_interop_info() {
     let value = rig::alloy::primitives::U256::from(500);
     let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
         + rig::alloy::primitives::U256::from(1_000_000u64);
+    let wallet = testing_signer(0);
 
-    let mut tester = setup_real(l1_chain_id).with_balance(from, U256::from(u64::MAX));
+    let mut tester = TestingFramework::new()
+        .with_balance(from, U256::from(u64::MAX))
+        .with_prefunded_account(wallet.address());
 
-    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+    let l1_tx: ZKsyncTxEnvelope = L1TxBuilder::new()
         .from(from)
         .to(to)
         .gas_price(gas_price)
         .gas_limit(gas_limit)
         .value(value)
         .to_mint(to_mint)
-        .build()
-        .into();
+        .build();
+
+    let l1_output = tester.execute_block(vec![l1_tx]);
+    assert_eq!(l1_output.tx_results.len(), 1);
+    let l1_result = l1_output.tx_results[0]
+        .as_ref()
+        .expect("L1 tx should not error");
+    assert!(l1_result.is_success(), "L1 tx should succeed");
+
+    let getter_output = tester.execute_block(vec![read_l1_chain_id_tx(0)]);
+    assert_eq!(getter_output.tx_results.len(), 1);
+    let getter_result = getter_output.tx_results[0]
+        .as_ref()
+        .expect("getter tx should not error");
+    assert!(getter_result.is_success(), "getter tx should succeed");
+
+    match &getter_result.execution_result {
+        ExecutionResult::Success(ExecutionOutput::Call(output)) => {
+            let decoded =
+                L1_CHAIN_IDCall::abi_decode_returns(output.as_slice()).expect("valid ABI");
+            assert_eq!(
+                decoded,
+                U256::ONE,
+                "L2AssetTracker L1_CHAIN_ID() should return 1"
+            );
+        }
+        other => panic!("execution result must be a successful call, got {other:?}"),
+    }
+}
+
+/// Verify that no deposit is recorded when total_deposited == 0.
+#[test]
+fn test_asset_tracker_not_called_without_deposit() {
+    let from = address!("1234000000000000000000000000000000000000");
+    let to = address!("abcd000000000000000000000000000000000000");
+    let gas_price: u128 = 0;
+    let gas_limit: u128 = 50_000;
+    let to_mint = rig::alloy::primitives::U256::ZERO;
+
+    let mut tester = TestingFramework::new().with_balance(from, U256::from(u64::MAX));
+
+    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+        .from(from)
+        .to(to)
+        .gas_price(gas_price)
+        .gas_limit(gas_limit)
+        .value(rig::alloy::primitives::U256::ZERO)
+        .to_mint(to_mint)
+        .build();
 
     let output = tester.execute_block(vec![tx]);
+
+    assert_eq!(output.tx_results.len(), 1);
     let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
     assert!(tx_result.is_success(), "L1 tx should succeed");
 
-    let deposits = read_slot_key(&mut tester, deposits_from_l1_slot(BASE_TOKEN_ASSET_ID));
     assert_eq!(
-        deposits,
-        U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
-        "totalSuccessfulDepositsFromL1 should equal total_deposited"
+        read_total_successful_deposits_from_l1(&mut tester),
+        U256::ZERO,
+        "asset tracker should not record deposits when total_deposited == 0"
     );
 }
 
-/// Reverted tx body: value-mint notification is rolled back,
-/// but operator fee + refund notifications persist.
-/// totalSuccessfulDepositsFromL1 should still equal total_deposited
-/// because operator fee + refund cover the entire deposit.
+/// Verify the call works with a different settlement layer chain ID
+/// and that the real asset tracker records the deposit under that configuration.
 #[test]
-fn test_real_reverted_body_still_tracks_fee_and_refund() {
-    let l1_chain_id: u64 = 1;
+fn test_asset_tracker_uses_correct_chain_id() {
+    let sl_chain_id: u64 = 270;
     let from = address!("1234000000000000000000000000000000000000");
     let to = address!("abcd000000000000000000000000000000000000");
     let gas_price: u128 = 10_000;
     let gas_limit: u128 = 50_000;
     let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
+        + rig::alloy::primitives::U256::from(2_000_000u64);
+
+    let mut tester = TestingFramework::new()
+        .with_storage_slot(
+            asset_tracker_address(),
+            U256::from(L2_ASSET_TRACKER_L1_CHAIN_ID_SLOT),
+            B256::from(U256::from(sl_chain_id)),
+        )
+        .with_storage_slot(
+            b160_to_address(SYSTEM_CONTEXT_ADDRESS),
+            U256::from(SYSTEM_CONTEXT_SETTLEMENT_LAYER_CHAIN_ID_SLOT),
+            B256::from(U256::from(sl_chain_id)),
+        )
+        .with_balance(from, U256::from(u64::MAX));
+
+    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+        .from(from)
+        .to(to)
+        .gas_price(gas_price)
+        .gas_limit(gas_limit)
+        .value(rig::alloy::primitives::U256::from(100))
+        .to_mint(to_mint)
+        .build();
+
+    let output = tester.execute_block(vec![tx]);
+
+    assert_eq!(output.tx_results.len(), 1);
+    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
+    assert!(tx_result.is_success(), "L1 tx should succeed");
+
+    let accumulated = read_total_successful_deposits_from_l1(&mut tester);
+    assert_eq!(
+        accumulated,
+        U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
+        "recorded deposit amount should match to_mint for the configured chain id"
+    );
+}
+
+#[test]
+fn test_asset_tracker_reverted_body_skips_value_mint_notification() {
+    let from = address!("1234000000000000000000000000000000000000");
+    let to = address!("abcd000000000000000000000000000000000000");
+    let gas_price: u128 = 1000;
+    let gas_limit: u128 = 50_000;
+    let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
         + rig::alloy::primitives::U256::from(1_000_000u64);
 
-    let mut tester = setup_real(l1_chain_id)
+    let mut tester = TestingFramework::new()
         .with_evm_contract(to, &rig::evm_bytecode::revert())
         .with_balance(from, U256::from(u64::MAX));
 
@@ -291,31 +296,17 @@ fn test_real_reverted_body_still_tracks_fee_and_refund() {
         .gas_limit(gas_limit)
         .value(rig::alloy::primitives::U256::from(500))
         .to_mint(to_mint)
-        .build()
-        .into();
+        .build();
 
     let output = tester.execute_block(vec![tx]);
-    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
-    assert!(
-        !tx_result.is_success(),
-        "L1 tx should revert (body reverts)"
-    );
-
-    let deposits = read_slot_key(&mut tester, deposits_from_l1_slot(BASE_TOKEN_ASSET_ID));
-    assert_eq!(
-        deposits,
-        U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
-        "totalSuccessfulDepositsFromL1 should equal total_deposited (fee + refund)"
-    );
+    assert_reverted_deposit_asset_tracker(&mut tester, &output, to_mint);
 }
 
-/// OOG tx body: same as revert — operator fee + refund still tracked.
 #[test]
-fn test_real_oog_body_still_tracks_fee_and_refund() {
-    let l1_chain_id: u64 = 1;
+fn test_asset_tracker_oog_body_still_notifies_fee_and_refund() {
     let from = address!("1234000000000000000000000000000000000000");
     let to = address!("abcd000000000000000000000000000000000000");
-    let gas_price: u128 = 10_000;
+    let gas_price: u128 = 1000;
     let gas_limit: u128 = 50_000;
     let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
         + rig::alloy::primitives::U256::from(1_000_000u64);
@@ -333,7 +324,7 @@ fn test_real_oog_body_still_tracks_fee_and_refund() {
         .return_empty()
         .finish();
 
-    let mut tester = setup_real(l1_chain_id)
+    let mut tester = TestingFramework::new()
         .with_evm_contract(to, &expensive_bytecode)
         .with_balance(from, U256::from(u64::MAX));
 
@@ -344,80 +335,8 @@ fn test_real_oog_body_still_tracks_fee_and_refund() {
         .gas_limit(gas_limit)
         .value(rig::alloy::primitives::U256::from(500))
         .to_mint(to_mint)
-        .build()
-        .into();
+        .build();
 
     let output = tester.execute_block(vec![tx]);
-    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
-    assert!(!tx_result.is_success(), "L1 tx should revert (OOG)");
-
-    let deposits = read_slot_key(&mut tester, deposits_from_l1_slot(BASE_TOKEN_ASSET_ID));
-    assert_eq!(
-        deposits,
-        U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
-        "totalSuccessfulDepositsFromL1 should equal total_deposited (fee + refund)"
-    );
-}
-
-/// Zero value deposit: no calls to handleFinalizeBaseTokenBridgingOnL2.
-#[test]
-fn test_real_zero_deposit_no_notification() {
-    let l1_chain_id: u64 = 1;
-    let from = address!("1234000000000000000000000000000000000000");
-    let to = address!("abcd000000000000000000000000000000000000");
-
-    let mut tester = setup_real(l1_chain_id).with_balance(from, U256::from(u64::MAX));
-
-    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
-        .from(from)
-        .to(to)
-        .gas_price(0u128)
-        .gas_limit(50_000u128)
-        .value(rig::alloy::primitives::U256::ZERO)
-        .to_mint(rig::alloy::primitives::U256::ZERO)
-        .build()
-        .into();
-
-    let output = tester.execute_block(vec![tx]);
-    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
-    assert!(tx_result.is_success(), "L1 tx should succeed");
-
-    let deposits = read_slot_key(&mut tester, deposits_from_l1_slot(BASE_TOKEN_ASSET_ID));
-    assert_eq!(deposits, U256::ZERO, "no deposits should be recorded");
-}
-
-/// Different L1 chain ID: verify the contract receives the correct
-/// _fromChainId and still updates interop accounting.
-#[test]
-fn test_real_different_chain_id() {
-    let l1_chain_id: u64 = 270;
-    let from = address!("1234000000000000000000000000000000000000");
-    let to = address!("abcd000000000000000000000000000000000000");
-    let gas_price: u128 = 10_000;
-    let gas_limit: u128 = 50_000;
-    let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
-        + rig::alloy::primitives::U256::from(2_000_000u64);
-
-    let mut tester = setup_real(l1_chain_id).with_balance(from, U256::from(u64::MAX));
-
-    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
-        .from(from)
-        .to(to)
-        .gas_price(gas_price)
-        .gas_limit(gas_limit)
-        .value(rig::alloy::primitives::U256::from(100))
-        .to_mint(to_mint)
-        .build()
-        .into();
-
-    let output = tester.execute_block(vec![tx]);
-    let tx_result = output.tx_results[0].as_ref().expect("tx should not error");
-    assert!(tx_result.is_success(), "L1 tx should succeed");
-
-    let deposits = read_slot_key(&mut tester, deposits_from_l1_slot(BASE_TOKEN_ASSET_ID));
-    assert_eq!(
-        deposits,
-        U256::from_be_slice(&to_mint.to_be_bytes::<32>()),
-        "totalSuccessfulDepositsFromL1 should equal total_deposited"
-    );
+    assert_reverted_deposit_asset_tracker(&mut tester, &output, to_mint);
 }
