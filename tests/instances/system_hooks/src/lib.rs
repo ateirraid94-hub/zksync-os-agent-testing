@@ -1202,21 +1202,24 @@ fn test_mint_base_token_hook_rejects_non_zero_value() {
 
 #[test]
 fn test_event_hooks_empty_topics() {
+    let sender = address!("1234567890123456789012345678901234567890");
     for test_contract_address in [L2_INTEROP_ROOT_STORAGE_ADDRESS, SYSTEM_CONTEXT_ADDRESS] {
         // Contract that emits a log with empty topics array - this should be handled gracefully
         let test_contract = Address::from(test_contract_address.to_be_bytes());
 
-        // Bytecode that emits LOG0 (no topics)
-        // PUSH1 0x00    -> 6000  (data offset)
-        // PUSH1 0x00    -> 6000  (data length)
-        // LOG0          -> a0    (emit log with no topics)
-        // STOP          -> 00
-        let test_contract_bytecode = hex::decode("60006000a000").unwrap();
+        // Default stub emits LOG0 (no topics). For SystemContext, keep that behavior
+        // on the test's empty-calldata call, but return slot 0 for non-empty
+        // calldata so currentSettlementLayerChainId() still works.
+        let test_contract_bytecode = if test_contract_address == SYSTEM_CONTEXT_ADDRESS {
+            hex::decode("365f14600e575f545f5260205ff35b60006000a000").unwrap()
+        } else {
+            hex::decode("60006000a000").unwrap()
+        };
         let mut tester =
             TestingFramework::new().with_evm_contract(test_contract, &test_contract_bytecode);
 
         let tx = L1TxBuilder::new()
-            .from(address!("1234567890123456789012345678901234567890"))
+            .from(sender)
             .to(test_contract)
             .input(hex::decode("").unwrap())
             .gas_price(1000)

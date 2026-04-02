@@ -13,6 +13,7 @@ pub mod assertions;
 pub mod chain;
 pub mod constants;
 pub mod evm_bytecode;
+pub mod predeployed_contracts;
 pub mod revm_consistency_checker;
 pub mod run_config;
 pub mod testing_utils;
@@ -112,8 +113,11 @@ impl TestingFramework<true> {
     pub fn new_with_randomized_tree() -> Self {
         init_logger();
 
+        let mut chain = Chain::empty_randomized(None);
+        crate::predeployed_contracts::install_default_predeployed_contracts(&mut chain);
+
         Self {
-            chain: Chain::empty_randomized(None),
+            chain,
             block_context: None,
             da_commitment_scheme: None,
             run_config: Some(Default::default()),
@@ -135,8 +139,11 @@ impl TestingFramework<false> {
     pub fn new() -> Self {
         init_logger();
 
+        let mut chain = Chain::empty(None);
+        crate::predeployed_contracts::install_default_predeployed_contracts(&mut chain);
+
         Self {
-            chain: Chain::empty(None),
+            chain,
             block_context: None,
             da_commitment_scheme: None,
             run_config: Some(Default::default()),
@@ -250,6 +257,7 @@ impl<const RANDOMIZED_TREE: bool> TestingFramework<RANDOMIZED_TREE> {
     /// Builder: sets the chain ID used for block metadata and transaction signing.
     pub fn with_chain_id(mut self, chain_id: u64) -> Self {
         self.chain.set_chain_id(chain_id);
+        crate::predeployed_contracts::install_default_predeployed_contracts(&mut self.chain);
         self
     }
 

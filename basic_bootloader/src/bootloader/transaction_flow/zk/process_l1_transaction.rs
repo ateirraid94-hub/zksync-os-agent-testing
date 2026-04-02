@@ -1,4 +1,3 @@
-use crate::bootloader::block_flow::read_settlement_layer_chain_id;
 use crate::bootloader::config::BasicBootloaderExecutionConfig;
 use crate::bootloader::constants::{
     FREE_L1_TX_NATIVE_PER_GAS, L1_TX_INTRINSIC_L2_GAS, L1_TX_INTRINSIC_NATIVE_COST,
@@ -35,7 +34,7 @@ use zk_ee::system::System;
 use zk_ee::system::{CompletedExecution, Computational};
 use zk_ee::system::{EthereumLikeTypes, Resources};
 #[allow(unused_imports)]
-use zk_ee::system::{IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
+use zk_ee::system::{IOSubsystem, IOSubsystemExt, MAX_NATIVE_COMPUTATIONAL};
 use zk_ee::system_log;
 use zk_ee::utils::{u256_to_b160_checked, u256_try_to_u64, Bytes32};
 use zk_ee::{interface_error, internal_error, wrap_error};
@@ -150,8 +149,7 @@ where
             }
         };
 
-    // Read once here; passed to all notify_l2_asset_tracker calls below.
-    let sl_chain_id = read_settlement_layer_chain_id(&mut system.io);
+    let l1_chain_id = read_l1_chain_id(system);
 
     // pubdata_info = (pubdata_used, to_charge_for_pubdata) can be cached
     // to used in the refund step only if the execution succeeded.
@@ -173,7 +171,7 @@ where
                 from,
                 to,
                 value,
-                sl_chain_id,
+                l1_chain_id,
                 native_per_pubdata,
                 &mut resources,
                 withheld_resources,
@@ -268,12 +266,17 @@ where
     let mut inf_resources = S::Resources::FORMAL_INFINITE;
 
     let coinbase = system.get_coinbase();
-    transfer_from_treasury::<S>(
+    // Mint operator fee portion of the deposit to coinbase.
+    mint_base_token::<S, Config>(
         system,
+        system_functions,
+        memories.reborrow(),
         &pay_to_operator,
         &coinbase,
+        l1_chain_id,
         &mut inf_resources,
-        Config::SIMULATION,
+        tracer,
+        validator,
     )
     .map_err(|e| match e.root_cause() {
         RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
@@ -284,18 +287,6 @@ where
         }
         _ => e,
     })?;
-
-    // Notify asset tracker about the operator fee portion of the deposit.
-    notify_l2_asset_tracker::<S>(
-        system,
-        system_functions,
-        memories.reborrow(),
-        pay_to_operator,
-        sl_chain_id,
-        &mut inf_resources,
-        tracer,
-        validator,
-    )?;
 
     // Refund
     let to_refund_recipient = if !is_success {
@@ -321,14 +312,19 @@ where
             .checked_sub(pay_to_operator)
             .ok_or(internal_error!("pf-pto"))
     }?;
+    // Mint refund portion of the deposit to the refund recipient.
     if to_refund_recipient > U256::ZERO {
         let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
-        transfer_from_treasury::<S>(
+        mint_base_token::<S, Config>(
             system,
+            system_functions,
+            memories.reborrow(),
             &to_refund_recipient,
             &refund_recipient,
+            l1_chain_id,
             &mut inf_resources,
-            Config::SIMULATION,
+            tracer,
+            validator,
         )
         .map_err(|e| -> BootloaderSubsystemError {
             match e.root_cause() {
@@ -341,20 +337,6 @@ where
                 _ => e,
             }
         })?;
-    }
-
-    // Notify asset tracker about the refund portion of the deposit.
-    if to_refund_recipient > U256::ZERO {
-        notify_l2_asset_tracker::<S>(
-            system,
-            system_functions,
-            memories.reborrow(),
-            to_refund_recipient,
-            sl_chain_id,
-            &mut inf_resources,
-            tracer,
-            validator,
-        )?;
     }
 
     // Emit log
@@ -558,7 +540,7 @@ fn execute_l1_transaction_and_notify_result<
     from: B160,
     to: B160,
     value: U256,
-    sl_chain_id: U256,
+    l1_chain_id: U256,
     native_per_pubdata: u64,
     resources: &mut S::Resources,
     withheld_resources: S::Resources,
@@ -608,46 +590,22 @@ where
     // following transfer on simulation, and avoid compressing the pubdata
     // for the balance changes resulting from it.
     //
-    // Use with_infinite_ergs so the transfer cannot fail due to
-    // out-of-gas, but native consumption is still tracked against
-    // the user's resources.
+    // Mint the value portion of the deposit (total deposited minus max fee)
+    // to the sender inside the execution frame, it does not
+    // persist if the main tx body reverts.
+    //
+    // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
+    // but native consumption is still tracked against the user's resources.
     if to_transfer > U256::ZERO || Config::SIMULATION {
         resources
             .with_infinite_ergs(|inf_resources| {
-                transfer_from_treasury::<S>(
-                    system,
-                    &to_transfer,
-                    &from,
-                    inf_resources,
-                    Config::SIMULATION,
-                )
-            })
-            .map_err(|e| match e.root_cause() {
-                RootCause::Runtime(RuntimeError::OutOfErgs(_)) => {
-                    system_log!(
-                        system,
-                        "Out of ergs on infinite ergs: inner error was {e:?}"
-                    );
-                    BootloaderSubsystemError::LeafDefect(internal_error!(
-                        "Out of ergs on infinite ergs"
-                    ))
-                }
-                _ => e,
-            })?;
-
-        // Notify L2AssetTracker about the value mint portion of the deposit.
-        // This is inside the execution frame, so it gets rolled back if the
-        // main tx body reverts — matching the treasury transfer above.
-        // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
-        // but native consumption is still tracked against the user's resources.
-        resources
-            .with_infinite_ergs(|inf_resources| {
-                notify_l2_asset_tracker::<S>(
+                mint_base_token::<S, Config>(
                     system,
                     system_functions,
                     memories.reborrow(),
-                    to_transfer,
-                    sl_chain_id,
+                    &to_transfer,
+                    &from,
+                    l1_chain_id,
                     inf_resources,
                     tracer,
                     validator,
@@ -736,6 +694,44 @@ where
         to_charge_for_pubdata,
         resources_before_refund,
     })
+}
+
+/// Notifies L2AssetTracker and transfers base tokens from the treasury
+/// to [to] in a single operation.
+///
+/// This function replicates the behaviour of the corresponding call from bootloader to era contracts:
+/// https://github.com/matter-labs/era-contracts/blob/2f024c5764e7a873ce1dda5fb990331559996441/l1-contracts/contracts/l2-system/era/L2BaseTokenEra.sol#L86
+///
+/// Notify the asset tracker BEFORE changing balances/totalSupply, so that
+/// _needToForceSetAssetMigrationOnL2 can use totalSupply() == 0 consistently.
+fn mint_base_token<'a, S: EthereumLikeTypes + 'a, Config: BasicBootloaderExecutionConfig>(
+    system: &mut System<S>,
+    system_functions: &mut HooksStorage<S, S::Allocator>,
+    memories: RunnerMemoryBuffers<'a>,
+    amount: &U256,
+    to: &B160,
+    l1_chain_id: U256,
+    resources: &mut S::Resources,
+    tracer: &mut impl Tracer<S>,
+    validator: &mut impl TxValidator<S>,
+) -> Result<(), BootloaderSubsystemError>
+where
+    S::IO: IOSubsystemExt,
+    S::Metadata: ZkSpecificPricingMetadata
+        + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
+{
+    notify_l2_asset_tracker::<S>(
+        system,
+        system_functions,
+        memories,
+        *amount,
+        l1_chain_id,
+        resources,
+        tracer,
+        validator,
+    )?;
+
+    transfer_from_treasury::<S>(system, amount, to, resources, Config::SIMULATION)
 }
 
 /// Transfers [value] from the treasury account to address [to].
@@ -827,7 +823,7 @@ fn notify_l2_asset_tracker<'a, S: EthereumLikeTypes + 'a>(
     system_functions: &mut HooksStorage<S, S::Allocator>,
     memories: RunnerMemoryBuffers<'a>,
     amount: U256,
-    sl_chain_id: U256,
+    l1_chain_id: U256,
     resources: &mut S::Resources,
     tracer: &mut impl Tracer<S>,
     validator: &mut impl TxValidator<S>,
@@ -842,7 +838,7 @@ where
         // selector 0x03117c8c + abi-encoded (fromChainId, amount)
         let mut calldata = [0u8; 68];
         calldata[0..4].copy_from_slice(&[0x03, 0x11, 0x7c, 0x8c]);
-        calldata[4..36].copy_from_slice(&sl_chain_id.to_be_bytes::<32>());
+        calldata[4..36].copy_from_slice(&l1_chain_id.to_be_bytes::<32>());
         calldata[36..68].copy_from_slice(&amount.to_be_bytes::<32>());
 
         let failed = resources.with_infinite_ergs(|inf_ergs| {
@@ -882,4 +878,33 @@ where
         }
     }
     Ok(())
+}
+
+/// Reads L1 chain id from L2AssetTracker storage.
+///
+/// This is the chain tokens are bridged *from* during L1→L2 deposits,
+/// passed as `_fromChainId` to `handleFinalizeBaseTokenBridgingOnL2`.
+fn read_l1_chain_id<S: EthereumLikeTypes>(system: &mut System<S>) -> U256
+where
+    S::IO: IOSubsystemExt,
+{
+    // L2AssetTracker storage layout (verified via `forge inspect`):
+    //   slots 0-100:   Initializable + OwnableUpgradeable + Ownable2StepUpgradeable
+    //   slots 101-150: Ownable2Step __gap
+    //   slot 151:      mapping chainBalance
+    //   slot 152:      mapping assetMigrationNumber
+    //   slot 153:      mapping isAssetRegistered
+    //   slot 154:      uint256 L1_CHAIN_ID
+    let l1_chain_id_slot = Bytes32::from_u256_be(&U256::from(154));
+    let mut inf_resources = S::Resources::FORMAL_INFINITE;
+    let chain_id = system
+        .io
+        .storage_read::<false>(
+            ExecutionEnvironmentType::NoEE,
+            &mut inf_resources,
+            &L2_ASSET_TRACKER_ADDRESS,
+            &l1_chain_id_slot,
+        )
+        .expect("must read L2AssetTracker L1_CHAIN_ID");
+    U256::from_be_bytes(chain_id.as_u8_array())
 }
