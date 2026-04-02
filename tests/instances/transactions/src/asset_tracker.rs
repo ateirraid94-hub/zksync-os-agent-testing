@@ -97,11 +97,8 @@ fn setup_real(l1_chain_id: u64) -> TestingFramework {
     let chain_id = 37u64; // default test chain id
 
     let is_registered_key = solidity_mapping_key(BASE_TOKEN_ASSET_ID, U256::from(153));
-    let migration_key = solidity_nested_mapping_key(
-        U256::from(chain_id),
-        BASE_TOKEN_ASSET_ID,
-        U256::from(152),
-    );
+    let migration_key =
+        solidity_nested_mapping_key(U256::from(chain_id), BASE_TOKEN_ASSET_ID, U256::from(152));
 
     let bytecode =
         hex::decode(real_asset_tracker_bytecodes::L2_ASSET_TRACKER_DEPLOYED_BYTECODE).unwrap();
