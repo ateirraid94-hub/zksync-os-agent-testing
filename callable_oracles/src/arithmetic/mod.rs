@@ -71,6 +71,23 @@ fn div_rem_output(
     .into_usize_iterator()
 }
 
+fn u256_div_rem_output(
+    mut dividend: Vec<u64>,
+    mut divisor: Vec<u64>,
+) -> Box<dyn ExactSizeIterator<Item = usize> + 'static + Send + Sync> {
+    ruint::algorithms::div(&mut dividend, &mut divisor);
+
+    let mut result = Vec::with_capacity(8);
+    for limb in dividend {
+        result.push(limb as usize);
+    }
+    for limb in divisor {
+        result.push(limb as usize);
+    }
+
+    Box::new(UsizeSliceIteratorOwned::new(result.into_boxed_slice()))
+}
+
 /// Handle U256 div_rem oracle query.
 ///
 /// Input: 1 packed usize containing two u32 pointers (dividend_ptr in low, divisor_ptr in high).
@@ -91,7 +108,7 @@ fn process_u256_div_rem_query(
     let dividend = read_memory_as_u64(memory, dividend_ptr, 4).unwrap();
     let divisor = read_memory_as_u64(memory, divisor_ptr, 4).unwrap();
 
-    div_rem_output(dividend, divisor)
+    u256_div_rem_output(dividend, divisor)
 }
 
 #[derive(Default)]
