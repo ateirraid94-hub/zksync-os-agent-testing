@@ -450,3 +450,127 @@ fn test_delta_gas() {
     // Should succeed
     run_tx(tx, gas_price, native_price, true, false)
 }
+
+/// Measure actual native consumed by L1 tx intrinsic operations.
+///
+/// Uses a randomized tree to simulate production merkle path costs.
+///
+/// Two scenarios:
+/// 1. Success path: value-mint succeeds, warming asset tracker slots.
+///    Post-execution operations (coinbase, refund) hit warm paths.
+/// 2. Worst case: value-mint exhausts native (FatalRuntimeError) and is
+///    rolled back, so nothing is warmed. Post-execution operations hit
+///    all-cold paths. This is the scenario L1_TX_INTRINSIC_NATIVE_COST
+///    must cover.
+///
+/// The bootloader logs per-operation measurements via system_log!.
+/// Run without rig/no_print to see them.
+
+/// Success path: value-mint succeeds, post-exec operations hit warm paths.
+#[test]
+fn test_l1_intrinsic_native_measurement_success() {
+    use rig::basic_bootloader::bootloader::constants::L1_TX_INTRINSIC_NATIVE_COST;
+
+    let from = alloy::primitives::address!("1234000000000000000000000000000000000000");
+    let to = alloy::primitives::address!("abcd000000000000000000000000000000000000");
+
+    // High gas_price → large native budget → value-mint succeeds.
+    let gas_price: u128 = 100_000;
+    let gas_limit: u128 = 200_000;
+    let value = rig::alloy::primitives::U256::from(1_000);
+    let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
+        + rig::alloy::primitives::U256::from(1_000_000u64);
+
+    let mut tester = TestingFramework::new_with_randomized_tree()
+        .with_balance(from, U256::from(u64::MAX));
+
+    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+        .from(from)
+        .to(to)
+        .gas_price(gas_price)
+        .gas_limit(gas_limit)
+        .value(value)
+        .to_mint(to_mint)
+        .build()
+        .into();
+
+    let output = tester.execute_block(vec![tx]);
+    let tx_result = output.tx_results[0]
+        .as_ref()
+        .expect("L1 tx should not error");
+    assert!(tx_result.is_success(), "L1 tx should succeed");
+
+    println!("=== L1 INTRINSIC NATIVE — SUCCESS PATH (warm post-exec) ===");
+    println!("  gas_used                    = {}", tx_result.gas_used);
+    println!("  computational_native_used   = {}", tx_result.computational_native_used);
+    println!("  native_used                 = {}", tx_result.native_used);
+    println!("  L1_TX_INTRINSIC_NATIVE_COST = {L1_TX_INTRINSIC_NATIVE_COST}");
+    println!("  (see system_log above for per-operation breakdown)");
+    println!("============================================================");
+}
+
+/// Worst case: value-mint runs out of native (FatalRuntimeError), is rolled
+/// back, and post-execution operations (coinbase mint, refund mint, log
+/// emission) hit all-cold paths. This is the scenario the constant
+/// L1_TX_INTRINSIC_NATIVE_COST must cover.
+#[test]
+fn test_l1_intrinsic_native_measurement_worst_case() {
+    use rig::basic_bootloader::bootloader::constants::L1_TX_INTRINSIC_NATIVE_COST;
+
+    let from = alloy::primitives::address!("1234000000000000000000000000000000000000");
+    let to = alloy::primitives::address!("abcd000000000000000000000000000000000000");
+
+    // Low gas_price → tight native budget. The value-mint call to the real
+    // L2AssetTracker consumes enough native to trigger FatalRuntimeError
+    // during the execution frame, which the bootloader converts to a
+    // top-level revert. Post-execution then runs on FORMAL_INFINITE with
+    // all asset-tracker slots cold.
+    //
+    // native_per_gas = gas_price / native_price = 900 / 10 = 90
+    // native_budget  = 90 * 50_000 = 4_500_000
+    // intrinsic_pre  = ~2_875_420  → leaves ~1_624_580 for value-mint + tx body
+    // value-mint     ≈ 2_144_270   → exceeds remaining → FatalRuntimeError
+    //
+    // The bootloader catches FatalRuntimeError and converts it to a
+    // top-level revert. Post-execution operations then run on
+    // FORMAL_INFINITE with all asset-tracker slots cold (rolled back).
+    // Distinct cold refund recipient (not coinbase) for worst-case measurement.
+    let refund_recipient =
+        alloy::primitives::address!("dead000000000000000000000000000000000001");
+
+    let gas_price: u128 = 900;
+    let gas_limit: u128 = 50_000;
+    let value = rig::alloy::primitives::U256::from(1_000);
+    let to_mint = rig::alloy::primitives::U256::from(gas_limit * gas_price)
+        + rig::alloy::primitives::U256::from(1_000_000u64);
+
+    let mut tester = TestingFramework::new_with_randomized_tree()
+        .with_balance(from, U256::from(u64::MAX));
+
+    let tx: ZKsyncTxEnvelope = L1TxBuilder::new()
+        .from(from)
+        .to(to)
+        .gas_price(gas_price)
+        .gas_limit(gas_limit)
+        .value(value)
+        .to_mint(to_mint)
+        .refund_recipient(refund_recipient)
+        .build()
+        .into();
+
+    let output = tester.execute_block(vec![tx]);
+    let tx_result = output.tx_results[0]
+        .as_ref()
+        .expect("L1 tx should not cause a block-level error");
+
+    // The tx is expected to revert — the value-mint or body exhausted native.
+    // L1 txs cannot be invalidated, so the result is still Ok but with a revert.
+    println!("=== L1 INTRINSIC NATIVE — WORST CASE (all-cold post-exec) ===");
+    println!("  tx success                  = {}", tx_result.is_success());
+    println!("  gas_used                    = {}", tx_result.gas_used);
+    println!("  computational_native_used   = {}", tx_result.computational_native_used);
+    println!("  native_used                 = {}", tx_result.native_used);
+    println!("  L1_TX_INTRINSIC_NATIVE_COST = {L1_TX_INTRINSIC_NATIVE_COST}");
+    println!("  (see system_log above for per-operation breakdown)");
+    println!("==============================================================");
+}

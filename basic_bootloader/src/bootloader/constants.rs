@@ -33,52 +33,42 @@ pub const L1_TX_INTRINSIC_L2_GAS: u64 = 21_000;
 
 // Covers intrinsic L1 tx work not charged as tx-body computation.
 //
+// Two categories:
+//   (A) Pre-charged computation (not runtime-deducted, cost is fixed):
+//   (B) Post-execution operations on FORMAL_INFINITE (measured at runtime)
+//
+// (A) Pre-charged (fixed cost, not deducted from any resource tracker):
+//
 //  - storing and hashing the L1 tx log:
 //      EVENT_STORAGE_BASE_NATIVE_COST
 //    + keccak256_native_cost(88)
 //    + 2 * keccak256_native_cost(64)
 //    = 6_000 + 20_000 + 40_000
 //    = 66_000
-//  - hashing tx hash into the rolling hash and linear hashers:
-//      3 * keccak256_native_cost(64)
-//    = 3 * 20_000
-//    = 60_000
-//  - coinbase transfer:
-//      warm existing balance write
-//    = WARM_STORAGE_READ_NATIVE_COST + WARM_STORAGE_WRITE_EXTRA_NATIVE_COST x 2 (to account for treasury)
-//    = (4_000 + 1_000) x 2
-//    = 10_000
-//  - coinbase L2AssetTracker notification:
-//      cold call into L2AssetTracker
-//    + BASE_TOKEN_ASSET_ID read
-//    + isAssetRegistered read
-//    + assetMigrationNumber read
-//    + L2BaseTokenZKOS.totalSupply() path
-//    + L2_CHAIN_ASSET_HANDLER.migrationNumber() call
-//    + assetMigrationNumber write
-//    + SystemContext.currentSettlementLayerChainId() call
-//    + interopInfo.totalSuccessfulDepositsFromL1 += amount
-//    = 132_600
-//    + 125_120
-//    + 145_120
-//    + 286_240
-//    + 392_340
-//    + 277_720
-//    + 164_800
-//    + 257_720
-//    + 391_040
-//    ~= 2_172_700
-//  - refund transfer:
-//      treasury cold existing write
-//    + refund recipient cold new write
-//    = 171_680 + 363_040
-//    = 534_720
-//  - refund L2AssetTracker notification:
-//      warm-path estimate
-//    = 32_000
+//  - hashing tx hash into the rolling hash accumulators:
+//      2 * keccak256_native_cost(64)
+//    = 2 * 20_000
+//    = 40_000
 //
-// We use the cold-path cost for asset tracker first notification because
-// first mint / call to L2AssetTracker can fail due to out-of-native
+// (B) Post-execution on FORMAL_INFINITE (worst case: value-mint exhausted
+//     native and was rolled back, so all asset-tracker slots are cold):
+//
+//     Measured via test_l1_intrinsic_native_measurement_worst_case
+//     (randomized tree, cold refund recipient ≠ coinbase):
+//
+//  - coinbase mint_base_token (notify + transfer, all cold):
+//      notify (cold L2AssetTracker call)  = 1_880_070
+//      transfer (cold treasury + coinbase) =   137_100
+//      total                               = 2_017_170
+//  - refund mint_base_token (notify warm, transfer cold refund recipient):
+//      notify (warm L2AssetTracker call)  =   410_670
+//      transfer (warm treasury + cold recipient) = 256_240
+//      total                               =   666_910
+//
+//  Post-execution total (measured)         = 2_684_080
+//
+// Grand total = (A) + (B) = 106_000 + 2_684_080 = 2_790_080
+// Budget with headroom:
 pub const L1_TX_INTRINSIC_NATIVE_COST: u64 = 2_875_420;
 
 // Pubdata needed for the diff in balance as a result of

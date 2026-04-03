@@ -267,6 +267,7 @@ where
 
     let coinbase = system.get_coinbase();
     // Mint operator fee portion of the deposit to coinbase.
+    let inf_before_coinbase = inf_resources.clone();
     mint_base_token::<S, Config>(
         system,
         system_functions,
@@ -287,6 +288,7 @@ where
         }
         _ => e,
     })?;
+    let coinbase_mint_native = inf_before_coinbase.diff(inf_resources.clone()).native().as_u64();
 
     // Refund
     let to_refund_recipient = if !is_success {
@@ -313,6 +315,7 @@ where
             .ok_or(internal_error!("pf-pto"))
     }?;
     // Mint refund portion of the deposit to the refund recipient.
+    let inf_before_refund = inf_resources.clone();
     if to_refund_recipient > U256::ZERO {
         let refund_recipient = u256_to_b160_checked(transaction.reserved[1].read());
         mint_base_token::<S, Config>(
@@ -338,9 +341,11 @@ where
             }
         })?;
     }
+    let refund_mint_native = inf_before_refund.diff(inf_resources.clone()).native().as_u64();
 
     // Emit log
     // We don't send logs for upgrade txs by protocol convention
+    let inf_before_log = inf_resources.clone();
     if is_priority_op {
         system.io.emit_l1_l2_tx_log(
             ExecutionEnvironmentType::NoEE,
@@ -349,6 +354,7 @@ where
             is_success,
         )?;
     }
+    let log_emit_native = inf_before_log.diff(inf_resources.clone()).native().as_u64();
 
     // Add back the intrinsic native charged in get_resources_for_tx,
     // as initial_resources doesn't include them.
@@ -357,6 +363,20 @@ where
         .native()
         .as_u64()
         + intrinsic_computational_native_charged;
+
+    // Measure total FORMAL_INFINITE native consumed by post-execution operations.
+    let total_inf_native = S::Resources::FORMAL_INFINITE.diff(inf_resources).native().as_u64();
+    system_log!(
+        system,
+        "L1_TX_INTRINSIC_NATIVE_COST measurement:\n  coinbase_mint={}\n  refund_mint={}\n  log_emit={}\n  total_post_exec={}\n  intrinsic_pre_charged={}\n  computational_native_used={}\n  L1_TX_INTRINSIC_NATIVE_COST={}\n",
+        coinbase_mint_native,
+        refund_mint_native,
+        log_emit_native,
+        total_inf_native,
+        intrinsic_computational_native_charged,
+        computational_native_used,
+        L1_TX_INTRINSIC_NATIVE_COST,
+    );
 
     // Restore the saved returndata into the return buffer so that the
     // ExecutionResult can borrow it with the correct lifetime.
@@ -596,6 +616,7 @@ where
     //
     // Use with_infinite_ergs so the call cannot fail due to out-of-gas,
     // but native consumption is still tracked against the user's resources.
+    let resources_before_value_mint = resources.clone();
     if to_transfer > U256::ZERO || Config::SIMULATION {
         resources
             .with_infinite_ergs(|inf_resources| {
@@ -624,6 +645,8 @@ where
                 _ => e,
             })?;
     }
+    let value_mint_native = resources_before_value_mint.diff(resources.clone()).native().as_u64();
+    system_log!(system, "L1 value_mint native={}\n", value_mint_native);
 
     let resources_for_tx = resources.clone();
 
@@ -720,6 +743,7 @@ where
     S::Metadata: ZkSpecificPricingMetadata
         + BasicMetadata<S::IOTypes, TransactionMetadata = TxLevelMetadata<S::IOTypes>>,
 {
+    let r_before = resources.clone();
     notify_l2_asset_tracker::<S>(
         system,
         system_functions,
@@ -730,8 +754,21 @@ where
         tracer,
         validator,
     )?;
+    let notify_native = r_before.diff(resources.clone()).native().as_u64();
 
-    transfer_from_treasury::<S>(system, amount, to, resources, Config::SIMULATION)
+    let r_before = resources.clone();
+    let result = transfer_from_treasury::<S>(system, amount, to, resources, Config::SIMULATION);
+    let transfer_native = r_before.diff(resources.clone()).native().as_u64();
+
+    system_log!(
+        system,
+        "  mint_base_token to={to:?}: notify={}, transfer={}, total={}\n",
+        notify_native,
+        transfer_native,
+        notify_native + transfer_native,
+    );
+
+    result
 }
 
 /// Transfers [value] from the treasury account to address [to].
