@@ -10,12 +10,14 @@ use delegated_u256::*;
 /// Oracle query ID for U256 division hints.
 /// Must match `zk_ee::oracle::query_ids::U256_DIV_REM_ADVICE_QUERY_ID`.
 #[cfg(target_arch = "riscv32")]
+#[allow(dead_code)]
 const U256_DIV_REM_ADVICE_QUERY_ID: u32 = 0x4005_0030;
 
 /// Write a word to the oracle CSR (address 0x7c0).
 /// Mirrors `riscv_common::csr_write_word`.
 #[cfg(target_arch = "riscv32")]
 #[inline(always)]
+#[allow(dead_code)]
 fn oracle_csr_write(value: usize) {
     unsafe {
         core::arch::asm!(
@@ -30,6 +32,7 @@ fn oracle_csr_write(value: usize) {
 /// Mirrors `riscv_common::csr_read_word`.
 #[cfg(target_arch = "riscv32")]
 #[inline(always)]
+#[allow(dead_code)]
 fn oracle_csr_read() -> u32 {
     let output;
     unsafe {
@@ -51,6 +54,7 @@ fn oracle_csr_read() -> u32 {
 ///
 /// Together these uniquely determine `q` and `r` for given `(n, d)`.
 #[cfg(target_arch = "riscv32")]
+#[allow(dead_code)]
 fn oracle_div_rem(dividend: &mut U256, divisor: &mut U256) {
     // ---- Send oracle query ----
     // Protocol: write query_id, write input_len, write input words,
@@ -318,18 +322,12 @@ impl U256 {
         let is_zero = divisor_or_remainder.0.is_zero_mut();
         assert!(is_zero == false);
 
-        #[cfg(target_arch = "riscv32")]
-        {
-            oracle_div_rem(dividend_or_quotient, divisor_or_remainder);
-        }
-
-        #[cfg(not(target_arch = "riscv32"))]
-        {
-            ruint::algorithms::div(
-                dividend_or_quotient.as_limbs_mut(),
-                divisor_or_remainder.as_limbs_mut(),
-            );
-        }
+        // Keep native prover-input runs and RISC-V simulation aligned until the
+        // host proving path can emit the same div/rem oracle witness.
+        ruint::algorithms::div(
+            dividend_or_quotient.as_limbs_mut(),
+            divisor_or_remainder.as_limbs_mut(),
+        );
     }
 
     #[inline(always)]
