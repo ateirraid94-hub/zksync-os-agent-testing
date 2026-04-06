@@ -86,7 +86,7 @@ A constant `MAX_FRI_PROOF_TXS_PER_BLOCK` is added to `basic_bootloader/src/bootl
 
 ### Structure
 
-A new struct `FriProofBlockContext` is defined in `basic_bootloader/src/bootloader/block_flow/zk/block_data.rs` (alongside `ZKBasicBlockDataKeeper`). It holds the results of all verified FRI proof transactions for the current block:
+A new struct `FriProofBlockContext` is defined in `zk_ee/src/common_structs/fri_proof_context.rs`. It is placed in `zk_ee` (not in `basic_bootloader`) because both the IO subsystem (`basic_system`) and the system hooks (`system_hooks`) need to reference `FriProofEntry` and `FriProofBlockContext` without creating circular crate dependencies. `block_data.rs` imports and uses this type. It holds the results of all verified FRI proof transactions for the current block:
 
 - An `ArrayVec<FriProofEntry, MAX_FRI_PROOF_TXS_PER_BLOCK>` where each entry contains:
   - `proof_index: u32` — position in the block's FRI proof sequence (0-based)
@@ -567,6 +567,7 @@ The following files require changes. This list is precise; no file is listed unl
 
 ### `zk_ee/src/system/metadata/basic_metadata.rs`
 - Add `fn is_gateway(&self) -> bool` to the `BasicBlockMetadata` trait.
+- Because `BasicBlockMetadata` is also implemented by the Ethereum block flow (`basic_bootloader/src/bootloader/block_flow/ethereum/block_header.rs` — `impl BasicBlockMetadata<EthereumIOTypesConfig> for HeaderAndHistory`), that implementation must also gain `fn is_gateway(&self) -> bool { false }` to satisfy the trait. No Ethereum path should ever see a `0x7c` transaction or the FRI precompile.
 
 ### `zk_ee/src/system/io.rs`
 - Add `fn set_fri_proof_entry(&mut self, entry: FriProofEntry) -> Result<(), InternalError>` to `IOSubsystem` trait.
@@ -621,8 +622,17 @@ The following files require changes. This list is precise; no file is listed unl
 - Handle `MAX_FRI_PROOF_TXS_PER_BLOCK` limit.
 - Return the populated `ZKBasicBlockDataKeeper`.
 
+### `basic_bootloader/src/bootloader/block_flow/zk/post_init_op.rs`
+- In `ZKHeaderPostInitOp::post_op()`, extend the call to `system_hooks::add_precompiles(...)` to conditionally register the FRI precompile only when `system.get_metadata().is_gateway()` is true (see Section 9).
+
 ### `basic_bootloader/src/bootloader/block_flow/zk/tx_loop.rs`
 - In the main transaction loop, after determining transaction type, add check: if `is_fri_proof()` is true, record as `InvalidTransaction::FriProofTxOutOfOrder` and continue (mirroring the existing `InvalidEncoding` path).
+
+### `basic_bootloader/src/bootloader/block_flow/zk/batch_data.rs`
+- Add `fri_proof_tx_count: U256` field to `ZKBatchDataKeeper` (initialized to `U256::ZERO`).
+- In `apply_block()`, accept a `number_of_fri_proof_txs_in_block: u32` parameter and accumulate into `fri_proof_tx_count`.
+- In `into_public_input()`, include `fri_proof_tx_count` in `BatchOutput` so it is covered by the batch commitment hash checked by `Committer.sol`.
+- Correspondingly, add `number_of_fri_proof_txs: U256` field to `BatchOutput` in `basic_bootloader/src/bootloader/block_flow/zk/post_tx_op/public_input.rs` and include it in `BatchOutput::hash()`.
 
 ### `basic_system/src/system_implementation/system/io_subsystem.rs`
 - Add `fri_proof_context: FriProofBlockContext` field to `FullIO`.
@@ -645,9 +655,15 @@ The following files require changes. This list is precise; no file is listed unl
 - ABI-encode and return `(bool, bytes)`.
 - Charge `FRI_PRECOMPILE_BASE_COST_ERGS`.
 
+### `basic_bootloader/src/bootloader/config.rs`
+- Add `const SKIP_FRI_PROOF_VERIFICATION: bool` to `BasicBootloaderCallSimulationConfig` (analogous to `SKIP_SIGNATURE_VERIFICATION`).
+- The pre-loop checks this flag before invoking the verifier; when `true` it records a synthetic "success" entry so that simulation calls to the FRI precompile return valid-looking results without executing the verifier.
+
+### `forward_system/Cargo.toml`
+- Add the `prover` crate from `zksync-airbender` as a dependency (or confirm it is already transitively available). This is required for invoking the verifier during forward-mode pre-loop execution.
+
 ### `forward_system/src/run/mod.rs` / `forward_system/src/system/bootloader.rs`
-- In forward execution, the FRI verifier is invoked during the pre-loop. The `prover` crate from `zksync-airbender` is called. The `forward_system/Cargo.toml` must add `prover` as a dependency if it is not already present.
-- For call simulation, add `SKIP_FRI_PROOF_VERIFICATION` logic to `BasicBootloaderCallSimulationConfig` (in `basic_bootloader/src/bootloader/config.rs`).
+- Wire the `prover` crate invocation (with `replace_csr` feature for host execution) into the forward pre-loop. See Section 13 for the non-determinism source setup required before calling `verify()`.
 
 ### `zksync_os_interface/src/types.rs`
 - Add `fri_proof_results: Vec<FriProofResult>` to `BlockOutput` (or to a new `BlockFriContext` field).
