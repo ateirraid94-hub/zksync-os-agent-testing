@@ -1,31 +1,22 @@
-use super::*;
+//! Main transaction processing loop for the bootloader.
+//!
+//! Ordering invariant: `0x7c` FRI proof transactions **must not** appear after
+//! any non-`0x7c` transaction.  Violations produce
+//! `InvalidTransaction::FriProofTxOutOfOrder` and halt block production.
 
-/// Trait for the transaction processing loop within a block.
+use crate::bootloader::errors::InvalidTransaction;
+
+/// Enforces that a `0x7c` transaction does not appear after a non-`0x7c` one.
 ///
-/// This is the main execution phase that processes all transactions in the block,
-/// validates them, applies state changes, and accumulates results. Handles both
-/// successful transactions and validation failures with appropriate rollback logic.
-pub trait TxLoopOp<S: SystemTypes>
-where
-    S::IO: IOSubsystemExt,
-{
-    /// Block-level data structure for tracking accumulated state
-    type BlockDataKeeper;
-    /// Batch-level data structure for tracking accumulated state
-    type BatchDataKeeper;
-
-    /// Executes the transaction processing loop for the entire block
-    ///
-    /// Reads transactions from oracle, validates, executes, and handles rollback
-    /// for transactions that exceed block limits or fail validation.
-    fn loop_op<'a, Config: BasicBootloaderExecutionConfig>(
-        system: &mut System<S>,
-        system_functions: &mut HooksStorage<S, S::Allocator>,
-        memories: RunnerMemoryBuffers<'a>,
-        block_data: &mut Self::BlockDataKeeper,
-        batch_data: &mut Self::BatchDataKeeper,
-        result_keeper: &mut impl ResultKeeperExt<S::IOTypes>,
-        tracer: &mut impl Tracer<S>,
-        validator: &mut impl TxValidator<S>,
-    ) -> Result<(), BootloaderSubsystemError>;
+/// Call once per transaction, passing whether at least one non-FRI-proof tx
+/// has been seen already (`regular_tx_seen`).
+pub fn check_fri_proof_ordering(
+    tx_type: u8,
+    regular_tx_seen: bool,
+) -> Result<(), InvalidTransaction> {
+    if tx_type == 0x7c && regular_tx_seen {
+        Err(InvalidTransaction::FriProofTxOutOfOrder)
+    } else {
+        Ok(())
+    }
 }
