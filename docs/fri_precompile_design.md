@@ -2,198 +2,159 @@
 
 ## Overview
 
-This document describes the design for a FRI (Fast Reed-Solomon Interactive Oracle Proofs of Proximity) precompile in ZKsync OS. The feature enables on-chain verification of FRI proofs via a new transaction type and a dedicated precompile contract, restricted to gateway nodes.
+This document describes the design for integrating FRI (Fast Reed-Solomon Interactive) proof transactions and a corresponding precompile into the zkEVM bootloader and system.
 
 ---
 
-## 1. Transaction Format
+## Transaction Format
 
 ### Type Byte
 
-FRI proof transactions use type byte **`0x7c`** — the next available slot below:
-- `0x7d` — service transactions
-- `0x7e` — upgrade transactions
-- `0x7f` — L1 transactions
+- **`0x7c`** — next available slot below:
+  - Service tx: `0x7d`
+  - Upgrade tx: `0x7e`
+  - L1 tx: `0x7f`
 
 ### Encoding
 
-RLP-encoded with the following fields:
-```
-fri_proof_tx := RLP([chain_id, version, proof_payload])
-```
+- RLP-encoded with fields: `chain_id` + `proof_payload`
+- `from` **must** be `BOOTLOADER_FORMAL_ADDRESS` (same constraint as service transactions)
 
-- `chain_id`: matches the current network chain ID
-- `version`: one-byte version prefix
-  - `0x00` — reserved
-  - `0x01` — first deployed version
-- `proof_payload`: opaque bytes containing the serialized FRI proof
+### Version Byte Prefix
 
-### Sender Restriction
-
-The `from` field **must** be `BOOTLOADER_FORMAL_ADDRESS`, identical to the constraint applied on service transactions. Any FRI proof transaction originating from a different address must be rejected.
+| Value | Meaning |
+|-------|---------|
+| `0x00` | Reserved |
+| `0x01` | First deployed version |
 
 ---
 
-## 2. Block Processing Flow
+## Block Processing Flow
 
-### Pre-Transaction Loop (FRI Proof Ingestion)
+### Pre-Transaction Loop
 
-FRI proof transactions are consumed in an extended **`ZKHeaderStructurePreTxOp`** pre-loop, located in:
+FRI proof transactions are consumed in an extended **`ZKHeaderStructurePreTxOp` pre-loop** before the main transaction loop.
 
-```
-basic_bootloader/src/bootloader/block_flow/zk/pre_tx_loop.rs
-```
+- Location: `basic_bootloader/src/bootloader/block_flow/zk/pre_tx_loop.rs`
+- Verified against constant `MAX_FRI_PROOF_TXS_PER_BLOCK`
+- All `0x7c` transactions must appear before any regular transactions in the block
 
-This pre-loop runs **before** the main transaction loop. All `0x7c`-typed transactions in the block are extracted and validated here. The maximum number of FRI proof transactions per block is enforced via the constant:
+### Main Transaction Loop
 
-```rust
-MAX_FRI_PROOF_TXS_PER_BLOCK
-```
-
-### Main Transaction Loop (Ordering Enforcement)
-
-The main loop (`tx_loop.rs`) enforces strict ordering: if a `0x7c` transaction appears **after** any regular (non-FRI-proof) transaction, the block is considered invalid:
-
-```
-InvalidTransaction::FriProofTxOutOfOrder
-```
-
-This guarantees that all FRI proof transactions are processed before user-facing transactions.
+- Location: `basic_bootloader/src/bootloader/block_flow/zk/tx_loop.rs`
+- Enforces ordering: if a `0x7c` tx appears after any regular tx → `InvalidTransaction::FriProofTxOutOfOrder`
 
 ---
 
-## 3. `fri_proof_context` Storage
+## `fri_proof_context` Storage
 
-### Design Pattern
+### Pattern
 
-The storage design follows the exact pattern of `new_settlement_layer_chain_id_storage` in:
+Follows the exact pattern of `new_settlement_layer_chain_id_storage` in:
 
 ```
 basic_system/src/system_implementation/system/io_subsystem.rs
 ```
 
-### New Types
+### New Structures
 
-A new `FriProofBlockContext` struct is introduced and embedded in `ZKBasicBlockDataKeeper`.
+- `FriProofBlockContext` — new context struct added to `ZKBasicBlockDataKeeper`
+- Two new methods added to the `IOSubsystem` trait:
+  - (getter) `get_fri_proof_entry(index: u32) -> FriProofBlockContext`
+  - (setter) `set_fri_proof_entry(index: u32, ctx: FriProofBlockContext)`
 
-### IOSubsystem Trait Extensions
+### Precompile Access
 
-Two new methods are added to the `IOSubsystem` trait:
+The FRI precompile reads proof entries via:
 
 ```rust
-fn store_fri_proof_entry(index: u32, entry: FriProofBlockContext);
-fn get_fri_proof_entry(index: u32) -> Option<FriProofBlockContext>;
+system.io.get_fri_proof_entry(index)
 ```
-
-The FRI precompile accesses stored proof data via `system.io.get_fri_proof_entry(index)`.
 
 ---
 
-## 4. FRI Precompile
+## FRI Precompile
 
 ### Address
 
-The precompile is registered at address **`0x12`**, which fits within the EVM precompile address range and has no conflicts with existing entries in `addresses_constants.rs`.
+- **`0x12`** — fits within the EVM precompile address range; no conflicts with existing entries in `addresses_constants.rs`
 
 ### Registration
 
-The precompile is registered in `post_init_op.rs`, gated on `is_gateway`:
+- Gateway-only: registered in `post_init_op.rs` **conditional on `is_gateway`**
+- Non-gateway deployments do not expose this precompile
 
-```rust
-if metadata.is_gateway {
-    register_precompile(FRI_PRECOMPILE_ADDRESS, fri_precompile_handler);
-}
-```
-
-Only gateway nodes expose this precompile.
-
-### Interface
+### ABI
 
 **Input:**
+
 ```solidity
 uint32 proof_index
 ```
 
 **Output:**
+
 ```solidity
 (bool success, bytes publicInputs)
 ```
 
-- `success`: `true` if a proof entry exists at the given index and verification passed
-- `publicInputs`: the serialized public inputs associated with the proof
-
 ---
 
-## 5. Gateway Gating
+## Gateway Gating
 
-### New Field in `BlockMetadataFromOracle`
-
-A new boolean field is added to `BlockMetadataFromOracle` in:
-
-```
-zk_ee/src/system/metadata/zk_metadata.rs
-```
+### New Field
 
 ```rust
-pub is_gateway: bool,
+// zk_ee/src/system/metadata/zk_metadata.rs
+pub struct BlockMetadataFromOracle {
+    // ... existing fields ...
+    pub is_gateway: bool,
+}
 ```
 
-### Serialization and Commitment
-
-- The field is serialized as part of the `BLOCK_METADATA_QUERY_ID` blob.
-- It is committed in the proof, meaning the value is cryptographically bound to each block.
-- This prevents non-gateway nodes from forging gateway-mode behavior.
+- Serialized as part of `BLOCK_METADATA_QUERY_ID`
+- Committed in the proof, so it cannot be spoofed by the sequencer
 
 ---
 
-## 6. Precise File Changes (20+)
+## File Change Index (20+ locations)
 
 | File | Change |
 |------|--------|
-| `basic_bootloader/src/bootloader/block_flow/zk/pre_tx_loop.rs` | Extend pre-loop to consume and validate `0x7c` transactions |
-| `basic_bootloader/src/bootloader/block_flow/zk/tx_loop.rs` | Add `FriProofTxOutOfOrder` ordering enforcement |
-| `basic_bootloader/src/bootloader/transactions/mod.rs` | Register `0x7c` as a valid transaction type |
-| `basic_bootloader/src/bootloader/transactions/fri_proof_tx.rs` | New: FRI proof transaction parsing and validation logic |
-| `basic_system/src/system_implementation/system/io_subsystem.rs` | Add `store_fri_proof_entry` / `get_fri_proof_entry` methods |
-| `basic_system/src/system_implementation/system/zk_basic_block_data_keeper.rs` | Add `FriProofBlockContext` field |
-| `basic_system/src/system_implementation/system/fri_proof_context.rs` | New: `FriProofBlockContext` type definition |
-| `basic_system/src/system_implementation/precompiles/fri.rs` | New: FRI precompile handler implementation |
-| `basic_system/src/system_implementation/precompiles/mod.rs` | Export `fri` module |
-| `basic_system/src/system_implementation/post_init_op.rs` | Register FRI precompile at `0x12` when `is_gateway` |
+| `basic_bootloader/src/bootloader/block_flow/zk/pre_tx_loop.rs` | Extended pre-loop consuming `0x7c` txs; enforce `MAX_FRI_PROOF_TXS_PER_BLOCK` |
+| `basic_bootloader/src/bootloader/block_flow/zk/tx_loop.rs` | Reject `0x7c` after regular tx with `FriProofTxOutOfOrder` |
+| `basic_bootloader/src/bootloader/tx_parsing/mod.rs` | Decode type `0x7c` RLP structure |
+| `basic_bootloader/src/bootloader/tx_parsing/fri_proof_tx.rs` | New file: `FriProofTransaction` struct + decode logic |
+| `basic_bootloader/src/bootloader/constants.rs` | Add `MAX_FRI_PROOF_TXS_PER_BLOCK` |
+| `basic_system/src/system_implementation/system/io_subsystem.rs` | Add `FriProofBlockContext`; extend `IOSubsystem` trait with `get/set_fri_proof_entry` |
+| `basic_system/src/system_implementation/system/zk_basic_block_data_keeper.rs` | Add `fri_proof_entries` field to `ZKBasicBlockDataKeeper` |
+| `basic_system/src/system_implementation/precompiles/mod.rs` | Register FRI precompile at `0x12` |
+| `basic_system/src/system_implementation/precompiles/fri_proof.rs` | New file: FRI precompile implementation |
+| `basic_system/src/system_implementation/post_init_op.rs` | Conditional registration of FRI precompile on `is_gateway` |
 | `zk_ee/src/system/metadata/zk_metadata.rs` | Add `is_gateway: bool` to `BlockMetadataFromOracle` |
-| `zk_ee/src/system/metadata/mod.rs` | Update serialization for `is_gateway` in `BLOCK_METADATA_QUERY_ID` |
-| `addresses_constants.rs` (or equivalent) | Add `FRI_PRECOMPILE_ADDRESS = 0x12` constant |
-| `basic_bootloader/src/bootloader/constants.rs` | Add `MAX_FRI_PROOF_TXS_PER_BLOCK` constant |
-| `basic_bootloader/src/bootloader/errors.rs` | Add `FriProofTxOutOfOrder` variant to `InvalidTransaction` |
-| `basic_bootloader/src/bootloader/block_flow/zk/mod.rs` | Re-export new pre-loop changes |
-| `basic_system/src/lib.rs` | Export `fri_proof_context` module |
-| Integration test: `tests/fri_proof_tx_integration.rs` | New: end-to-end test for FRI proof tx ingestion and precompile call |
-| `Cargo.toml` (workspace or crate-level) | Add any new dependency for FRI proof deserialization if needed |
-| `docs/fri_precompile_design.md` | This document |
+| `zk_ee/src/system/metadata/mod.rs` | Serialize/deserialize `is_gateway` in `BLOCK_METADATA_QUERY_ID` |
+| `zk_ee/src/system/errors.rs` | Add `InvalidTransaction::FriProofTxOutOfOrder` variant |
+| `zk_ee/src/system/errors.rs` | Add `InvalidTransaction::FriProofTxNotFromBootloader` variant |
+| `addresses_constants.rs` (system crate) | Add `FRI_PRECOMPILE_ADDRESS = 0x12` |
+| `basic_bootloader/src/bootloader/tx_validation/mod.rs` | Validate `from == BOOTLOADER_FORMAL_ADDRESS` for `0x7c` |
+| `basic_bootloader/src/bootloader/tx_validation/fri_proof_tx_validation.rs` | New file: validation logic for FRI proof txs |
+| `basic_bootloader/src/bootloader/block_flow/zk/mod.rs` | Wire new pre-loop op into block flow |
+| `basic_system/src/system_implementation/system/mod.rs` | Export new types |
+| `zk_ee/src/lib.rs` | Re-export metadata changes |
 
 ---
 
-## 7. Unresolved Questions
+## Unresolved Questions
 
-1. **Proof payload format**: What is the exact binary encoding of `proof_payload`? Is it a custom format or standard FRI wire format?
-2. **Verification logic**: Where does actual FRI proof verification happen — in the precompile, in the pre-loop, or both?
-3. **Public inputs binding**: How are public inputs committed relative to the block hash?
-4. **Error behavior**: Should an invalid FRI proof abort the block, or only mark that proof index as failed?
-5. **`MAX_FRI_PROOF_TXS_PER_BLOCK` value**: What is the concrete limit? Impacts block size and prover cost.
-6. **Precompile gas cost**: What is the gas schedule for calling `0x12`? Fixed cost or proof-size-dependent?
-7. **Re-entrancy / composability**: Can regular user transactions call the FRI precompile in the same block they were verified in?
-8. **Proof index namespace**: Are proof indices global per block or per-chain?
-9. **Serialization versioning**: How is the `version` byte in the transaction format used for forward compatibility?
-10. **Gateway detection finality**: Can `is_gateway` change mid-upgrade? What happens to in-flight blocks?
-11. **Testing strategy**: Can FRI proofs be mocked for unit tests, or does the test environment require a full prover?
-12. **Consensus on address `0x12`**: Has `0x12` been formally reserved, or is this tentative pending cross-team review?
-
----
-
-## 8. References
-
-- Existing service transaction implementation: `basic_bootloader/src/bootloader/transactions/`
-- Settlement layer storage pattern: `basic_system/src/system_implementation/system/io_subsystem.rs`
-- Block metadata: `zk_ee/src/system/metadata/zk_metadata.rs`
-- Existing precompile registrations: `basic_system/src/system_implementation/post_init_op.rs`
-- Address constants: `addresses_constants.rs`
+1. What is the exact serialization format for `proof_payload` (length-prefixed bytes vs. fixed-size fields)?
+2. Should `MAX_FRI_PROOF_TXS_PER_BLOCK` be a compile-time constant or a runtime oracle value?
+3. How are `publicInputs` encoded in the precompile output — ABI-encoded or raw bytes?
+4. Does the proof verifier run inside the precompile call or is it pre-verified in the pre-tx loop?
+5. What happens if `proof_index` is out of range — revert or return `(false, "")`?
+6. Is `is_gateway` set by the oracle or derived from chain configuration?
+7. Should non-gateway chains silently ignore `0x7c` txs or hard-reject them?
+8. What gas cost should be assigned to the FRI precompile call?
+9. Are FRI proof txs included in the block's transaction count for the executor?
+10. How does the L1 verifier validate the `is_gateway` commitment?
+11. Should `FriProofBlockContext` store the raw payload or parsed fields?
+12. What is the upgrade path if the `0x01` version format needs to change?
