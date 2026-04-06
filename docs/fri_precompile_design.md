@@ -4,7 +4,7 @@
 
 This document describes the design for gateway-only FRI proof submission transactions and the corresponding FRI verification precompile in zksync-os. The feature enables the gateway to accept ZK proof payloads as a dedicated transaction type, verify them at block start, and expose results to EVM contracts via a new precompile.
 
-**Scope of this document**: zksync-os only. Changes to zksync-os-server, era-contracts, zksync-os-revm, and zksync-airbender are described at the interface level; their internal implementations are outside this document's scope.
+**Scope of this document**: All five repositories involved: zksync-os (primary), zksync-os-server (sequencer), era-contracts (gateway contracts), zksync-os-revm (REVM consistency checker), and zksync-airbender (verifier source, imported not modified).
 
 ---
 
@@ -94,7 +94,7 @@ A new struct `FriProofBlockContext` is defined in `basic_bootloader/src/bootload
   - `public_inputs: FriPublicInputs` — the public inputs extracted from a successful verification; zero-valued on failure
   - `version: u8` — proof encoding version used
 
-`FriPublicInputs` is a fixed-size struct whose layout matches the output of the unified verifier from zksync-airbender. Its exact fields depend on the verifier API; the design assumes it is a fixed-size value type.
+`FriPublicInputs` is a fixed-size struct whose layout matches the output of the unified verifier from zksync-airbender. Its exact fields are determined by the verifier API; see Section 13 for the concrete type.
 
 ### Storage Location
 
@@ -162,54 +162,338 @@ A constant `FRI_PRECOMPILE_BASE_COST_ERGS` is defined in `basic_bootloader/src/b
 
 ## 5. Sequencer Changes (zksync-os-server)
 
-The sequencer changes are outside zksync-os but their interface with zksync-os determines what zksync-os must expose.
+### Repository
 
-### What zksync-os must expose
+`https://github.com/matter-labs/zksync-os-server` (default branch, no special branch required)
 
-The `zksync-os-server` sequencer needs:
+### Architecture Context
 
-1. A way to construct and encode `0x7c` FRI proof transactions. The encoding is described in Section 1; the sequencer assembles the RLP-encoded byte vector using the same utilities used for service transactions.
+The sequencer already has an FRI proving pipeline (`node/bin/src/prover_api/fri_proving_pipeline_step.rs`, `fri_job_manager.rs`, `fri_proof_verifier.rs`) for verifying SNARK-wrapped recursion proofs of gateway batches. This is a **different** FRI concern: those are the proofs that the sequencer submits to L1 to prove the gateway's own state transition. The FRI proof transactions (`0x7c`) described in this document are for in-block proof verification of child chains, distinct from the sequencer's own proving pipeline.
 
-2. The `BlockMetadataFromOracle` structure (via `zksync_os_interface` or `forward_system` API) must carry the `is_gateway` flag so that the sequencer can set it correctly when building oracle inputs.
+### New Transaction Type (`FriProofTx`)
 
-3. The oracle processor for the tx stream must accept `0x7c` transactions in the transaction list source (`TxListSource` in `zksync_os_interface/src/traits.rs`). The transaction bytes are passed through as-is; no special handling at the `TxListSource` level is needed.
+The `ZkEnvelope` enum in `lib/types/src/transaction/mod.rs` currently has four variants annotated with the `#[envelope]` macro:
 
-### Sequencer responsibilities (documented for clarity)
+```rust
+pub enum ZkEnvelope {
+    #[envelope(ty = 125)]  // 0x7d
+    System(SystemTxEnvelope),
+    #[envelope(ty = 126)]  // 0x7e
+    Upgrade(L1UpgradeEnvelope),
+    #[envelope(ty = 127)]  // 0x7f
+    L1(L1PriorityEnvelope),
+    #[envelope(flatten)]
+    L2(L2Envelope),
+}
+```
 
-- In gateway mode: accept proof submission requests, construct `0x7c` transactions, and prepend them to the transaction list before regular transactions in each block.
-- In L2 mode: reject `0x7c` transactions at the mempool level (do not include in blocks).
-- Enforce the per-block limit `MAX_FRI_PROOF_TXS_PER_BLOCK`.
+A new variant is added:
+
+```rust
+#[envelope(ty = 124)]  // 0x7c
+FriProof(FriProofTxEnvelope),
+```
+
+#### `FriProofTx` struct (`lib/types/src/transaction/fri_proof/tx.rs`, new file)
+
+Modelled after `lib/types/src/transaction/system/tx.rs` (`SystemTx`):
+
+```rust
+pub const FRI_PROOF_TX_TYPE_ID: u8 = 124; // 0x7c
+
+pub struct FriProofTx {
+    pub chain_id: u64,
+    pub proof_payload: Bytes,
+}
+```
+
+It implements `Transaction`, `Typed2718`, `Encodable2718`, `RlpEcdsaEncodableTx`, `RlpEcdsaDecodableTx`, and `Encodable`/`Decodable`. The RLP fields are `[chain_id, proof_payload]` with no signature fields.
+
+#### `ZkTxType` enum
+
+The `ZkTxType` enum (in `zksync_os_types` or inlined in `lib/types/src/transaction/mod.rs`) gains a `FriProof` variant that corresponds to `ZkEnvelope::FriProof`. The `tx_type()` method returns `FRI_PROOF_TX_TYPE_ID`.
+
+#### `ZkTransaction` handling
+
+The `try_into_recovered()` method on `ZkEnvelope` gains a `FriProof(fri_tx) => Ok(ZkTransaction::from(fri_tx))` arm. Since FRI proof transactions carry no signer (they are operator-constructed), recovery is a no-op returning a fixed address (`BOOTLOADER_FORMAL_ADDRESS`).
+
+### Receipt Support
+
+`lib/types/src/receipt/envelope.rs` defines `ZkReceiptEnvelope`. A new variant is added:
+
+```rust
+#[serde(rename = "0x7c")]
+FriProof(ReceiptWithBloom<ZkReceipt<T, U>>),
+```
+
+The `from_typed()` match arm gains `ZkTxType::FriProof => Self::FriProof(receipt.into())`. The `Encodable2718`/`Decodable2718` implementations gain the corresponding `FRI_PROOF_TX_TYPE_ID` arms.
+
+FRI proof transactions do not generate standard receipts (they are consumed in the pre-loop before the main transaction loop). The receipt for a `0x7c` transaction records only the transaction hash and verification outcome (success/failure); it carries no gas usage, logs, or return data.
+
+### Sequencer (Gateway Mode) Responsibilities
+
+In gateway mode the sequencer must:
+
+1. **Accept proof submission requests**: A new component or extension of an existing pipeline step receives proof payloads from an external source (e.g., a child chain's prover or a dedicated proof submission queue). The source and authorization model are out of scope for this document; the interface is a byte slice containing the versioned proof payload.
+
+2. **Construct `0x7c` transactions**: Using `FriProofTx { chain_id: gateway_chain_id, proof_payload }`, RLP-encode and wrap in `FriProofTxEnvelope`. The resulting envelope is prepended to the block's transaction list before any regular L2 transactions.
+
+3. **Enforce per-block limit**: If the pending proof submission queue contains more than `MAX_FRI_PROOF_TXS_PER_BLOCK` payloads, at most `MAX_FRI_PROOF_TXS_PER_BLOCK` are included in a single block; the rest are deferred to subsequent blocks.
+
+4. **Set `is_gateway = true`** in `BlockMetadataFromOracle` when building the oracle input for each gateway block (see Section 9).
+
+5. **Reject `0x7c` transactions in L2 (non-gateway) mode**: The mempool layer rejects any externally submitted `0x7c` transactions. The sequencer itself does not inject them when `is_gateway = false`.
+
+### `BatchInfoAccumulator` (seal criteria)
+
+`node/bin/src/batcher/seal_criteria.rs` defines `BatchInfoAccumulator` which tracks counters used to decide when to seal a batch. A new field `fri_proof_tx_count: u64` is added and incremented for each `0x7c` transaction in a block. This counter feeds the per-batch limit if needed (distinct from the per-block limit enforced in zksync-os).
+
+### Cargo.toml dependency
+
+No new crate dependencies are required. The `FriProofTx` encoding reuses existing `alloy-rlp` and `alloy` primitives already in the dependency tree.
 
 ---
 
 ## 6. Gateway Contract Interface (era-contracts)
 
-The gateway contract changes are outside zksync-os but their interaction with the settlement layer determines proof submission flow.
+### Repository
 
-At the contract level, a new L1 entry point is needed to accept proof payloads and include them in gateway blocks. From the zksync-os perspective, the only interface requirement is:
+`https://github.com/matter-labs/era-contracts/tree/draft-v31`
 
-- The proof payload bytes supplied by the L1 contract are identical to the `proof_payload` field that appears in the `0x7c` transaction (version byte followed by raw proof data). No additional wrapping is performed by zksync-os.
-- The `chain_id` in the `0x7c` transaction is the gateway chain ID.
+### Architecture Context
 
-No changes to zksync-os are driven by the contract interface beyond what is described in other sections.
+The gateway runs ZKsync OS and settles its state on L1 via the diamond proxy contracts. When the gateway processes a ZKsync OS batch, `Committer.sol`'s `_commitOneBatchZKsyncOS` is called, which:
+
+1. Validates DA commitment.
+2. Computes `batchOutputHash` as `keccak256(chainId, timestamps, daScheme, daCommitment, numberOfLayer1Txs, numberOfLayer2Txs, priorityOpsHash, l2LogsTreeRoot, upgradeTxHash, dependencyRootsRollingHash, slChainId)`.
+3. Stores `StoredBatchInfo` with `commitment = batchOutputHash`.
+4. When `L1_CHAIN_ID != block.chainid` (i.e., executing on the gateway), relays `StoredBatchInfo` to L1 via `sendToL1`.
+
+The existing `IZKsyncOSDualVerifier` interface (`chain-interfaces/IZKsyncOSDualVerifier.sol`) already anticipates version-tagged verifiers via `fflonkVerifiers(uint32 version)` and `plonkVerifiers(uint32 version)`. This version field maps directly to the `version` byte in the FRI proof payload.
+
+### New: `numberOfFriProofTxs` in `CommitBatchInfoZKsyncOS`
+
+The struct `CommitBatchInfoZKsyncOS` in `chain-interfaces/ICommitter.sol` gains a new field:
+
+```solidity
+uint256 numberOfFriProofTxs;
+```
+
+This field records the number of `0x7c` transactions executed in the batch. It is included in the `batchOutputHash` computation so that the proof commits to the FRI proof count.
+
+#### Updated `batchOutputHash` in `_commitOneBatchZKsyncOS`
+
+```solidity
+bytes32 batchOutputHash = keccak256(abi.encodePacked(
+    _newBatch.chainId,
+    _newBatch.firstBlockTimestamp,
+    _newBatch.lastBlockTimestamp,
+    uint256(_newBatch.daCommitmentScheme),
+    _newBatch.daCommitment,
+    _newBatch.numberOfLayer1Txs,
+    _newBatch.numberOfLayer2Txs,
+    _newBatch.numberOfFriProofTxs,   // NEW
+    _newBatch.priorityOperationsHash,
+    _newBatch.l2LogsTreeRoot,
+    _expectedSystemContractUpgradeTxHash,
+    _newBatch.dependencyRootsRollingHash,
+    _newBatch.slChainId
+));
+```
+
+### New: FRI Proof Submission Entry Point
+
+A new L1/gateway entry point is required for submitting proof payloads to the gateway. Two candidate designs are described; one must be selected:
+
+**Option A — Priority transaction route**: An authorized party calls a new function on the gateway's `IMailbox` implementation (or a dedicated `IFriProofMailbox` interface):
+
+```solidity
+function requestFriProofVerification(
+    uint256 _chainId,
+    bytes calldata _versionedProofPayload
+) external payable returns (bytes32 canonicalTxHash);
+```
+
+This enqueues a priority L1→gateway transaction. The gateway sequencer detects this priority request in the priority queue and converts it into a `0x7c` transaction in the next gateway block, using the payload bytes directly. The `chain_id` field in the `0x7c` transaction is the gateway's own chain ID, not the submitting chain's ID (the proof is verified on the gateway; the `_chainId` parameter is informational for routing).
+
+**Option B — Sequencer-injected route (no L1 call)**: The sequencer accepts proof payloads out-of-band (e.g., via a dedicated HTTP endpoint). No L1 function call is required. The sequencer constructs `0x7c` transactions autonomously in gateway mode. This approach requires no era-contracts changes beyond the `CommitBatchInfoZKsyncOS` extension.
+
+In either case, the `proof_payload` bytes in the `0x7c` transaction are identical to what was submitted by the caller: version byte followed by raw proof data.
+
+### New L2 System Log: `FRI_PROOF_TX_COUNT_LOG_KEY`
+
+A new system log key `FRI_PROOF_TX_COUNT_LOG_KEY` is added to `system-contracts/contracts/Constants.sol` (the `SystemLogKey` enum). This log is emitted by the bootloader at block finalization and carries the count of processed `0x7c` transactions in the block. The value is extracted in `Committer.sol`'s `_processL2LogsZKsyncOS` (or equivalent) and used to populate `numberOfFriProofTxs` in the batch commitment.
+
+### Affected Files (era-contracts)
+
+| File | Change |
+|------|--------|
+| `l1-contracts/contracts/state-transition/chain-interfaces/ICommitter.sol` | Add `numberOfFriProofTxs: uint256` to `CommitBatchInfoZKsyncOS` |
+| `l1-contracts/contracts/state-transition/chain-deps/facets/Committer.sol` | Include `numberOfFriProofTxs` in `batchOutputHash`; extract from system logs |
+| `system-contracts/contracts/Constants.sol` | Add `FRI_PROOF_TX_COUNT_LOG_KEY` to `SystemLogKey` enum |
+| `l1-contracts/contracts/state-transition/chain-interfaces/IMailbox.sol` *(optional, Option A only)* | Add `requestFriProofVerification` function signature |
+| `l1-contracts/contracts/state-transition/chain-deps/facets/Mailbox.sol` *(optional, Option A only)* | Implement `requestFriProofVerification` |
 
 ---
 
-## 7. REVM Consistency Checker Replay Strategy
+## 7. REVM Consistency Checker Replay Strategy (zksync-os-revm)
 
-The REVM consistency checker (`tests/rig/src/revm_consistency_checker.rs`, `tests/revm_runner/`) replays blocks using REVM to check output consistency with zksync-os forward execution. It must be updated to handle `0x7c` transactions.
+### Repository
 
-### What changes in zksync-os
+`https://github.com/matter-labs/zksync-os-revm/tree/vv-new-version`
 
-The `BlockContext` structure in `zksync_os_interface/src/types.rs` (currently exposed as `BlockContextInterface` in the rig) needs a new field that carries the pre-verified FRI proof results so that the REVM runner can mock the FRI precompile.
+### Architecture Context
 
-Specifically, a `fri_proof_results: Vec<FriProofResult>` field is added to the `BlockOutput` or `BlockContext` type that is returned by the forward system after block execution. The REVM runner reads from this field when the FRI precompile is invoked during REVM re-execution, returning the pre-computed result rather than re-running the verifier.
+`zksync-os-revm` provides REVM-based replay of ZKsync OS blocks for the consistency checker (`tests/rig/src/revm_consistency_checker.rs`). It defines:
 
-The `FriProofResult` type in the interface mirrors `FriProofEntry` (proof_index, verification_ok, serialized public_inputs) and is kept in `zksync_os_interface`.
+- `ZkSpecId` (`src/spec.rs`): `AtlasV1`, `AtlasV2`, `AtlasV3` — determines active precompiles and EVM rules.
+- `ZKsyncPrecompiles` (`src/precompiles.rs`): routes calls to custom precompile implementations by spec + address.
+- `ZkTxTr` trait (`src/transaction/abstraction.rs`): extends REVM's `Transaction` with ZKsync-specific fields; `is_service_tx()` causes the handler to skip nonce/balance validation.
+- `ZKsyncHandler` (`src/handler.rs`): the main execution handler; checks `is_service_tx()` to bypass EVM execution for service txs.
 
-### Sequencing within the checker
+### New Transaction Type Support
 
-`0x7c` transactions are consumed from the transaction list in the forward system run (the REVM checker sees them as "consumed before REVM execution"). The REVM runner does not attempt to execute `0x7c` transactions in REVM because they have no EVM semantics. The checker's transaction iteration loop skips `0x7c` entries and instead populates the FRI precompile mock state from `BlockOutput::fri_proof_results`.
+#### `FRI_PROOF_TX_TYPE` constant
+
+Add to `src/transaction/priority_tx.rs`:
+
+```rust
+pub const FRI_PROOF_TX_TYPE: u8 = 0x7c;
+```
+
+#### `ZkTxTr` trait extension
+
+Add to `src/transaction/abstraction.rs`:
+
+```rust
+fn is_fri_proof_tx(&self) -> bool {
+    self.tx_type() == FRI_PROOF_TX_TYPE
+}
+```
+
+The default implementation checks the type byte. No additional fields are required.
+
+#### `ZKsyncTx` implementation
+
+`ZKsyncTx<T>` inherits the default `is_fri_proof_tx()` implementation via `tx_type()` delegation, so no explicit override is needed.
+
+### Handler: Skip FRI Proof Transactions
+
+In `src/handler.rs`, the `validate_tx_against_state` implementation (which already skips nonce/balance checks for `is_service_tx()`) is extended:
+
+```rust
+if tx.is_service_tx() || tx.is_fri_proof_tx() {
+    return Ok(());
+}
+```
+
+FRI proof transactions have no EVM execution semantics. The handler returns a successful (empty) execution result without entering the EVM interpreter, similar to service transactions. The REVM consistency checker's transaction loop skips `0x7c` transactions when iterating the list for EVM replay.
+
+### New Spec: `AtlasV4` (Gateway)
+
+A new `ZkSpecId::AtlasV4` variant is added to `src/spec.rs` to represent the gateway protocol version that activates the FRI precompile:
+
+```rust
+pub enum ZkSpecId {
+    AtlasV1,
+    AtlasV2,
+    AtlasV3,
+    #[default]
+    AtlasV4,  // gateway-capable version with FRI precompile
+}
+```
+
+The `into_eth_spec()` mapping remains `SpecId::CANCUN` for all variants. The `is_enabled_in` ordering is updated. The ZKsync OS server maps its `ExecutionVersion` to `ZkSpecId::AtlasV4` for gateway blocks.
+
+### FRI Precompile Mock
+
+#### Address constant
+
+Add to `src/constants.rs`:
+
+```rust
+pub const FRI_VERIFIER_PRECOMPILE_ADDRESS: Address =
+    address!("0000000000000000000000000000000000000012");
+```
+
+#### New module `src/precompiles/v4.rs`
+
+Defines `v4::fri_verifier::fri_verifier_precompile_call<CTX>` which:
+
+1. Decodes `proof_index: u32` from calldata (ABI-encoded `uint32`).
+2. Looks up the pre-verified result for `proof_index` from the block context (see below).
+3. On hit: ABI-encodes `(true, serialized_public_inputs)` and returns success.
+4. On miss (index out of range): returns a revert with a fixed selector.
+5. On failed verification: ABI-encodes `(false, bytes(""))` and returns success.
+
+#### Threading FRI proof results through REVM block context
+
+The REVM consistency checker supplies FRI proof results from `BlockOutput::fri_proof_results`. These need to be accessible inside the precompile call. The cleanest mechanism is a new context trait:
+
+```rust
+// src/api/exec.rs
+pub trait ZkContextTr:
+    ContextTr<
+        Journal: JournalTr<State = EvmState>,
+        Tx: ZkTxTr,
+        Cfg: Cfg<Spec = ZkSpecId>,
+        Block: ZkBlockTr,  // NEW: requires fri_proof_results access
+    >
+{}
+
+// src/api/block_ext.rs (new file)
+pub trait ZkBlockTr {
+    fn fri_proof_results(&self) -> &[FriProofResult];
+}
+```
+
+`FriProofResult` (defined in `src/api/block_ext.rs` or imported from `zksync_os_interface`) mirrors `FriProofEntry`:
+
+```rust
+pub struct FriProofResult {
+    pub proof_index: u32,
+    pub verification_ok: bool,
+    pub serialized_public_inputs: Vec<u8>,
+}
+```
+
+The REVM consistency checker wraps `BlockEnv` with a custom type that implements `ZkBlockTr` and carries the `Vec<FriProofResult>` populated from `BlockOutput::fri_proof_results` before each block replay.
+
+#### `ZKsyncPrecompiles::run()` routing
+
+In `src/precompiles.rs`, `maybe_call_custom_precompile` gains a new arm for `AtlasV4`:
+
+```rust
+ZkSpecId::AtlasV4 => match precompile_address {
+    CONTRACT_DEPLOYER_ADDRESS => { ... },
+    MINT_BASE_TOKEN_HOOK_ADDRESS => { ... },
+    SET_BYTECODE_ON_ADDRESS_HOOK_ADDRESS => { ... },
+    L1_MESSENGER_HOOK_ADDRESS => { ... },
+    FRI_VERIFIER_PRECOMPILE_ADDRESS => {
+        v4::fri_verifier::fri_verifier_precompile_call as CustomPrecompile<_>
+    },
+    _ => return None,
+},
+```
+
+#### `warm_addresses` update
+
+The `warm_addresses()` implementation for `ZkSpecId::AtlasV4` includes `FRI_VERIFIER_PRECOMPILE_ADDRESS` in the warmed set.
+
+### Affected Files (zksync-os-revm)
+
+| File | Change |
+|------|--------|
+| `src/spec.rs` | Add `AtlasV4` variant to `ZkSpecId`; update `into_eth_spec`, `is_enabled_in`, `FromStr` |
+| `src/transaction/priority_tx.rs` | Add `FRI_PROOF_TX_TYPE: u8 = 0x7c` |
+| `src/transaction/abstraction.rs` | Add `fn is_fri_proof_tx(&self) -> bool` to `ZkTxTr`; implement default |
+| `src/handler.rs` | Skip validation for `is_fri_proof_tx()` alongside `is_service_tx()` |
+| `src/precompiles.rs` | Add `AtlasV4` arm; route `FRI_VERIFIER_PRECOMPILE_ADDRESS` to new precompile |
+| `src/constants.rs` | Add `FRI_VERIFIER_PRECOMPILE_ADDRESS` |
+| `src/precompiles/v4.rs` *(new)* | `AtlasV4`-specific custom precompile dispatch |
+| `src/precompiles/v4/fri_verifier.rs` *(new)* | FRI precompile mock implementation |
+| `src/api/block_ext.rs` *(new)* | `ZkBlockTr` trait; `FriProofResult` type |
+| `src/api/exec.rs` | Extend `ZkContextTr` bound to require `ZkBlockTr` |
 
 ---
 
@@ -411,3 +695,84 @@ The following items require resolution before implementation begins:
 - **Gas/native cost**: The `FRI_PRECOMPILE_BASE_COST_ERGS` and the native cost of running the verifier in the pre-loop must be benchmarked (see `docs/benchmarking.md`).
 - **`BlockMetadataFromOracle` serialization size**: Adding `is_gateway` changes `USIZE_LEN` for `BlockMetadataFromOracle`. All callers that compare or assert on serialized metadata size must be updated.
 - **Rollback semantics for `fri_proof_context`**: The decision that `FriProofBlockContext` does not participate in IO frame rollback must be explicitly confirmed. If a panic occurs mid-block after FRI proof processing, the context is discarded with the block. This is the correct behavior (the context is per-block, not per-tx) but must be documented in the IO subsystem implementation.
+- **Proof submission authorization (era-contracts Option A vs B)**: The choice between L1-triggered priority transaction route and sequencer-injected route must be decided. Option A gives on-chain auditability; Option B is simpler to deploy.
+- **`ZkSpecId::AtlasV4` naming and alignment**: The new gateway spec version in `zksync-os-revm` must be coordinated with the sequencer's `ExecutionVersion` mapping so that REVM consistency checks use `AtlasV4` precisely when the block is a gateway block with `is_gateway = true`.
+- **`numberOfFriProofTxs` in `CommitBatchInfoZKsyncOS`**: Confirm whether proof count needs to be open on L1 or whether it is implicitly covered by `newStateCommitment` (which commits to the entire state including `fri_proof_context`). If the latter, the new field may be omitted from the commitment hash.
+
+---
+
+## 13. zksync-airbender Verifier API Reference
+
+### Repository
+
+`https://github.com/matter-labs/zksync-airbender/tree/dev`
+
+This repository is **imported, not modified**. It provides the `verifier` crate which is the unified FRI proof verifier for the RISC-V ZKsync OS execution environment.
+
+### `no_std` Compatibility
+
+`verifier/src/lib.rs` declares `#![cfg_attr(not(any(test, feature = "replace_csr")), no_std)]`. The verifier is `no_std`-compatible in production builds. No adaptations are required for the RISC-V target provided the `replace_csr` feature is not enabled.
+
+### Primary API
+
+```rust
+// verifier/src/lib.rs
+
+pub unsafe fn verify(
+    proof_state_dst: &mut ProofOutput<TREE_CAP_SIZE, NUM_COSETS, NUM_DELEGATION_CHALLENGES,
+                                      NUM_AUX_BOUNDARY_VALUES, NUM_MACHINE_STATE_PERMUTATION_CHALLENGES>,
+    proof_input_dst: &mut ProofPublicInputs<NUM_STATE_ELEMENTS>,
+)
+```
+
+This function:
+1. Reads proof data from the non-determinism source (CSR registers in RISC-V mode; a thread-local iterator in `replace_csr`/test mode).
+2. Verifies the FRI-based proof against a fixed compiled circuit geometry (`VERIFIER_COMPILED_LAYOUT`).
+3. Writes the decoded public inputs into `proof_input_dst`.
+4. Writes proof output (delegation, state linkage) into `proof_state_dst`.
+
+### Public Input Type
+
+```rust
+// verifier_common/src/lib.rs
+
+pub struct ProofPublicInputs<const NUM_STATE_ELEMENTS: usize> {
+    pub input_state_variables:  [Mersenne31Field; NUM_STATE_ELEMENTS],
+    pub output_state_variables: [Mersenne31Field; NUM_STATE_ELEMENTS],
+}
+```
+
+`NUM_STATE_ELEMENTS` is the concrete value `VERIFIER_COMPILED_LAYOUT.public_inputs.len() / 2`, resolved at compile time from the generated layout in `verifier/src/generated/circuit_layout.rs`. The value is fixed for a given circuit geometry.
+
+`Mersenne31Field` is a 32-bit prime field element. Each `Mersenne31Field` is represented as a `u32`. The serialized byte size of `FriPublicInputs` is therefore `2 * NUM_STATE_ELEMENTS * 4` bytes.
+
+### Concrete Type Aliases (in zksync-os integration)
+
+The zksync-os integration imports these aliases from the `verifier` crate:
+
+```rust
+use verifier::{ConcreteProofOutput, ConcreteProofPublicInputs};
+// ConcreteProofOutput = ProofOutput<TREE_CAP_SIZE, NUM_COSETS, ...>
+// ConcreteProofPublicInputs = ProofPublicInputs<NUM_STATE_ELEMENTS>
+```
+
+`FriPublicInputs` in `zk_ee/src/common_structs/fri_proof_context.rs` is a type alias or newtype over `ConcreteProofPublicInputs`.
+
+### Non-Determinism Source for Forward Execution
+
+In RISC-V proving mode, proof data is supplied via CSR reads (the `DefaultNonDeterminismSource`). In forward mode on a host machine, the `replace_csr` feature enables a thread-local iterator:
+
+```rust
+// In forward_system, before calling verify():
+full_statement_verifier::verifier_common::prover::nd_source_std::set_iterator(
+    oracle_data.into_iter()
+);
+// Then call:
+verifier::verify(&mut proof_state_dst, &mut proof_input_dst);
+```
+
+The proof bytes from the `0x7c` transaction payload are converted to the oracle data format using `execution_utils::ProgramProof::to_metadata_and_proof_list` and `execution_utils::generate_oracle_data_from_metadata_and_proof_list` — the same utilities already used in `node/bin/src/prover_api/fri_proof_verifier.rs` in zksync-os-server.
+
+### Version-to-Circuit Mapping (Future)
+
+The `version` byte in the proof payload identifies the circuit geometry. Version `0x01` corresponds to the current compiled layout in `verifier/src/generated/`. Future versions would require a new compiled layout and verifier. The verifier dispatch in `pre_tx_loop.rs` is keyed on this byte; an unsupported version triggers `FriProofVersionUnsupported`.
